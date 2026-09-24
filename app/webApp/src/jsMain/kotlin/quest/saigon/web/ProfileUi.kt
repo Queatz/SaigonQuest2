@@ -186,7 +186,7 @@ private fun avatarTile(avatar: dynamic, router: HistoryRouter): HTMLElement {
     val id = avatar.id as String
     if (status == "ready" && avatar.imageUrl != null) {
         val image = el("img")
-        image.setAttribute("src", avatar.imageUrl as String)
+        image.setAttribute("src", prefixServerOrigin(avatar.imageUrl as String))
         image.setAttribute("alt", avatar.prompt as? String ?: "")
         tile.appendChild(image)
     } else if (status == "failed") {
@@ -291,7 +291,7 @@ private fun languageField(current: String, onChange: (String) -> Unit): HTMLElem
 internal fun profileFace(me: Me, large: Boolean): HTMLElement {
     return if (me.hasProfilePhoto) {
         el("img", if (large) "face large" else "face") { image ->
-            image.setAttribute("src", "/api/me/photo?v=${me.id}")
+            image.setAttribute("src", prefixServerOrigin("/api/me/photo?v=${me.id}"))
             image.setAttribute("alt", "")
         }
     } else {

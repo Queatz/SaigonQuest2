@@ -54,7 +54,7 @@ internal fun meFrom(node: dynamic): Me = Me(
     location = (node.location as? String).orEmpty(),
     language = (node.language as? String) ?: "system",
     hasProfilePhoto = node.hasProfilePhoto == true,
-    photoUrl = node.photoUrl as? String,
+    photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
 )
 
 internal fun postFrom(node: dynamic): PostCard = PostCard(
@@ -62,8 +62,8 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     authorName = (node.authorName as? String).orEmpty(),
     message = (node.message as? String).orEmpty(),
     location = (node.location as? String).orEmpty(),
-    photoUrl = (node.photoUrl as? String).orEmpty(),
-    avatarUrl = node.avatarUrl as? String,
+    photoUrl = prefixServerOrigin((node.photoUrl as? String).orEmpty()),
+    avatarUrl = (node.avatarUrl as? String)?.let(::prefixServerOrigin),
     createdAt = num(node.createdAt),
 )
 

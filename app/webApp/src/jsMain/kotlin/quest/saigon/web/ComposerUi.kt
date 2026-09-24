@@ -62,7 +62,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 val choice = el("button", "avatar-choice")
                 choice.setAttribute("type", "button")
                 val image = el("img")
-                image.setAttribute("src", avatar.imageUrl as String)
+                image.setAttribute("src", prefixServerOrigin(avatar.imageUrl as String))
                 image.setAttribute("alt", avatar.prompt as? String ?: "")
                 choice.appendChild(image)
                 choice.onClick {

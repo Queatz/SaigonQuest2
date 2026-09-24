@@ -38,7 +38,7 @@ fun main() {
     } else {
         null
     }
-    embeddedServer(Netty, port = config.port, host = "0.0.0.0") {
+    embeddedServer(Netty, port = config.port, host = config.bindHost) {
         module(health, services, config)
     }.start(wait = true)
 }
@@ -63,8 +63,9 @@ fun Application.module(
     }
 
     install(CORS) {
-        allowHost("localhost:3000")
-        allowHost("127.0.0.1:3000")
+        config.corsAllowedHosts.forEach { allowed ->
+            allowHost(allowed.host, schemes = allowed.schemes)
+        }
         allowMethod(HttpMethod.Get)
         allowMethod(HttpMethod.Post)
         allowMethod(HttpMethod.Patch)

@@ -32,6 +32,12 @@ options:
 - Web app: `./gradlew :app:webApp:jsBrowserDevelopmentRun`
   Webpack dev server listens on [http://localhost:3000](http://localhost:3000), falls back to `index.html`, and proxies `/api` and `/media` to the server.
 
+### Deploying
+
+Production scripts are in [`deploy/`](./deploy/README.md). They build on this machine, upload to a Debian/Ubuntu host, and serve with nginx behind Traefik TLS. Docker is not used.
+
+The web app keeps calling `/api` and `/media` on its own origin. Web nginx proxies those paths to the server domain, and `sq-config.js` records that domain so the page knows it without a hardcoded host.
+
 ---
 
 Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…

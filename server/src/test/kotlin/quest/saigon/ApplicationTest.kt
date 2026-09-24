@@ -46,4 +46,30 @@ class ApplicationTest {
         assertTrue(body.contains("\"status\":\"degraded\""))
         assertTrue(body.contains("Connection refused"))
     }
+
+    @Test
+    fun corsAllowsConfiguredHostsAndRejectsOthers() = testApplication {
+        application {
+            module(
+                databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3.12.0") },
+                config = AppConfig(
+                    corsAllowedHosts = parseCorsAllowedHosts("https://town.example.com,localhost:3000"),
+                ),
+            )
+        }
+        val allowed = client.get("/api/health") {
+            header(HttpHeaders.Origin, "https://town.example.com")
+        }
+        assertEquals("https://town.example.com", allowed.headers[HttpHeaders.AccessControlAllowOrigin])
+
+        val dev = client.get("/api/health") {
+            header(HttpHeaders.Origin, "http://localhost:3000")
+        }
+        assertEquals("http://localhost:3000", dev.headers[HttpHeaders.AccessControlAllowOrigin])
+
+        val denied = client.get("/api/health") {
+            header(HttpHeaders.Origin, "https://evil.example")
+        }
+        assertEquals(null, denied.headers[HttpHeaders.AccessControlAllowOrigin])
+    }
 }

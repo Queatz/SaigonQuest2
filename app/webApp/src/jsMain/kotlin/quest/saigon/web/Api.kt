@@ -5,6 +5,25 @@ import web.window.window
 internal val parseJson: (String) -> dynamic = js("JSON.parse")
 internal val jsonStringify: (dynamic) -> String = js("JSON.stringify")
 
+internal fun serverOrigin(): String {
+    val raw = window.asDynamic().SAIGON_SERVER_ORIGIN
+    return (raw as? String)?.trim()?.trimEnd('/').orEmpty()
+}
+
+internal fun prefixServerOrigin(path: String): String {
+    if (
+        path.startsWith("http://") ||
+        path.startsWith("https://") ||
+        path.startsWith("data:") ||
+        path.startsWith("blob:")
+    ) {
+        return path
+    }
+    val origin = serverOrigin()
+    if (origin.isEmpty() || !path.startsWith("/")) return path
+    return origin + path
+}
+
 internal fun http(
     method: String,
     path: String,
@@ -23,7 +42,7 @@ internal fun http(
     } else if (form != null) {
         init.body = form
     }
-    window.asDynamic().fetch(path, init).then({ response: dynamic ->
+    window.asDynamic().fetch(prefixServerOrigin(path), init).then({ response: dynamic ->
         response.text().then({ text: dynamic ->
             done(response.status as Int, text as String)
         })

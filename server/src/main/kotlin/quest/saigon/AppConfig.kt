@@ -16,6 +16,9 @@ data class AppConfig(
     val cookieSecure: Boolean = false,
     val trustProxy: Boolean = false,
     val spaDir: File? = null,
+    val bindHost: String = "0.0.0.0",
+    val corsAllowedHosts: List<CorsAllowedHost> = defaultCorsHosts(),
+    val cookieSameSite: String = "Lax",
 ) {
     val qwenConfigured: Boolean get() = !qwenApiKey.isNullOrBlank()
 
@@ -38,9 +41,64 @@ data class AppConfig(
                 cookieSecure = value("COOKIE_SECURE") == "true",
                 trustProxy = value("TRUST_PROXY") == "true",
                 spaDir = spa,
+                bindHost = value("BIND_HOST") ?: "0.0.0.0",
+                corsAllowedHosts = parseCorsAllowedHosts(value("CORS_ALLOWED_HOSTS")),
+                cookieSameSite = normalizeSameSite(value("COOKIE_SAMESITE")),
             )
         }
     }
+}
+
+data class CorsAllowedHost(
+    val host: String,
+    val schemes: List<String> = listOf("http", "https"),
+)
+
+fun defaultCorsHosts(): List<CorsAllowedHost> = listOf(
+    CorsAllowedHost("localhost:3000"),
+    CorsAllowedHost("127.0.0.1:3000"),
+)
+
+fun parseCorsAllowedHosts(raw: String?): List<CorsAllowedHost> {
+    val entries = raw
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: return defaultCorsHosts()
+    if (entries.isEmpty()) return defaultCorsHosts()
+    return entries.map(::parseCorsHost)
+}
+
+fun parseCorsHost(entry: String): CorsAllowedHost {
+    val trimmed = entry.trim().trimEnd('/')
+    require(trimmed.isNotEmpty()) { "Empty CORS host" }
+    val schemeSep = trimmed.indexOf("://")
+    val schemes: List<String>
+    val hostPort = if (schemeSep >= 0) {
+        val scheme = trimmed.substring(0, schemeSep).lowercase()
+        require(scheme == "http" || scheme == "https") { "Unsupported CORS scheme in $entry" }
+        schemes = listOf(scheme)
+        trimmed.substring(schemeSep + 3)
+    } else {
+        schemes = listOf("http", "https")
+        trimmed
+    }
+    val host = hostPort.substringBefore('/').lowercase()
+    require(host.isNotEmpty() && ' ' !in host) { "Invalid CORS host: $entry" }
+    val normalized = when {
+        schemes == listOf("https") && host.endsWith(":443") -> host.removeSuffix(":443")
+        schemes == listOf("http") && host.endsWith(":80") -> host.removeSuffix(":80")
+        else -> host
+    }
+    return CorsAllowedHost(normalized, schemes)
+}
+
+fun normalizeSameSite(raw: String?): String = when (raw?.trim()?.lowercase()) {
+    null, "" -> "Lax"
+    "lax" -> "Lax"
+    "strict" -> "Strict"
+    "none" -> "None"
+    else -> "Lax"
 }
 
 object EnvFile {

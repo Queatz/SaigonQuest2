@@ -17,6 +17,7 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.utils.io.jvm.javaio.toInputStream
+import quest.saigon.AppConfig
 import quest.saigon.Limits
 import quest.saigon.PhoneNumbers
 import quest.saigon.languagePreference
@@ -289,22 +290,22 @@ private fun ApplicationCall.user(services: TownServices): UserRecord? {
 private fun ApplicationCall.session(services: TownServices, userId: String) {
     val token = services.tokens()
     services.repo.createSession(token, userId, services.clock() + SESSION_SECONDS * 1000L)
-    response.cookies.append(sessionCookie(token, services.config.cookieSecure, SESSION_SECONDS))
+    response.cookies.append(sessionCookie(token, services.config, SESSION_SECONDS))
 }
 
 private fun ApplicationCall.clearSession(services: TownServices) {
-    response.cookies.append(sessionCookie("", services.config.cookieSecure, -1))
+    response.cookies.append(sessionCookie("", services.config, -1))
 }
 
-private fun sessionCookie(value: String, secure: Boolean, maxAge: Int) = Cookie(
+private fun sessionCookie(value: String, config: AppConfig, maxAge: Int) = Cookie(
     name = SESSION_COOKIE,
     value = value,
     encoding = CookieEncoding.RAW,
     maxAge = maxAge,
     path = "/",
-    secure = secure,
+    secure = config.cookieSecure,
     httpOnly = true,
-    extensions = mapOf("SameSite" to "Lax"),
+    extensions = mapOf("SameSite" to config.cookieSameSite),
 )
 
 private fun ApplicationCall.requestCookie(): String? =
