@@ -22,8 +22,9 @@ object AvatarPrompts {
     }
 
     const val MASK_INSTRUCTION = """
-        Convert this image into a binary mask.
-        The character must be solid pure white. The background must be solid pure black.
-        No gray, texture, outline, text, or shadow.
+        Convert this image into a perfect binary mask.
+        Every character pixel, including highlights, hair, clothes, and shadows, must be solid pure white #FFFFFF.
+        The background must be solid pure black #000000.
+        No gray, shading, texture, outline, text, or shadow.
     """
 }

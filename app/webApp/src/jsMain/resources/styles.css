@@ -62,7 +62,7 @@ button { cursor: pointer; }
 .spinner { display: block; }
 
 .shell {
-    width: min(100%, 480px);
+    width: min(100%, 800px);
     height: 100%;
     margin: 0 auto;
     position: relative;
@@ -306,7 +306,7 @@ button { cursor: pointer; }
 
 .avatar {
     position: absolute;
-    right: 6px;
+    right: 14px;
     bottom: 100%;
     z-index: 0;
     height: min(46vh, 360px);

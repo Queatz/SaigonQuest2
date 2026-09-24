@@ -86,13 +86,14 @@ class ImageOps {
         val fitted = if (mask.width == color.width && mask.height == color.height) {
             mask
         } else {
-            scale(mask, color.width, color.height)
+            scale(mask, color.width, color.height, nearest = true)
         }
+        val solid = solidifyMask(fitted)
         val out = BufferedImage(color.width, color.height, BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until color.height) {
             for (x in 0 until color.width) {
                 val rgb = color.getRGB(x, y)
-                val alpha = luminance(fitted.getRGB(x, y))
+                val alpha = if (luminance(solid.getRGB(x, y)) == 0) 0 else 255
                 out.setRGB(x, y, (alpha shl 24) or (rgb and 0x00FFFFFF))
             }
         }
@@ -101,17 +102,40 @@ class ImageOps {
 
     fun chromaKeyGray(image: BufferedImage): BufferedImage {
         val sample = sampleCornerColor(image)
-        val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
+        val keyed = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until image.height) {
             for (x in 0 until image.width) {
                 val rgb = image.getRGB(x, y)
-                val distance = colorDistance(rgb, sample)
-                val alpha = when {
-                    distance <= 28 -> 0
-                    distance >= 72 -> 255
-                    else -> ((distance - 28) / 44.0 * 255).roundToInt().coerceIn(0, 255)
-                }
-                out.setRGB(x, y, (alpha shl 24) or (rgb and 0x00FFFFFF))
+                val alpha = if (colorDistance(rgb, sample) <= 40.0) 0 else 255
+                keyed.setRGB(x, y, (alpha shl 24) or (rgb and 0x00FFFFFF))
+            }
+        }
+        return solidifyAlpha(keyed)
+    }
+
+    fun solidifyMask(mask: BufferedImage): BufferedImage {
+        val solid = foregroundMask(mask.width, mask.height) { x, y -> luminance(mask.getRGB(x, y)) }
+        val out = BufferedImage(mask.width, mask.height, BufferedImage.TYPE_INT_RGB)
+        for (y in 0 until mask.height) {
+            val row = y * mask.width
+            for (x in 0 until mask.width) {
+                val value = if (solid[row + x]) 255 else 0
+                out.setRGB(x, y, (value shl 16) or (value shl 8) or value)
+            }
+        }
+        return out
+    }
+
+    fun solidifyAlpha(image: BufferedImage): BufferedImage {
+        val solid = foregroundMask(image.width, image.height) { x, y -> image.getRGB(x, y) ushr 24 }
+        if (!alphaWouldChange(image, solid)) return image
+        val out = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
+        for (y in 0 until image.height) {
+            val row = y * image.width
+            for (x in 0 until image.width) {
+                val rgb = image.getRGB(x, y) and 0x00FFFFFF
+                val alpha = if (solid[row + x]) 255 else 0
+                out.setRGB(x, y, (alpha shl 24) or rgb)
             }
         }
         return out
@@ -188,14 +212,73 @@ class ImageOps {
         return output.toByteArray()
     }
 
-    private fun scale(image: BufferedImage, width: Int, height: Int): BufferedImage {
+    private fun scale(image: BufferedImage, width: Int, height: Int, nearest: Boolean = false): BufferedImage {
         val type = if (image.colorModel.hasAlpha()) BufferedImage.TYPE_INT_ARGB else BufferedImage.TYPE_INT_RGB
         val scaled = BufferedImage(width, height, type)
         val graphics = scaled.createGraphics()
-        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        graphics.setRenderingHint(
+            RenderingHints.KEY_INTERPOLATION,
+            if (nearest) RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR else RenderingHints.VALUE_INTERPOLATION_BILINEAR,
+        )
         graphics.drawImage(image, 0, 0, width, height, null)
         graphics.dispose()
         return scaled
+    }
+
+    private fun foregroundMask(width: Int, height: Int, valueAt: (Int, Int) -> Int): BooleanArray {
+        val count = width * height
+        val values = IntArray(count)
+        var mid = 0
+        for (y in 0 until height) {
+            val row = y * width
+            for (x in 0 until width) {
+                val value = valueAt(x, y).coerceIn(0, 255)
+                values[row + x] = value
+                if (value in 24..230) mid++
+            }
+        }
+        val threshold = if (mid * 100 >= count * 8) 32 else 128
+        val foreground = BooleanArray(count) { index -> values[index] >= threshold }
+        val background = BooleanArray(count)
+        val stack = ArrayDeque<Int>()
+        fun push(x: Int, y: Int) {
+            if (x < 0 || y < 0 || x >= width || y >= height) return
+            val index = y * width + x
+            if (background[index] || foreground[index]) return
+            background[index] = true
+            stack.addLast(index)
+        }
+        for (x in 0 until width) {
+            push(x, 0)
+            push(x, height - 1)
+        }
+        for (y in 0 until height) {
+            push(0, y)
+            push(width - 1, y)
+        }
+        while (stack.isNotEmpty()) {
+            val index = stack.removeLast()
+            val x = index % width
+            val y = index / width
+            push(x - 1, y)
+            push(x + 1, y)
+            push(x, y - 1)
+            push(x, y + 1)
+        }
+        for (index in foreground.indices) foreground[index] = !background[index]
+        return foreground
+    }
+
+    private fun alphaWouldChange(image: BufferedImage, solid: BooleanArray): Boolean {
+        for (y in 0 until image.height) {
+            val row = y * image.width
+            for (x in 0 until image.width) {
+                val alpha = image.getRGB(x, y) ushr 24
+                val next = if (solid[row + x]) 255 else 0
+                if (alpha != next) return true
+            }
+        }
+        return false
     }
 
     private fun invert(mask: BufferedImage): BufferedImage {

@@ -74,6 +74,69 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun maskHighlightsStayOpaqueAndBinary() {
+        val images = ImageOps()
+        val color = solid(30, 30, Color(128, 128, 128))
+        val graphics = color.createGraphics()
+        graphics.color = Color(255, 240, 220)
+        graphics.fillRect(8, 8, 14, 14)
+        graphics.color = Color(140, 132, 130)
+        graphics.fillRect(12, 12, 3, 3)
+        graphics.dispose()
+        val mask = solid(30, 30, Color.BLACK)
+        val maskGraphics = mask.createGraphics()
+        maskGraphics.color = Color.WHITE
+        maskGraphics.fillRect(8, 8, 14, 14)
+        maskGraphics.color = Color(180, 180, 180)
+        maskGraphics.fillRect(12, 12, 2, 2)
+        maskGraphics.color = Color.BLACK
+        maskGraphics.fillRect(16, 16, 2, 2)
+        maskGraphics.dispose()
+        mask.setRGB(2, 2, Color(40, 40, 40).rgb)
+
+        val cutout = images.mergeMaskAsAlpha(color, mask)
+        assertEquals(0, cutout.getRGB(1, 1) ushr 24)
+        assertEquals(0, cutout.getRGB(2, 2) ushr 24)
+        assertEquals(255, cutout.getRGB(12, 12) ushr 24)
+        assertEquals(255, cutout.getRGB(16, 16) ushr 24)
+        assertEquals(255, (cutout.getRGB(10, 10) shr 16) and 0xFF)
+        assertBinaryAlpha(cutout)
+
+        val keyed = images.chromaKeyGray(color)
+        assertEquals(0, keyed.getRGB(1, 1) ushr 24)
+        assertEquals(255, keyed.getRGB(9, 9) ushr 24)
+        assertEquals(255, keyed.getRGB(13, 13) ushr 24)
+        assertBinaryAlpha(keyed)
+    }
+
+    @Test
+    fun softMaskDoesNotPunchCharacterHighlights() {
+        val images = ImageOps()
+        val color = solid(24, 24, Color(128, 128, 128))
+        val graphics = color.createGraphics()
+        graphics.color = Color(255, 250, 240)
+        graphics.fillRect(6, 6, 12, 12)
+        graphics.dispose()
+        val mask = solid(24, 24, Color.BLACK)
+        val maskGraphics = mask.createGraphics()
+        maskGraphics.color = Color(90, 90, 90)
+        maskGraphics.fillRect(6, 6, 12, 12)
+        maskGraphics.color = Color(200, 200, 200)
+        maskGraphics.fillRect(8, 8, 2, 2)
+        maskGraphics.color = Color.BLACK
+        maskGraphics.fillRect(11, 11, 3, 3)
+        maskGraphics.dispose()
+
+        val cutout = images.mergeMaskAsAlpha(color, mask)
+        assertEquals(0, cutout.getRGB(1, 1) ushr 24)
+        assertEquals(255, cutout.getRGB(7, 7) ushr 24)
+        assertEquals(255, cutout.getRGB(8, 8) ushr 24)
+        assertEquals(255, cutout.getRGB(12, 12) ushr 24)
+        assertEquals(255, (cutout.getRGB(8, 8) shr 16) and 0xFF)
+        assertBinaryAlpha(cutout)
+    }
+
+    @Test
     fun qwenResponsesFindImageAndMaskUrls() {
         val node = QwenResponses.parse(
             """
@@ -321,6 +384,15 @@ class TownBehaviorTest {
             clock = clock,
             contactLimiter = RateLimiter(1, 60_000, clock),
         )
+    }
+
+    private fun assertBinaryAlpha(image: BufferedImage) {
+        for (y in 0 until image.height) {
+            for (x in 0 until image.width) {
+                val alpha = image.getRGB(x, y) ushr 24
+                assertTrue(alpha == 0 || alpha == 255, "partial alpha $alpha at $x,$y")
+            }
+        }
     }
 
     private fun solid(width: Int, height: Int, color: Color): BufferedImage {
