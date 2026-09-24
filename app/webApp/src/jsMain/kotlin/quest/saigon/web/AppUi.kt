@@ -1,89 +1,79 @@
 package quest.saigon.web
 
 import quest.saigon.AppRoute
-import quest.saigon.Greeting
-import web.events.EventHandler
 import web.html.HTMLElement
 
-private val greeting = Greeting()
-
 internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute) {
+    clearFeedKeys()
     root.clear()
-
-    val nav = el("nav", className = "nav")
-    nav.appendChild(routeLink(router, "/", "Home", route is AppRoute.Home))
-    nav.appendChild(routeLink(router, "/about", "About", route is AppRoute.About))
-    root.appendChild(nav)
-
-    when (route) {
-        AppRoute.Home -> root.appendChild(homePage())
-        AppRoute.About -> root.appendChild(aboutPage())
-        is AppRoute.NotFound -> root.appendChild(notFoundPage(router, route.path))
+    Town.applyLanguage()
+    val loggedOutGate = Town.me == null && (route == AppRoute.NewPost || route == AppRoute.Profile)
+    val page = when {
+        loggedOutGate || route == AppRoute.Home -> feedScreen(router)
+        route == AppRoute.NewPost -> composerScreen(router)
+        route == AppRoute.Profile -> profileScreen(router)
+        else -> missingScreen(router)
+    }
+    root.appendChild(page)
+    if (loggedOutGate) {
+        val next = if (route == AppRoute.Profile) "/profile" else "/new"
+        showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })
     }
 }
 
-private fun homePage(): HTMLElement {
-    val page = el("main", className = "page")
-    val container = el("div", className = "greeting-container")
-    val button = el("button", className = "greeting-button", text = "Click me!")
-    val contentHost = el("div")
+internal fun pageHead(router: HistoryRouter, title: String, showProfile: Boolean): HTMLElement {
+    val head = el("header", "page-head")
+    head.appendChild(el("button", "icon-btn", text = "‹") { button ->
+        button.setAttribute("type", "button")
+        button.setAttribute("aria-label", Town.t("back"))
+        button.onClick { back(router) }
+    })
+    head.appendChild(el("h1", text = title))
+    if (showProfile) head.appendChild(viewerButton(router, toComposer = false))
+    return head
+}
 
-    var visible = false
-    var animating = false
-
+internal fun viewerButton(router: HistoryRouter, toComposer: Boolean): HTMLElement {
+    val me = Town.me
+    val button = el("button", if (toComposer && me == null) "profile-btn sparkle" else "profile-btn")
+    button.setAttribute("type", "button")
+    button.setAttribute("aria-label", Town.t(if (toComposer) "createPost" else "openProfile"))
+    if (me == null) {
+        button.appendChild(el("span", "plus-mark", text = "+"))
+        if (toComposer) button.appendChild(sparkles())
+    } else {
+        button.appendChild(profileFace(me, large = false))
+        if (toComposer) button.appendChild(el("span", "plus-badge", text = "+"))
+    }
     button.onClick {
-        if (visible) {
-            animating = true
-            val content = contentHost.firstChild as? HTMLElement
-            content?.setAttribute("class", "greeting-content fade-out")
+        if (toComposer && Town.me == null) {
+            val shell = button.asDynamic().closest(".shell")
+            val host = if (shell == null || shell == undefined) button else shell as HTMLElement
+            showAuthDialog(host, onSuccess = { go(router, "/new") })
         } else {
-            visible = true
-            contentHost.clear()
-            contentHost.appendChild(greetingContent())
+            go(router, if (toComposer) "/new" else "/profile")
         }
     }
+    return button
+}
 
-    contentHost.onanimationend = EventHandler {
-        if (animating) {
-            contentHost.clear()
-            visible = false
-            animating = false
-        }
+private fun sparkles(): HTMLElement {
+    val layer = el("span", "sparkles")
+    layer.setAttribute("aria-hidden", "true")
+    listOf("s1", "s2", "s3", "s4", "s5", "s6").forEach { name ->
+        layer.appendChild(el("i", "spark $name"))
     }
-
-    container.appendChild(button)
-    container.appendChild(contentHost)
-    page.appendChild(container)
-    return page
+    return layer
 }
 
-private fun greetingContent(): HTMLElement {
-    val content = el("div", className = "greeting-content")
-    content.appendChild(el("div", className = "js-logo"))
-    content.appendChild(el("div", text = "Kotlin/JS: ${greeting.greet()}"))
-    return content
-}
-
-private fun aboutPage(): HTMLElement {
-    val page = el("main", className = "page")
-    page.appendChild(el("h1", text = "SaigonQuest2"))
-    page.appendChild(
-        el(
-            "p",
-            text = "This web app is a Kotlin/JS single-page application. Routes use the HTML5 History API, so URLs like /about can be shared and the browser back button works.",
-        ),
-    )
-    return page
-}
-
-private fun notFoundPage(router: HistoryRouter, path: String): HTMLElement {
-    val page = el("main", className = "page")
-    page.appendChild(el("h1", text = "Not found"))
-    page.appendChild(el("p", text = "No page for $path"))
-    page.appendChild(
-        el("button", className = "greeting-button", text = "Go home") { button ->
-            button.onClick { router.navigate("/") }
-        },
-    )
-    return page
+private fun missingScreen(router: HistoryRouter): HTMLElement {
+    val shell = el("section", "shell page-shell")
+    val body = el("div", "page-body empty")
+    body.appendChild(el("h2", text = Town.t("notFound")))
+    body.appendChild(el("button", "primary", text = Town.t("goHome")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { router.navigate("/") }
+    })
+    shell.appendChild(body)
+    return shell
 }

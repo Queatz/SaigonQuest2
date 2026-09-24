@@ -11,5 +11,15 @@ fun main() {
     router = HistoryRouter { route ->
         renderApp(root, router, route)
     }
+    Town.applyLanguage()
     router.start()
+    http("GET", "/api/me") { status, body ->
+        if (status != 200) return@http
+        try {
+            Town.me = meFrom(parseJson(body))
+            Town.applyLanguage()
+            refresh(router)
+        } catch (_: Throwable) {
+        }
+    }
 }

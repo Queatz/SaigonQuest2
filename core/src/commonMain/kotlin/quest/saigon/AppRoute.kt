@@ -2,7 +2,8 @@ package quest.saigon
 
 sealed class AppRoute {
     data object Home : AppRoute()
-    data object About : AppRoute()
+    data object NewPost : AppRoute()
+    data object Profile : AppRoute()
     data class NotFound(val path: String) : AppRoute()
 }
 
@@ -12,7 +13,8 @@ fun matchAppRoute(path: String): AppRoute {
     }
     return when (normalized) {
         "/", "" -> AppRoute.Home
-        "/about" -> AppRoute.About
+        "/new" -> AppRoute.NewPost
+        "/profile" -> AppRoute.Profile
         else -> AppRoute.NotFound(path)
     }
 }

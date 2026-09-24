@@ -1,0 +1,60 @@
+package quest.saigon.town
+
+data class UserRecord(
+    val id: String,
+    val phone: String,
+    val passwordHash: String,
+    val name: String,
+    val location: String,
+    val profilePhotoPath: String?,
+    val language: String,
+    val createdAt: Long,
+)
+
+data class SessionRecord(
+    val token: String,
+    val userId: String,
+    val expiresAt: Long,
+)
+
+data class AvatarRecord(
+    val id: String,
+    val userId: String,
+    val prompt: String,
+    val imagePath: String?,
+    val status: String,
+    val error: String?,
+    val createdAt: Long,
+)
+
+data class PostRecord(
+    val id: String,
+    val userId: String,
+    val avatarId: String,
+    val photoPath: String,
+    val message: String,
+    val location: String,
+    val createdAt: Long,
+)
+
+data class FeedItem(
+    val id: String,
+    val authorName: String,
+    val message: String,
+    val location: String,
+    val photoPath: String,
+    val avatarPath: String?,
+    val createdAt: Long,
+)
+
+data class FeedPage(
+    val items: List<FeedItem>,
+    val nextCursor: String?,
+)
+
+object AvatarStatus {
+    const val GENERATING = "generating"
+    const val READY = "ready"
+    const val FAILED = "failed"
+    const val REMOVED = "removed"
+}

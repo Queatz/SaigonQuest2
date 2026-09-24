@@ -1,0 +1,72 @@
+package quest.saigon.web
+
+import web.window.window
+
+internal val parseJson: (String) -> dynamic = js("JSON.parse")
+internal val jsonStringify: (dynamic) -> String = js("JSON.stringify")
+
+internal fun http(
+    method: String,
+    path: String,
+    json: String? = null,
+    form: dynamic = null,
+    done: (Int, String) -> Unit,
+) {
+    val init = js("({})")
+    init.method = method
+    init.credentials = "include"
+    if (json != null) {
+        val headers = js("({})")
+        headers["Content-Type"] = "application/json"
+        init.headers = headers
+        init.body = json
+    } else if (form != null) {
+        init.body = form
+    }
+    window.asDynamic().fetch(path, init).then({ response: dynamic ->
+        response.text().then({ text: dynamic ->
+            done(response.status as Int, text as String)
+        })
+    }, { _: dynamic ->
+        done(0, "")
+    })
+}
+
+internal fun errorText(body: String, status: Int): String {
+    val code = try {
+        parseJson(body).error as? String
+    } catch (_: Throwable) {
+        null
+    }
+    val key = when (code) {
+        "bad_credentials" -> "badCredentials"
+        "phone_taken" -> "phoneTaken"
+        "invalid_phone" -> "invalidPhone"
+        "invalid_password" -> "invalidPassword"
+        "invalid_name" -> "invalidName"
+        "invalid_message" -> "invalidMessage"
+        "invalid_location" -> "invalidLocation"
+        "invalid_prompt" -> "invalidPrompt"
+        "photo_required" -> "photoRequired"
+        "avatar_required" -> "avatarRequired"
+        "profile_photo_required" -> "profilePhotoRequired"
+        "avatar_busy" -> "avatarBusy"
+        "avatar_not_failed" -> "avatarNotFailed"
+        "qwen_not_configured" -> "qwenMissing"
+        "too_large" -> "tooLarge"
+        "invalid_photo" -> "invalidPhoto"
+        "rate_limited" -> "rateLimited"
+        "unavailable" -> "unavailable"
+        "unauthorized" -> "needSignInToPost"
+        else -> if (status == 0) "unavailable" else "errorGeneric"
+    }
+    return Town.t(key)
+}
+
+internal fun num(value: dynamic): Double {
+    val parsed = js("Number")(value) as Double
+    return if (parsed.isNaN()) 0.0 else parsed
+}
+
+internal fun encodeQuery(value: String): String =
+    window.asDynamic().encodeURIComponent(value) as String

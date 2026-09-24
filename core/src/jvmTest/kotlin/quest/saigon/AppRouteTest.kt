@@ -13,15 +13,16 @@ class AppRouteTest {
     }
 
     @Test
-    fun aboutPathNormalizesTrailingSlash() {
-        assertEquals(AppRoute.About, matchAppRoute("/about"))
-        assertEquals(AppRoute.About, matchAppRoute("/about/"))
+    fun composerAndProfilePaths() {
+        assertEquals(AppRoute.NewPost, matchAppRoute("/new"))
+        assertEquals(AppRoute.NewPost, matchAppRoute("/new/"))
+        assertEquals(AppRoute.Profile, matchAppRoute("/profile"))
     }
 
     @Test
     fun unknownPathIsNotFound() {
-        val route = matchAppRoute("/quests/42")
+        val route = matchAppRoute("/about")
         assertIs<AppRoute.NotFound>(route)
-        assertEquals("/quests/42", route.path)
+        assertEquals("/about", route.path)
     }
 }
