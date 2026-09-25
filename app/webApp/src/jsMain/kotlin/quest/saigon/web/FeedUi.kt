@@ -1,7 +1,7 @@
 package quest.saigon.web
 
 import quest.saigon.Limits
-import quest.saigon.feedMotion
+import quest.saigon.feedSlideMotion
 import web.dom.document
 import web.html.HTMLElement
 import web.window.window
@@ -71,13 +71,12 @@ private fun mountPager(
     }
 
     fun layout(offset: Double, showAvatar: Boolean) {
-        val motion = feedMotion(offset)
         val height = stageHeight()
         location.textContent = posts.getOrNull(index)?.location.orEmpty()
         for (i in (index - 1)..(index + 1)) {
             val slide = slides[i] ?: continue
-            val base = (i - index) * height
-            slide.asDynamic().style.transform = "translate3d(0, ${base + motion.photoOffset}px, 0)"
+            val motion = feedSlideMotion(offset, i - index, height)
+            slide.asDynamic().style.transform = "translate3d(0, ${motion.photoOffset}px, 0)"
             val card = slide.asDynamic().querySelector(".card")
             if (card != null) {
                 card.style.transform = "translate3d(0, ${motion.cardOffset - motion.photoOffset}px, 0)"

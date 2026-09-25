@@ -40,6 +40,24 @@ class TownRulesTest {
     }
 
     @Test
+    fun neighboringMessageBoxesFollowTheirOwnPost() {
+        val height = 640.0
+        val dragTowardPrevious = 200.0
+        val previous = feedSlideMotion(dragTowardPrevious, -1, height)
+        val current = feedSlideMotion(dragTowardPrevious, 0, height)
+        val next = feedSlideMotion(dragTowardPrevious, 1, height)
+
+        fun cardShift(motion: FeedMotion) = motion.cardOffset - motion.photoOffset
+
+        assertEquals(-440.0, previous.photoOffset, 0.001)
+        assertEquals(200.0, current.photoOffset, 0.001)
+        assertEquals(840.0, next.photoOffset, 0.001)
+        assertEquals(-44.0, cardShift(previous), 0.001)
+        assertEquals(20.0, cardShift(current), 0.001)
+        assertEquals(84.0, cardShift(next), 0.001)
+    }
+
+    @Test
     fun bothLanguagesCoverTheSameCopy() {
         Copy.keys().forEach { key ->
             assertTrue(Copy.text(Language.EN, key).isNotBlank())

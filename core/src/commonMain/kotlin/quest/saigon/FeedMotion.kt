@@ -10,3 +10,6 @@ fun feedMotion(dragPx: Double): FeedMotion =
         photoOffset = dragPx,
         cardOffset = dragPx * Limits.CARD_SPEED,
     )
+
+fun feedSlideMotion(dragPx: Double, slideFromCurrent: Int, heightPx: Double): FeedMotion =
+    feedMotion(dragPx + slideFromCurrent * heightPx)
