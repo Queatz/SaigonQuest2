@@ -22,8 +22,7 @@ class AvatarPipeline(
         }
         val generated = qwen.editImage(profilePhoto, AvatarPrompts.editInstruction(prompt, expanded), "image/jpeg")
         val color = images.read(generated)
-        val segmented = qwen.segment(generated)
-        val maskBytes = segmented ?: try {
+        val maskBytes = try {
             qwen.editImage(generated, AvatarPrompts.MASK_INSTRUCTION.trim(), "image/png")
         } catch (error: Exception) {
             log.info("Mask generation skipped: {}", error.message)
@@ -32,7 +31,7 @@ class AvatarPipeline(
         val cutout = if (maskBytes != null) {
             val oriented = images.orientMask(images.read(maskBytes))
             if (images.maskIsUsable(oriented)) {
-                log.info("Merged {} mask as alpha", if (segmented != null) "instance-segmentation" else "image")
+                log.info("Merged image mask as alpha")
                 images.mergeMaskAsAlpha(color, oriented)
             } else {
                 images.chromaKeyGray(color)

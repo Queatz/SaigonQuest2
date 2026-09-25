@@ -32,12 +32,6 @@ object QwenResponses {
         return listOfNotNull(code, message).joinToString(": ").ifBlank { null }
     }
 
-    fun maskUrl(node: JsonNode): String? {
-        val preferred = node.path("output").path("output_image_url")
-        if (preferred.isTextual && preferred.asText().startsWith("http")) return preferred.asText()
-        return imageUrls(node).firstOrNull()
-    }
-
     fun chatText(node: JsonNode): String? {
         val content = node.path("choices").path(0).path("message").path("content")
         return when {

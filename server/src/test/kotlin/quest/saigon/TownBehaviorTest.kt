@@ -154,7 +154,6 @@ class TownBehaviorTest {
         )
         assertEquals("task-1", QwenResponses.taskId(node))
         assertEquals("SUCCEEDED", QwenResponses.taskStatus(node))
-        assertEquals("https://example.test/mask.png", QwenResponses.maskUrl(node))
         assertTrue(QwenResponses.imageUrls(node).contains("https://example.test/avatar.png"))
         assertEquals(
             "smiling",
