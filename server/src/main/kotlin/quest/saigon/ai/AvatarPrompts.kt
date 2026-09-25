@@ -11,22 +11,25 @@ object AvatarPrompts {
     fun editInstruction(userPrompt: String, expanded: String?): String {
         val mood = expanded?.trim()?.takeIf { it.isNotEmpty() } ?: userPrompt.trim()
         return """
-            Edit the person in the input photo into a storybook character.
+            Edit the person in the input photo into an illustrated character.
             Keep them recognizable: same face, hair, age, and features.
-            Line art style with clean lines, very strong contrast, cell shading, bright studio lighting.
-            Make skin tones beautifully pop with strong lighting and overall brightness.
+            Strong luminosity contrast, smooth cell shading, no strokes, no line art, no outlines, bright studio lighting.
+            Make skin tones smoothly and beautifully pop with strong lighting and overall brightness.
             Keep the subject in frame.
-            No outline, no white border, no sticker edge, no halo, and no cutout stroke.
-            Solid flat light gray background #d2d2d2 only. No scenery, floor, shadows, text, logos, or props.
+            No white border, no sticker edge, no halo, and no cutout stroke.
+            Solid flat light gray background #bababa only. The area behind the person must be that light gray, never black, gray, or white.
+            No scenery, floor, shadows, text, logos, or props.
             Waist-up, centered, facing the camera.
             Mood and expression and other details: $mood
         """.trimIndent()
     }
 
     const val MASK_INSTRUCTION = """
-        Convert this image into a perfect black/white binary mask.
-        The foreground subject, including highlights, hair, clothes, lines, line art, etc., must be solid pure white #FFFFFF.
-        The background must be solid pure black #000000.
-        No gray, shading, texture, outline, text, or shadow.
+        Generate a perfect binary segmentation mask of the person in this image.
+        White (#FFFFFF) = every pixel belonging to the person (including all internal details, lines, shadows, textures, crown).
+        Black (#000000) = everything else (background only).
+        No grays. No transparency. No missing internal elements. 
+        The mask must be completely solid white inside the person's outline - no lines or gaps should appear transparent/black within the figure.
+        Preserve exact original dimensions and positioning.
     """
 }

@@ -88,12 +88,11 @@ class ImageOps {
         } else {
             scale(mask, color.width, color.height, nearest = true)
         }
-        val solid = solidifyMask(fitted)
         val out = BufferedImage(color.width, color.height, BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until color.height) {
             for (x in 0 until color.width) {
                 val rgb = color.getRGB(x, y)
-                val alpha = if (luminance(solid.getRGB(x, y)) == 0) 0 else 255
+                val alpha = if (luminance(fitted.getRGB(x, y)) <= 128) 0 else 255
                 out.setRGB(x, y, (alpha shl 24) or (rgb and 0x00FFFFFF))
             }
         }

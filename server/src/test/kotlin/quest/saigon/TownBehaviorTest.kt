@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -99,7 +100,7 @@ class TownBehaviorTest {
         assertEquals(0, cutout.getRGB(1, 1) ushr 24)
         assertEquals(0, cutout.getRGB(2, 2) ushr 24)
         assertEquals(255, cutout.getRGB(12, 12) ushr 24)
-        assertEquals(255, cutout.getRGB(16, 16) ushr 24)
+        assertEquals(0, cutout.getRGB(16, 16) ushr 24)
         assertEquals(255, (cutout.getRGB(10, 10) shr 16) and 0xFF)
         assertBinaryAlpha(cutout)
 
@@ -111,29 +112,22 @@ class TownBehaviorTest {
     }
 
     @Test
-    fun softMaskDoesNotPunchCharacterHighlights() {
+    fun maskHalfGrayAndUnderIsTransparent() {
         val images = ImageOps()
-        val color = solid(24, 24, Color(128, 128, 128))
-        val graphics = color.createGraphics()
-        graphics.color = Color(255, 250, 240)
-        graphics.fillRect(6, 6, 12, 12)
-        graphics.dispose()
+        val color = solid(24, 24, Color(255, 250, 240))
         val mask = solid(24, 24, Color.BLACK)
-        val maskGraphics = mask.createGraphics()
-        maskGraphics.color = Color(90, 90, 90)
-        maskGraphics.fillRect(6, 6, 12, 12)
-        maskGraphics.color = Color(200, 200, 200)
-        maskGraphics.fillRect(8, 8, 2, 2)
-        maskGraphics.color = Color.BLACK
-        maskGraphics.fillRect(11, 11, 3, 3)
-        maskGraphics.dispose()
+        mask.setRGB(4, 4, Color(128, 128, 128).rgb)
+        mask.setRGB(6, 6, Color(129, 129, 129).rgb)
+        mask.setRGB(8, 8, Color(90, 90, 90).rgb)
+        mask.setRGB(10, 10, Color(200, 200, 200).rgb)
 
         val cutout = images.mergeMaskAsAlpha(color, mask)
         assertEquals(0, cutout.getRGB(1, 1) ushr 24)
-        assertEquals(255, cutout.getRGB(7, 7) ushr 24)
-        assertEquals(255, cutout.getRGB(8, 8) ushr 24)
-        assertEquals(255, cutout.getRGB(12, 12) ushr 24)
-        assertEquals(255, (cutout.getRGB(8, 8) shr 16) and 0xFF)
+        assertEquals(0, cutout.getRGB(4, 4) ushr 24)
+        assertEquals(255, cutout.getRGB(6, 6) ushr 24)
+        assertEquals(0, cutout.getRGB(8, 8) ushr 24)
+        assertEquals(255, cutout.getRGB(10, 10) ushr 24)
+        assertEquals(255, (cutout.getRGB(6, 6) shr 16) and 0xFF)
         assertBinaryAlpha(cutout)
     }
 
@@ -160,7 +154,7 @@ class TownBehaviorTest {
             QwenResponses.chatText(QwenResponses.parse("""{"choices":[{"message":{"content":"smiling"}}]}""")),
         )
         val instruction = AvatarPrompts.editInstruction("smiling", "pleased")
-        assertTrue(instruction.contains("#808080"))
+        assertTrue(instruction.contains("#7A00FF"))
         assertTrue(instruction.contains("pleased"))
         assertTrue(instruction.contains("no white border"))
         assertTrue(instruction.contains("no sticker edge"))
@@ -411,6 +405,28 @@ class TownBehaviorTest {
         val feed = http.get("/api/posts").bodyAsText()
         assertFalse(feed.contains("Hello town"))
         assertTrue(feed.contains("Second story"))
+    }
+
+    @Test
+    fun servedAvatarKeepsEnclosedHolesTransparent() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val images = ImageOps()
+        val avatar = BufferedImage(12, 12, BufferedImage.TYPE_INT_ARGB)
+        for (y in 0 until avatar.height) {
+            for (x in 0 until avatar.width) {
+                avatar.setRGB(x, y, 0xFFFF2828.toInt())
+            }
+        }
+        avatar.setRGB(5, 5, 0x00000000)
+        val path = services.uploads.writeAvatar(images.writePng(avatar))
+
+        val response = client.get("/media/$path")
+        assertEquals(HttpStatusCode.OK, response.status)
+        val served = images.read(response.bodyAsBytes())
+        assertEquals(0, served.getRGB(5, 5) ushr 24)
+        assertEquals(255, served.getRGB(4, 5) ushr 24)
+        assertEquals(0, images.read(services.uploads.resolve(path)!!.readBytes()).getRGB(5, 5) ushr 24)
     }
 
     @Test

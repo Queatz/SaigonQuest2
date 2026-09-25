@@ -23,7 +23,7 @@ class AvatarPipeline(
         val generated = qwen.editImage(profilePhoto, AvatarPrompts.editInstruction(prompt, expanded), "image/jpeg")
         val color = images.read(generated)
         val maskBytes = try {
-            qwen.editImage(generated, AvatarPrompts.MASK_INSTRUCTION.trim(), "image/png")
+            qwen.editImage(generated, AvatarPrompts.MASK_INSTRUCTION.trimIndent(), "image/png")
         } catch (error: Exception) {
             log.info("Mask generation skipped: {}", error.message)
             null
