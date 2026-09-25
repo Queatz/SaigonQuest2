@@ -697,23 +697,19 @@ button.busy .avatar-spinner {
     flex: 0 0 auto;
 }
 
-.post-preview, .own-post {
+.own-post {
     display: grid;
     grid-template-columns: 72px 1fr;
     gap: 12px;
-    align-items: center;
-    margin: 8px 0;
-}
-
-.own-post {
     align-items: start;
+    margin: 8px 0;
     border: 1px solid var(--line);
     background: var(--surface);
     border-radius: 16px;
     padding: 8px;
 }
 
-.post-preview img, .own-post-photo {
+.own-post-photo {
     width: 72px;
     height: 96px;
     object-fit: cover;
@@ -721,7 +717,7 @@ button.busy .avatar-spinner {
     background: var(--line);
 }
 
-.post-preview p, .own-post-message {
+.own-post-message {
     margin: 0;
     font-weight: 700;
     display: -webkit-box;

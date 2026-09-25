@@ -111,7 +111,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(error)
     body.appendChild(el("h3", text = Town.t("createAvatar")))
     body.appendChild(avatarStudio(shell, router, me))
-    body.appendChild(postsPreview(router))
+    body.appendChild(postsPreview(shell, router))
     body.appendChild(el("h3", text = Town.t("settings")))
     body.appendChild(languageSelect)
     body.appendChild(el("button", "text-button danger", text = Town.t("signOut")) { button ->
@@ -313,7 +313,7 @@ internal fun myPostsScreen(router: HistoryRouter): HTMLElement {
     return shell
 }
 
-private fun postsPreview(router: HistoryRouter): HTMLElement {
+private fun postsPreview(shell: HTMLElement, router: HistoryRouter): HTMLElement {
     val section = el("section", "posts-preview")
     val head = el("div", "section-head")
     head.appendChild(el("h3", text = Town.t("yourPosts")))
@@ -323,7 +323,7 @@ private fun postsPreview(router: HistoryRouter): HTMLElement {
     seeAll.onClick { go(router, "/profile/posts") }
     head.appendChild(seeAll)
     section.appendChild(head)
-    val list = el("div", "post-preview-list")
+    val list = el("div", "own-posts")
     section.appendChild(list)
     http("GET", "/api/me/posts?limit=3") { status, text ->
         if (status != 200) return@http
@@ -334,19 +334,9 @@ private fun postsPreview(router: HistoryRouter): HTMLElement {
             return@http
         }
         seeAll.asDynamic().hidden = false
-        for (i in 0 until length) list.appendChild(previewRow(posts[i]))
+        for (i in 0 until length) list.appendChild(ownPostRow(posts[i], shell, router))
     }
     return section
-}
-
-private fun previewRow(post: dynamic): HTMLElement {
-    val row = el("div", "post-preview")
-    val photo = el("img")
-    photo.setAttribute("src", prefixServerOrigin(post.photoUrl as? String ?: ""))
-    photo.setAttribute("alt", "")
-    row.appendChild(photo)
-    row.appendChild(el("p", text = post.message as? String ?: ""))
-    return row
 }
 
 private fun loadOwnPosts(list: HTMLElement, shell: HTMLElement, router: HistoryRouter, cursor: String?) {

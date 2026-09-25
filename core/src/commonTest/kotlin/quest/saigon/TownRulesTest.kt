@@ -45,6 +45,9 @@ class TownRulesTest {
             assertTrue(Copy.text(Language.EN, key).isNotBlank())
             assertTrue(Copy.text(Language.VI, key).isNotBlank())
         }
+        assertEquals(10, Copy.uploadPrompts(Language.EN).distinct().size)
+        assertEquals(10, Copy.uploadPrompts(Language.VI).distinct().size)
+        assertEquals("Whatcha doin'?", Copy.uploadPrompts(Language.EN).first())
         assertEquals("Reply to Linh", Copy.text(Language.EN, "replyTo", mapOf("name" to "Linh")))
         assertEquals("Trả lời Linh", Copy.text(Language.VI, "replyTo", mapOf("name" to "Linh")))
     }

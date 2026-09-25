@@ -20,7 +20,16 @@ object Copy {
         "newPost" to "New post",
         "postNow" to "Post now",
         "posting" to "Posting…",
-        "uploadPhoto" to "Upload a photo",
+        "uploadPrompt1" to "Whatcha doin'?",
+        "uploadPrompt2" to "What's up?",
+        "uploadPrompt3" to "How's today goin'?",
+        "uploadPrompt4" to "Got any plans?",
+        "uploadPrompt5" to "Anything fun?",
+        "uploadPrompt6" to "Where you headed?",
+        "uploadPrompt7" to "How you feelin'?",
+        "uploadPrompt8" to "What's the vibe?",
+        "uploadPrompt9" to "Just tell everyone.",
+        "uploadPrompt10" to "Out and about?",
         "changePhoto" to "Change photo",
         "message" to "Message",
         "messagePlaceholder" to "What do you want to say?",
@@ -112,7 +121,16 @@ object Copy {
         "newPost" to "Bài mới",
         "postNow" to "Đăng ngay",
         "posting" to "Đang đăng…",
-        "uploadPhoto" to "Tải ảnh lên",
+        "uploadPrompt1" to "Đang làm gì đó?",
+        "uploadPrompt2" to "Có gì không?",
+        "uploadPrompt3" to "Hôm nay sao rồi?",
+        "uploadPrompt4" to "Có kế hoạch gì không?",
+        "uploadPrompt5" to "Có gì vui không?",
+        "uploadPrompt6" to "Đi đâu đó?",
+        "uploadPrompt7" to "Cảm thấy sao?",
+        "uploadPrompt8" to "Không khí thế nào?",
+        "uploadPrompt9" to "Kể mọi người nghe đi.",
+        "uploadPrompt10" to "Đang đi chơi à?",
         "changePhoto" to "Đổi ảnh",
         "message" to "Lời nhắn",
         "messagePlaceholder" to "Bạn muốn nói gì?",
@@ -194,4 +212,7 @@ object Copy {
     }
 
     fun keys(): Set<String> = en.keys
+
+    fun uploadPrompts(language: Language): List<String> =
+        (1..10).map { text(language, "uploadPrompt$it") }
 }

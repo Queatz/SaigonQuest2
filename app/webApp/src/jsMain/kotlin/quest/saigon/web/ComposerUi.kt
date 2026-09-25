@@ -18,7 +18,9 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val preview = el("img", "upload-preview")
     preview.asDynamic().hidden = true
     upload.appendChild(preview)
-    upload.appendChild(el("span", "upload-label", text = Town.t("uploadPhoto")))
+    val label = el("span", "upload-label", text = Town.t("uploadPrompt1"))
+    upload.appendChild(label)
+    rotateUploadPrompts(label)
     val picker = el("input")
     picker.setAttribute("type", "file")
     picker.setAttribute("accept", "image/*")
@@ -128,6 +130,19 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     bar.appendChild(post)
     shell.appendChild(bar)
     return shell
+}
+
+private fun rotateUploadPrompts(label: HTMLElement) {
+    var index = 0
+    var timer: dynamic = null
+    timer = window.asDynamic().setInterval({
+        if (label.asDynamic().isConnected != true) {
+            window.asDynamic().clearInterval(timer)
+        } else if (label.asDynamic().hidden != true) {
+            index = (index + 1) % 10
+            label.textContent = Town.t("uploadPrompt${index + 1}")
+        }
+    }, 2000)
 }
 
 private fun profileArrow(): HTMLElement {
