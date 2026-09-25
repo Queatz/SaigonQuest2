@@ -423,7 +423,7 @@ small, .hint { color: var(--muted); font-size: 13px; }
 
 .dialog h2 { margin: 0 0 8px; text-align: center; }
 
-.dialog .primary {
+.dialog .primary, .dialog .secondary {
     display: flex;
     align-items: center;
     justify-content: center;

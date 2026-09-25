@@ -30,7 +30,7 @@ private fun authDialog(onSuccess: () -> Unit, onClose: () -> Unit): HTMLElement 
     val confirm = field(Town.t("confirmPassword"), "password", "", "new-password")
     val submit = el("button", "primary", text = Town.t("signIn"))
     submit.setAttribute("type", "submit")
-    val switch = el("button", "text-button", text = Town.t("switchToCreate"))
+    val switch = el("button", "secondary", text = Town.t("switchToCreate"))
     switch.setAttribute("type", "button")
 
     fun showSignupFields(show: Boolean) {
