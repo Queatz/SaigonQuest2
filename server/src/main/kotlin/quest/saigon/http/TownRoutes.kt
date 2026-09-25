@@ -25,6 +25,7 @@ import quest.saigon.media.ImageOps
 import quest.saigon.town.AvatarRecord
 import quest.saigon.town.AvatarStatus
 import quest.saigon.town.FeedItem
+import quest.saigon.town.OwnedPost
 import quest.saigon.town.PostRecord
 import quest.saigon.town.TownException
 import quest.saigon.town.TownServices
@@ -122,6 +123,18 @@ fun Route.townApi(services: TownServices) {
         val file = services.uploads.resolve(path) ?: return@get call.fail("not_found")
         call.response.headers.append("Cache-Control", "private, no-store")
         call.respondBytes(file.readBytes(), ContentType.Image.JPEG)
+    }
+
+    get("/me/posts") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.repo.postsByUser(user.id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "posts" to page.items.map(::ownedPostPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
     }
 
     get("/avatars") {
@@ -224,12 +237,32 @@ fun Route.townApi(services: TownServices) {
         )
     }
 
+    post("/posts/{id}/view") {
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
+        val viewer = call.user(services)
+        if (viewer?.id != post.userId) {
+            val ip = clientIp(call, services.config.trustProxy)
+            if (services.viewLimiter.allow("$ip:${post.id}")) services.repo.recordView(post.id)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
     post("/posts/{id}/contact") {
         val ip = clientIp(call, services.config.trustProxy)
         if (!services.contactLimiter.allow(ip)) return@post call.fail("rate_limited")
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
         val author = services.repo.findUser(post.userId) ?: return@post call.fail("not_found")
+        services.repo.recordReplyClick(post.id)
         call.respondJson(mapOf("zaloUrl" to PhoneNumbers.zaloUrl(author.phone)))
+    }
+
+    delete("/posts/{id}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")
+        if (post.userId != user.id) return@delete call.fail("not_found")
+        services.repo.deletePost(post.id)
+        services.uploads.delete(post.photoPath)
+        call.respondJson(mapOf("ok" to true))
     }
 }
 
@@ -338,6 +371,17 @@ private fun postPayload(item: FeedItem) = mapOf(
     "photoUrl" to "/media/${item.photoPath}",
     "avatarUrl" to item.avatarPath?.let { "/media/$it" },
     "createdAt" to item.createdAt,
+)
+
+private fun ownedPostPayload(item: OwnedPost) = mapOf(
+    "id" to item.id,
+    "message" to item.message,
+    "location" to item.location,
+    "photoUrl" to "/media/${item.photoPath}",
+    "avatarUrl" to item.avatarPath?.let { "/media/$it" },
+    "createdAt" to item.createdAt,
+    "views" to item.views,
+    "replyClicks" to item.replyClicks,
 )
 
 private fun cleanName(raw: String): String? {

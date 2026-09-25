@@ -2,6 +2,7 @@ package quest.saigon
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.plugins.cookies.HttpCookies
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -164,6 +165,11 @@ class TownBehaviorTest {
         assertTrue(instruction.contains("pleased"))
         assertTrue(instruction.contains("no white border"))
         assertTrue(instruction.contains("no sticker edge"))
+        assertTrue(instruction.contains("realistic"))
+        assertTrue(instruction.contains("expressive"))
+        assertFalse(instruction.contains("visual-novel character"))
+        assertEquals(360L, QwenClient.GENERATION_TIMEOUT_SECONDS)
+        assertEquals(360_000L, QwenClient.GENERATION_POLL_MILLIS)
         assertEquals(
             "https://ws.ap-southeast-1.maas.aliyuncs.com",
             QwenClient.apiRoot("https://dashscope-intl.aliyuncs.com", "ws"),
@@ -343,6 +349,69 @@ class TownBehaviorTest {
         assertEquals(12, trimmed.height)
         assertEquals(255, trimmed.getRGB(3, 4) ushr 24)
         assertTrue(trimmed.width < image.width && trimmed.height < image.height)
+    }
+
+    @Test
+    fun ownerCanSeePostStatsAndDeleteThem() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0903334455","password":"secretpass"}""")
+        }
+        val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        val avatar = services.repo.insertAvatar(userId, "smiling", 10)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
+        val jpeg = ImageOps().writeJpeg(solid(8, 8, Color(40, 90, 160)), 0.85f)
+        val firstPath = services.uploads.writePost(jpeg)
+        val secondPath = services.uploads.writePost(jpeg)
+        val first = services.repo.insertPost(PostRecord("", userId, avatar.id, firstPath, "Hello town", "Cát Lái", 5L))
+        services.repo.insertPost(PostRecord("", userId, avatar.id, secondPath, "Second story", "Thảo Điền", 4L))
+
+        val ownView = http.post("/api/posts/${first.id}/view")
+        assertEquals(HttpStatusCode.OK, ownView.status)
+        assertEquals(0, services.repo.findPost(first.id)!!.views)
+
+        val seen = createClient { }.post("/api/posts/${first.id}/view")
+        assertEquals(HttpStatusCode.OK, seen.status)
+        assertEquals(1, services.repo.findPost(first.id)!!.views)
+        createClient { }.post("/api/posts/${first.id}/view")
+        assertEquals(1, services.repo.findPost(first.id)!!.views)
+
+        val contact = createClient { }.post("/api/posts/${first.id}/contact")
+        assertEquals(HttpStatusCode.OK, contact.status)
+        assertEquals(1, services.repo.findPost(first.id)!!.replyClicks)
+
+        val anonymous = createClient { }
+        assertEquals(HttpStatusCode.Unauthorized, anonymous.get("/api/me/posts").status)
+        assertEquals(HttpStatusCode.NotFound, anonymous.post("/api/posts/missing/view").status)
+
+        val page = http.get("/api/me/posts?limit=1")
+        val listed = mapper.readTree(page.bodyAsText())
+        assertEquals(1, listed.path("posts").size())
+        assertEquals("Hello town", listed.path("posts").path(0).path("message").asText())
+        assertEquals(1, listed.path("posts").path(0).path("views").asInt())
+        assertEquals(1, listed.path("posts").path(0).path("replyClicks").asInt())
+        assertTrue(listed.path("nextCursor").asText().isNotBlank())
+        assertFalse(page.bodyAsText().contains("phone"))
+
+        val stranger = createClient { install(HttpCookies) }
+        stranger.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Mai","phone":"0904445566","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, stranger.delete("/api/posts/${first.id}").status)
+        assertEquals(0, mapper.readTree(stranger.get("/api/me/posts").bodyAsText()).path("posts").size())
+
+        val removed = http.delete("/api/posts/${first.id}")
+        assertEquals(HttpStatusCode.OK, removed.status)
+        assertEquals(null, services.repo.findPost(first.id))
+        assertEquals(null, services.uploads.resolve(firstPath))
+        assertEquals(HttpStatusCode.NotFound, http.delete("/api/posts/${first.id}").status)
+        val feed = http.get("/api/posts").bodyAsText()
+        assertFalse(feed.contains("Hello town"))
+        assertTrue(feed.contains("Second story"))
     }
 
     @Test

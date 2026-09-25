@@ -9,7 +9,7 @@ object Limits {
     const val PASSWORD_MAX = 72
     const val PHOTO_MAX_EDGE = 1200
     const val JPEG_QUALITY = 0.85
-    const val TYPEWRITER_MILLIS_PER_CHAR = 50
+    const val TYPEWRITER_MILLIS_PER_CHAR = 33
     const val AVATAR_ENTER_PX = 50
     const val CARD_SPEED = 1.1
     const val FEED_PAGE_SIZE = 8

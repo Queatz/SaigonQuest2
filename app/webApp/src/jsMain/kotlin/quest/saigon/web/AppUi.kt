@@ -7,16 +7,23 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     clearFeedKeys()
     root.clear()
     Town.applyLanguage()
-    val loggedOutGate = Town.me == null && (route == AppRoute.NewPost || route == AppRoute.Profile)
+    val loggedOutGate = Town.me == null && (
+        route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts
+        )
     val page = when {
         loggedOutGate || route == AppRoute.Home -> feedScreen(router)
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
+        route == AppRoute.MyPosts -> myPostsScreen(router)
         else -> missingScreen(router)
     }
     root.appendChild(page)
     if (loggedOutGate) {
-        val next = if (route == AppRoute.Profile) "/profile" else "/new"
+        val next = when (route) {
+            AppRoute.Profile -> "/profile"
+            AppRoute.MyPosts -> "/profile/posts"
+            else -> "/new"
+        }
         showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })
     }
 }
@@ -29,11 +36,11 @@ internal fun pageHead(router: HistoryRouter, title: String, showProfile: Boolean
         button.onClick { back(router) }
     })
     head.appendChild(el("h1", text = title))
-    if (showProfile) head.appendChild(viewerButton(router, toComposer = false))
+    if (showProfile) head.appendChild(viewerButton(router, toComposer = false, editBadge = true))
     return head
 }
 
-internal fun viewerButton(router: HistoryRouter, toComposer: Boolean): HTMLElement {
+internal fun viewerButton(router: HistoryRouter, toComposer: Boolean, editBadge: Boolean = false): HTMLElement {
     val me = Town.me
     val button = el("button", if (toComposer && me == null) "profile-btn sparkle" else "profile-btn")
     button.setAttribute("type", "button")
@@ -44,6 +51,7 @@ internal fun viewerButton(router: HistoryRouter, toComposer: Boolean): HTMLEleme
     } else {
         button.appendChild(profileFace(me, large = false))
         if (toComposer) button.appendChild(el("span", "plus-badge", text = "+"))
+        if (editBadge) button.appendChild(editBadge())
     }
     button.onClick {
         if (toComposer && Town.me == null) {
@@ -55,6 +63,13 @@ internal fun viewerButton(router: HistoryRouter, toComposer: Boolean): HTMLEleme
         }
     }
     return button
+}
+
+private fun editBadge(): HTMLElement {
+    val badge = el("span", "edit-badge")
+    badge.setAttribute("aria-hidden", "true")
+    badge.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" width="11" height="11"><path fill="currentColor" d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.4a1 1 0 0 0 0-1.4l-2.1-2.1a1 1 0 0 0-1.4 0l-1.6 1.6 3.5 3.5 1.6-1.6z"/></svg>"""
+    return badge
 }
 
 private fun sparkles(): HTMLElement {

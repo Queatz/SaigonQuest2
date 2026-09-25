@@ -28,6 +28,7 @@ object Copy {
         "createAvatar" to "Create avatar",
         "avatarPrompt" to "Smiling, pleased, surprised…",
         "noAvatars" to "No avatars yet",
+        "openProfileForAvatar" to "Open your profile to create your first avatar",
         "needProfilePhoto" to "Add a profile photo before creating an avatar.",
         "generating" to "Creating avatar…",
         "avatarFailed" to "Avatar failed. Try again.",
@@ -82,6 +83,14 @@ object Copy {
         "errorGeneric" to "Something went wrong.",
         "postFailed" to "Could not post.",
         "signedOutSparkle" to "Sign in to post",
+        "yourPosts" to "Your posts",
+        "seeAll" to "See all",
+        "noPosts" to "No posts yet",
+        "views" to "Views",
+        "repliesClicked" to "Replies clicked",
+        "deletePostAsk" to "Delete this post?",
+        "deletePostHint" to "It will leave the town.",
+        "loadMore" to "Load more",
     )
 
     private val vi = mapOf(
@@ -111,6 +120,7 @@ object Copy {
         "createAvatar" to "Tạo avatar",
         "avatarPrompt" to "Cười, vui, ngạc nhiên…",
         "noAvatars" to "Chưa có avatar",
+        "openProfileForAvatar" to "Mở hồ sơ để tạo avatar đầu tiên",
         "needProfilePhoto" to "Thêm ảnh hồ sơ trước khi tạo avatar.",
         "generating" to "Đang tạo avatar…",
         "avatarFailed" to "Tạo avatar thất bại. Thử lại.",
@@ -165,6 +175,14 @@ object Copy {
         "errorGeneric" to "Có lỗi xảy ra.",
         "postFailed" to "Không đăng được.",
         "signedOutSparkle" to "Đăng nhập để đăng bài",
+        "yourPosts" to "Bài của bạn",
+        "seeAll" to "Xem tất cả",
+        "noPosts" to "Chưa có bài nào",
+        "views" to "Lượt xem",
+        "repliesClicked" to "Lượt bấm trả lời",
+        "deletePostAsk" to "Xóa bài này?",
+        "deletePostHint" to "Bài sẽ không còn trên phố.",
+        "loadMore" to "Xem thêm",
     )
 
     fun text(language: Language, key: String, values: Map<String, String> = emptyMap()): String {

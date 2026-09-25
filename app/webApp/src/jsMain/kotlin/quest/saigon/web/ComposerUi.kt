@@ -75,7 +75,12 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 avatarRow.appendChild(choice)
             }
         }
-        if (!found) avatarRow.appendChild(el("p", "hint", text = Town.t("noAvatars")))
+        if (!found) {
+            avatarLabel.asDynamic().hidden = true
+            avatarRow.asDynamic().hidden = true
+            body.asDynamic().insertBefore(el("p", "avatar-nudge", text = Town.t("openProfileForAvatar")), error)
+            shell.appendChild(profileArrow())
+        }
     }
 
     val post = el("button", "primary", text = Town.t("postNow"))
@@ -123,6 +128,13 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     bar.appendChild(post)
     shell.appendChild(bar)
     return shell
+}
+
+private fun profileArrow(): HTMLElement {
+    val arrow = el("div", "profile-arrow")
+    arrow.setAttribute("aria-hidden", "true")
+    arrow.asDynamic().innerHTML = """<svg viewBox="0 0 80 72" fill="none"><path d="M16 58C30 40 36 28 58 14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/><path d="M44 12L62 10L58 28" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>"""
+    return arrow
 }
 
 private fun show(error: HTMLElement, message: String) {

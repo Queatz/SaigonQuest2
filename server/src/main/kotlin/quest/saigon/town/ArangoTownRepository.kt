@@ -17,6 +17,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         }
         db.collection(USERS).ensurePersistentIndex(listOf("phone"), PersistentIndexOptions().unique(true))
         db.collection(POSTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
     }
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -134,6 +135,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("message", post.message)
         doc.addAttribute("location", post.location)
         doc.addAttribute("createdAt", post.createdAt)
+        doc.addAttribute("views", post.views)
+        doc.addAttribute("replyClicks", post.replyClicks)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -190,8 +193,85 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 message = string(doc, "message"),
                 location = string(doc, "location"),
                 createdAt = long(doc, "createdAt"),
+                views = long(doc, "views"),
+                replyClicks = long(doc, "replyClicks"),
             )
         }
+
+    override fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "userKey" to userId,
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val query = """
+            FOR p IN $POSTS
+              FILTER p.userKey == @userKey
+              FILTER @hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey)
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT @limit
+              LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
+              RETURN {
+                id: p._key,
+                message: p.message,
+                location: p.location,
+                photoPath: p.photoPath,
+                avatarPath: avatar.imagePath,
+                createdAt: p.createdAt,
+                views: p.views == null ? 0 : p.views,
+                replyClicks: p.replyClicks == null ? 0 : p.replyClicks
+              }
+        """.trimIndent()
+        val rows = queryList(query, bind)
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            OwnedPost(
+                id = string(row, "id"),
+                message = string(row, "message"),
+                location = string(row, "location"),
+                photoPath = string(row, "photoPath"),
+                avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                createdAt = long(row, "createdAt"),
+                views = long(row, "views"),
+                replyClicks = long(row, "replyClicks"),
+            )
+        }
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return OwnedPostPage(items, next)
+    }
+
+    override fun recordView(id: String) {
+        bump(id, "views")
+    }
+
+    override fun recordReplyClick(id: String) {
+        bump(id, "replyClicks")
+    }
+
+    override fun deletePost(id: String) {
+        db.collection(POSTS).deleteDocument(id)
+    }
+
+    private fun bump(id: String, field: String) {
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { $field: (p.$field == null ? 0 : p.$field) + 1 } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to id),
+        )
+    }
+
+    private fun exec(query: String, bind: Map<String, Any?>) {
+        db.query(query, BaseDocument::class.java, bind).use { cursor ->
+            while (cursor.hasNext()) cursor.next()
+        }
+    }
 
     private fun first(query: String, bind: Map<String, Any?>): BaseDocument? =
         db.query(query, BaseDocument::class.java, bind).use { cursor ->

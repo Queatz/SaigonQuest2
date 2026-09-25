@@ -81,7 +81,7 @@ class QwenClient(
                     "watermark" to false,
                     "prompt_extend" to false,
                     "size" to "768*1152",
-                    "negative_prompt" to "scenery, text, watermark, logo, extra limbs, props, white background",
+                    "negative_prompt" to "scenery, text, watermark, logo, extra limbs, props, white background, flat cel shading, sticker, outline",
                 ),
             ),
         )
@@ -90,7 +90,7 @@ class QwenClient(
             "$api/api/v1/services/aigc/multimodal-generation/generation",
             body,
             async = false,
-            timeoutSeconds = 180,
+            timeoutSeconds = GENERATION_TIMEOUT_SECONDS,
         )
         val immediate = imageFrom(sync)
         if (immediate != null) return download(immediate)
@@ -158,7 +158,7 @@ class QwenClient(
         val existing = if (preferMask) QwenResponses.maskUrl(node) else QwenResponses.imageUrls(node).firstOrNull()
         if (existing != null && QwenResponses.taskStatus(node) == null) return existing
         val taskId = QwenResponses.taskId(node) ?: throw QwenException(QwenResponses.errorMessage(node) ?: "no_task")
-        val deadline = System.currentTimeMillis() + 180_000
+        val deadline = System.currentTimeMillis() + GENERATION_POLL_MILLIS
         while (System.currentTimeMillis() < deadline) {
             sleep(2_000)
             val body = get("$api/api/v1/tasks/$taskId")
@@ -270,6 +270,9 @@ class QwenClient(
     private data class HttpResult(val status: Int, val body: String)
 
     companion object {
+        const val GENERATION_TIMEOUT_SECONDS = 360L
+        const val GENERATION_POLL_MILLIS = 360_000L
+
         fun fromConfig(config: AppConfig): QwenClient = QwenClient(
             apiKey = config.qwenApiKey,
             baseUrl = config.qwenBaseUrl,

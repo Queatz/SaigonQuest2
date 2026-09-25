@@ -109,5 +109,47 @@ class InMemoryTownRepository : TownRepository {
 
     override fun findPost(id: String): PostRecord? = posts[id]
 
+    override fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = posts.values
+            .filter { it.userId == userId }
+            .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).map { post ->
+            OwnedPost(
+                id = post.id,
+                message = post.message,
+                location = post.location,
+                photoPath = post.photoPath,
+                avatarPath = avatars[post.avatarId]?.imagePath,
+                createdAt = post.createdAt,
+                views = post.views,
+                replyClicks = post.replyClicks,
+            )
+        }
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return OwnedPostPage(items, next)
+    }
+
+    override fun recordView(id: String) {
+        val post = posts[id] ?: return
+        posts[id] = post.copy(views = post.views + 1)
+    }
+
+    override fun recordReplyClick(id: String) {
+        val post = posts[id] ?: return
+        posts[id] = post.copy(replyClicks = post.replyClicks + 1)
+    }
+
+    override fun deletePost(id: String) {
+        posts.remove(id)
+    }
+
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 }

@@ -20,6 +20,7 @@ class TownServices(
     val clock: () -> Long = System::currentTimeMillis,
     val tokens: () -> String = SessionTokens::new,
     val contactLimiter: RateLimiter = RateLimiter(30, 10 * 60_000, clock),
+    val viewLimiter: RateLimiter = RateLimiter(1, 30_000, clock),
     val images: ImageOps = ImageOps(),
 ) {
     companion object {

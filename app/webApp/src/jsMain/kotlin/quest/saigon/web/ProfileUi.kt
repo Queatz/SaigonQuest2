@@ -111,6 +111,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(error)
     body.appendChild(el("h3", text = Town.t("createAvatar")))
     body.appendChild(avatarStudio(shell, router, me))
+    body.appendChild(postsPreview(router))
     body.appendChild(el("h3", text = Town.t("settings")))
     body.appendChild(languageSelect)
     body.appendChild(el("button", "text-button danger", text = Town.t("signOut")) { button ->
@@ -140,6 +141,7 @@ private fun avatarStudio(host: HTMLElement, router: HistoryRouter, me: Me): HTML
     prompt.setAttribute("placeholder", Town.t("avatarPrompt"))
     val create = el("button", "secondary", text = Town.t("createAvatar"))
     create.setAttribute("type", "button")
+    create.setAttribute("style", "margin-top: 8px;")
     val note = el("p", "hint", text = if (me.hasProfilePhoto) "" else Town.t("needProfilePhoto"))
     create.onClick {
         if (!me.hasProfilePhoto) return@onClick
@@ -149,10 +151,15 @@ private fun avatarStudio(host: HTMLElement, router: HistoryRouter, me: Me): HTML
             return@onClick
         }
         create.setAttribute("disabled", "disabled")
+        create.asDynamic().classList.add("busy")
+        create.textContent = ""
+        create.appendChild(el("span", "avatar-spinner"))
         val payload = js("({})")
         payload.prompt = text
         http("POST", "/api/avatars", jsonStringify(payload)) { status, body ->
             create.removeAttribute("disabled")
+            create.asDynamic().classList.remove("busy")
+            create.textContent = Town.t("createAvatar")
             if (status == 202 || status == 200) {
                 prompt.asDynamic().value = ""
                 pollAvatar(parseJson(body).id as String, router)
@@ -192,6 +199,8 @@ private fun avatarTile(avatar: dynamic, router: HistoryRouter): HTMLElement {
     } else if (status == "failed") {
         tile.appendChild(el("span", "avatar-state", text = failureText(avatar.error as? String)))
     } else {
+        tile.asDynamic().classList.add("generating")
+        tile.appendChild(el("span", "avatar-spinner"))
         tile.appendChild(el("span", "avatar-state", text = Town.t("generating")))
         pollAvatar(id, router)
     }
@@ -241,11 +250,15 @@ private fun shellOf(node: HTMLElement): HTMLElement {
 }
 
 private fun confirmDelete(host: HTMLElement, onYes: () -> Unit) {
+    confirmDialog(host, Town.t("deleteAvatarAsk"), Town.t("deleteAvatarHint"), onYes)
+}
+
+private fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes: () -> Unit) {
     if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop")
     val card = el("div", "dialog")
-    card.appendChild(el("h2", text = Town.t("deleteAvatarAsk")))
-    card.appendChild(el("p", "hint", text = Town.t("deleteAvatarHint")))
+    card.appendChild(el("h2", text = title))
+    card.appendChild(el("p", "hint", text = hint))
     val actions = el("div", "dialog-actions")
     actions.appendChild(el("button", "text-button", text = Town.t("cancel")) { button ->
         button.setAttribute("type", "button")
@@ -286,6 +299,132 @@ private fun languageField(current: String, onChange: (String) -> Unit): HTMLElem
     select.asDynamic().onchange = { onChange(select.asDynamic().value as String) }
     label.appendChild(select)
     return label
+}
+
+internal fun myPostsScreen(router: HistoryRouter): HTMLElement {
+    if (Town.me == null) return el("section", "shell")
+    val shell = el("section", "shell page-shell")
+    shell.appendChild(pageHead(router, Town.t("yourPosts"), showProfile = false))
+    val body = el("div", "page-body")
+    val list = el("div", "own-posts")
+    body.appendChild(list)
+    shell.appendChild(body)
+    loadOwnPosts(list, shell, router, null)
+    return shell
+}
+
+private fun postsPreview(router: HistoryRouter): HTMLElement {
+    val section = el("section", "posts-preview")
+    val head = el("div", "section-head")
+    head.appendChild(el("h3", text = Town.t("yourPosts")))
+    val seeAll = el("button", "see-all", text = Town.t("seeAll"))
+    seeAll.setAttribute("type", "button")
+    seeAll.asDynamic().hidden = true
+    seeAll.onClick { go(router, "/profile/posts") }
+    head.appendChild(seeAll)
+    section.appendChild(head)
+    val list = el("div", "post-preview-list")
+    section.appendChild(list)
+    http("GET", "/api/me/posts?limit=3") { status, text ->
+        if (status != 200) return@http
+        val posts = parseJson(text).posts
+        val length = postCount(posts)
+        if (length == 0) {
+            list.appendChild(el("p", "hint", text = Town.t("noPosts")))
+            return@http
+        }
+        seeAll.asDynamic().hidden = false
+        for (i in 0 until length) list.appendChild(previewRow(posts[i]))
+    }
+    return section
+}
+
+private fun previewRow(post: dynamic): HTMLElement {
+    val row = el("div", "post-preview")
+    val photo = el("img")
+    photo.setAttribute("src", prefixServerOrigin(post.photoUrl as? String ?: ""))
+    photo.setAttribute("alt", "")
+    row.appendChild(photo)
+    row.appendChild(el("p", text = post.message as? String ?: ""))
+    return row
+}
+
+private fun loadOwnPosts(list: HTMLElement, shell: HTMLElement, router: HistoryRouter, cursor: String?) {
+    val query = if (cursor.isNullOrBlank()) {
+        "/api/me/posts?limit=20"
+    } else {
+        "/api/me/posts?limit=20&cursor=${encodeQuery(cursor)}"
+    }
+    http("GET", query) { status, text ->
+        if (status != 200) {
+            if (list.childNodes.length == 0) list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            return@http
+        }
+        val parsed = parseJson(text)
+        val posts = parsed.posts
+        val length = postCount(posts)
+        if (length == 0 && list.childNodes.length == 0) {
+            list.appendChild(el("p", "hint", text = Town.t("noPosts")))
+            return@http
+        }
+        for (i in 0 until length) list.appendChild(ownPostRow(posts[i], shell, router))
+        val next = parsed.nextCursor as? String
+        if (!next.isNullOrBlank()) {
+            list.appendChild(el("button", "text-button", text = Town.t("loadMore")) { button ->
+                button.setAttribute("type", "button")
+                button.onClick {
+                    button.asDynamic().remove()
+                    loadOwnPosts(list, shell, router, next)
+                }
+            })
+        }
+    }
+}
+
+private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter): HTMLElement {
+    val row = el("article", "own-post")
+    val photo = el("img", "own-post-photo")
+    photo.setAttribute("src", prefixServerOrigin(post.photoUrl as? String ?: ""))
+    photo.setAttribute("alt", "")
+    row.appendChild(photo)
+    val copy = el("div", "own-post-copy")
+    copy.appendChild(el("p", "own-post-message", text = post.message as? String ?: ""))
+    val stats = el("p", "post-stats")
+    stats.appendChild(stat(countLabel(post.views), Town.t("views")))
+    stats.appendChild(stat(countLabel(post.replyClicks), Town.t("repliesClicked")))
+    copy.appendChild(stats)
+    copy.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick {
+            confirmDialog(shell, Town.t("deletePostAsk"), Town.t("deletePostHint")) {
+                val id = post.id as String
+                http("DELETE", "/api/posts/$id") { code, body ->
+                    if (code == 200) {
+                        row.asDynamic().remove()
+                        if (shell.asDynamic().querySelector(".own-post") == null) refresh(router)
+                    } else {
+                        toast(shell, errorText(body, code))
+                    }
+                }
+            }
+        }
+    })
+    row.appendChild(copy)
+    return row
+}
+
+private fun stat(count: String, label: String): HTMLElement {
+    val node = el("span", "stat")
+    node.appendChild(el("b", text = count))
+    node.asDynamic().append(" $label")
+    return node
+}
+
+private fun countLabel(value: dynamic): String = num(value).toLong().toString()
+
+private fun postCount(posts: dynamic): Int {
+    if (posts == null || posts == undefined) return 0
+    return posts.length as Int
 }
 
 internal fun profileFace(me: Me, large: Boolean): HTMLElement {

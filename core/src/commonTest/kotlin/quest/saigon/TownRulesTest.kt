@@ -36,7 +36,7 @@ class TownRulesTest {
         assertEquals(100.0, motion.photoOffset)
         assertEquals(110.0, motion.cardOffset, 0.001)
         assertEquals(50, Limits.AVATAR_ENTER_PX)
-        assertEquals(50, Limits.TYPEWRITER_MILLIS_PER_CHAR)
+        assertEquals(33, Limits.TYPEWRITER_MILLIS_PER_CHAR)
     }
 
     @Test

@@ -35,6 +35,8 @@ data class PostRecord(
     val message: String,
     val location: String,
     val createdAt: Long,
+    val views: Long = 0,
+    val replyClicks: Long = 0,
 )
 
 data class FeedItem(
@@ -49,6 +51,22 @@ data class FeedItem(
 
 data class FeedPage(
     val items: List<FeedItem>,
+    val nextCursor: String?,
+)
+
+data class OwnedPost(
+    val id: String,
+    val message: String,
+    val location: String,
+    val photoPath: String,
+    val avatarPath: String?,
+    val createdAt: Long,
+    val views: Long,
+    val replyClicks: Long,
+)
+
+data class OwnedPostPage(
+    val items: List<OwnedPost>,
     val nextCursor: String?,
 )
 

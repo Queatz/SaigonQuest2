@@ -62,6 +62,7 @@ private fun mountPager(
     var lastTime = 0.0
     var velocity = 0.0
     var cancelType: () -> Unit = {}
+    var viewedId: String? = null
     val slides = mutableMapOf<Int, HTMLElement>()
 
     fun stageHeight(): Double {
@@ -90,6 +91,10 @@ private fun mountPager(
         cancelType()
         val post = posts.getOrNull(index) ?: return
         val message = slides[index]?.asDynamic()?.querySelector(".message") ?: return
+        if (viewedId != post.id) {
+            viewedId = post.id
+            http("POST", "/api/posts/${post.id}/view", "{}") { _, _ -> }
+        }
         cancelType = typewrite(message, post.message)
     }
 

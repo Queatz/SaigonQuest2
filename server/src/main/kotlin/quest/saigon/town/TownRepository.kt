@@ -18,4 +18,8 @@ interface TownRepository {
     fun insertPost(post: PostRecord): PostRecord
     fun feed(cursor: String?, limit: Int): FeedPage
     fun findPost(id: String): PostRecord?
+    fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage
+    fun recordView(id: String)
+    fun recordReplyClick(id: String)
+    fun deletePost(id: String)
 }
