@@ -81,7 +81,7 @@ class QwenClient(
                     "watermark" to false,
                     "prompt_extend" to false,
                     "size" to "768*1152",
-                    "negative_prompt" to "scenery, text, watermark, logo, extra limbs, props, white background, flat cel shading, sticker, outline",
+                    "negative_prompt" to "scenery, text, watermark, logo, extra limbs, props, white background, sticker, outline",
                 ),
             ),
         )

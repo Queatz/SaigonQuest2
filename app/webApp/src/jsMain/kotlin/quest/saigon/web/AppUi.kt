@@ -29,7 +29,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
 }
 
 internal fun pageHead(router: HistoryRouter, title: String, showProfile: Boolean): HTMLElement {
-    val head = el("header", "page-head")
+    val head = el("header", if (showProfile) "page-head has-profile" else "page-head")
     head.appendChild(el("button", "icon-btn", text = "‹") { button ->
         button.setAttribute("type", "button")
         button.setAttribute("aria-label", Town.t("back"))
