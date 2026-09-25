@@ -26,12 +26,15 @@ class ArangoDatabaseHealth(
 
     override fun check(): HealthStatus {
         return try {
-            val version = client.version.version
             ensureDatabase()
+            // /_api/version lives on _system. A normal database user cannot call it.
+            client.db(config.database).query("RETURN 1", Long::class.java, emptyMap<String, Any>()).use { cursor ->
+                if (!cursor.hasNext()) error("ArangoDB returned no rows")
+            }
             HealthStatus(
                 connected = true,
                 database = config.database,
-                version = version,
+                version = runCatching { client.version.version }.getOrNull(),
             )
         } catch (error: Exception) {
             log.warn("ArangoDB is unavailable: {}", error.message)

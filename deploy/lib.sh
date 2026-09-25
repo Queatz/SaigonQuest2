@@ -61,6 +61,75 @@ build_ssh() {
   if [[ -n "$SSH_KEY" ]]; then
     SSH_OPTS+=(-i "$SSH_KEY")
   fi
+  ssh_check
+}
+
+ssh_check() {
+  local err rc=0
+  err=$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" true 2>&1) || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    return 0
+  fi
+  printf '%s\n' "$err" >&2
+  if [[ "$err" == *"IDENTIFICATION HAS CHANGED"* || "$err" == *"Host key verification failed"* ]]; then
+    die "SSH host key for ${SSH_HOST} is not trusted.
+If this machine was rebuilt, confirm the new fingerprint, remove the old key, and rerun:
+  ssh-keygen -f \"\$HOME/.ssh/known_hosts\" -R '${SSH_HOST}'"
+  fi
+  die "SSH to ${SSH_TARGET} failed"
+}
+
+curl_fetch() {
+  local url=$1 dest=$2
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if curl -fsSL --http1.1 --connect-timeout 20 --max-time 300 -o "$dest" "$url" && [[ -s "$dest" ]]; then
+      return 0
+    fi
+    rm -f "$dest"
+    log "download failed (${attempt}/5): ${url}"
+    sleep $((attempt * 2))
+  done
+  return 1
+}
+
+stage_traefik_tarball() {
+  local version=${TRAEFIK_VERSION:-v3.7.13}
+  local version_number=${version#v}
+  local machine arch dest url sums want name remote
+  [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid TRAEFIK_VERSION: ${version}"
+  machine=$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" uname -m) || die "could not read the remote architecture"
+  case "$machine" in
+    x86_64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) die "unsupported remote architecture: ${machine}" ;;
+  esac
+  if ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "test -x /usr/local/bin/traefik && /usr/local/bin/traefik version 2>/dev/null | grep -q 'Version:[[:space:]]*${version_number}'"; then
+    log "Traefik ${version} already installed on the host"
+    TRAEFIK_TARBALL=
+    return 0
+  fi
+  name="traefik_${version}_linux_${arch}.tar.gz"
+  dest=$(mktemp)
+  url="https://github.com/traefik/traefik/releases/download/${version}/${name}"
+  log "Downloading Traefik ${version} (${arch}) locally"
+  curl_fetch "$url" "$dest" || die "failed to download Traefik ${version}"
+  sums=$(mktemp)
+  if curl_fetch "https://github.com/traefik/traefik/releases/download/${version}/traefik_${version}_checksums.txt" "$sums"; then
+    want=$(awk -v f="$name" '$2 == f || $2 == "*" f {print $1; exit}' "$sums")
+    if [[ -n "$want" ]]; then
+      printf '%s  %s\n' "$want" "$dest" | sha256sum -c - >/dev/null || die "Traefik checksum mismatch"
+    else
+      log "checksum file has no entry for ${name}"
+    fi
+  else
+    log "could not download Traefik checksums; the tarball will be used without verification"
+  fi
+  rm -f "$sums"
+  remote="/tmp/saigonquest-${name}"
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cat > $(printf '%q' "$remote")" < "$dest" || die "failed to upload Traefik"
+  rm -f "$dest"
+  TRAEFIK_TARBALL=$remote
 }
 
 rsync_rsh() {

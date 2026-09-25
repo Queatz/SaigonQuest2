@@ -4,6 +4,43 @@
 log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+curl_fetch() {
+  local url=$1 dest=$2
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if curl -fsSL --http1.1 --connect-timeout 20 --max-time 300 -o "$dest" "$url" && [[ -s "$dest" ]]; then
+      return 0
+    fi
+    rm -f "$dest"
+    log "download failed (${attempt}/5): ${url}"
+    sleep $((attempt * 2))
+  done
+  return 1
+}
+
+gpg_key_expired() {
+  local key=$1
+  local home out
+  home=$(mktemp -d)
+  chmod 700 "$home" || return 1
+  out=$(GNUPGHOME=$home gpg --batch --no-tty --show-keys "$key" 2>&1 || true)
+  rm -rf "$home"
+  [[ "$out" == *"[expired:"* ]]
+}
+
+# gpg opens /dev/tty unless this is forced. Deploy SSH sessions have no terminal.
+dearmor_key() {
+  local src=$1 dest=$2
+  local home ok=0
+  home=$(mktemp -d)
+  chmod 700 "$home" || die "could not create a temporary GnuPG home"
+  if GNUPGHOME=$home gpg --batch --yes --no-tty --dearmor -o "$dest" "$src"; then
+    ok=1
+  fi
+  rm -rf "$home"
+  [[ "$ok" -eq 1 && -s "$dest" ]] || die "failed to decode the signing key"
+}
+
 require_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
     die "remote commands must run as root. Configure passwordless sudo for ${SUDO_USER:-the SSH user}."
@@ -110,6 +147,7 @@ ensure_traefik() {
     if [[ -n "${TRAEFIK_DYNAMIC_DIR:-}" || -d /etc/traefik/dynamic ]]; then
       install -d -m 755 "$dynamic_dir"
       log "Using the existing Traefik. Routes will be written to ${dynamic_dir} and Traefik will not be restarted."
+      [[ -n "${TRAEFIK_TARBALL:-}" ]] && rm -f "$TRAEFIK_TARBALL"
       printf 'unmanaged'
       return 0
     fi
@@ -117,17 +155,29 @@ ensure_traefik() {
   fi
 
   arch=$(traefik_arch)
+  # set -e is ignored inside a function called from $(...), so each step must exit itself.
   if ! /usr/local/bin/traefik version 2>/dev/null | grep -q "Version:[[:space:]]*${version_number}"; then
     log "Installing Traefik ${version}"
-    local tmp
+    local tmp tarball
     tmp=$(mktemp -d)
-    curl -fsSL -o "$tmp/traefik.tgz" \
-      "https://github.com/traefik/traefik/releases/download/${version}/traefik_${version}_linux_${arch}.tar.gz"
-    tar -C "$tmp" -xzf "$tmp/traefik.tgz" traefik
-    install -m 755 "$tmp/traefik" /usr/local/bin/traefik
+    tarball="$tmp/traefik.tgz"
+    if [[ -n "${TRAEFIK_TARBALL:-}" ]]; then
+      [[ -f "$TRAEFIK_TARBALL" ]] || die "Traefik tarball not found: ${TRAEFIK_TARBALL}"
+      cp "$TRAEFIK_TARBALL" "$tarball" || die "failed to copy Traefik tarball"
+    else
+      curl_fetch \
+        "https://github.com/traefik/traefik/releases/download/${version}/traefik_${version}_linux_${arch}.tar.gz" \
+        "$tarball" || die "failed to download Traefik ${version}"
+    fi
+    tar -C "$tmp" -xzf "$tarball" traefik || die "failed to extract Traefik"
+    [[ -f "$tmp/traefik" ]] || die "Traefik archive did not contain the traefik binary"
+    install -m 755 "$tmp/traefik" /usr/local/bin/traefik || die "failed to install Traefik"
     rm -rf "$tmp"
   else
     log "Traefik ${version} already installed"
+  fi
+  if [[ -n "${TRAEFIK_TARBALL:-}" ]]; then
+    rm -f "$TRAEFIK_TARBALL"
   fi
 
   install -d -m 755 /etc/traefik "$dynamic_dir"

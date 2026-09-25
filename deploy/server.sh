@@ -79,6 +79,8 @@ log "Using $(basename "$jar")"
 
 if [[ "$SKIP_INIT" -eq 0 ]]; then
   log "Configuring nginx, Traefik, and ArangoDB on ${SSH_TARGET}"
+  TRAEFIK_VERSION=${TRAEFIK_VERSION:-v3.7.13}
+  stage_traefik_tarball
   send_remote "$ROOT" \
     "SERVER_DOMAIN=$SERVER_DOMAIN" \
     "WEB_DOMAIN=$WEB_DOMAIN" \
@@ -86,7 +88,8 @@ if [[ "$SKIP_INIT" -eq 0 ]]; then
     "API_NGINX_BIND=$API_NGINX_BIND" \
     "ACME_EMAIL=${ACME_EMAIL:-}" \
     "SSH_PORT=$SSH_PORT" \
-    "TRAEFIK_VERSION=${TRAEFIK_VERSION:-v3.7.13}" \
+    "TRAEFIK_VERSION=$TRAEFIK_VERSION" \
+    "TRAEFIK_TARBALL=${TRAEFIK_TARBALL:-}" \
     "TRAEFIK_DYNAMIC_DIR=${TRAEFIK_DYNAMIC_DIR:-}" \
     "ARANGO_HOST=$ARANGO_HOST" \
     "ARANGO_PORT=$ARANGO_PORT" \
@@ -110,7 +113,7 @@ ensure_base_packages
 ensure_java21
 free_edge_ports
 ensure_nginx_upgrade_map >/dev/null
-traefik_state=$(ensure_traefik)
+traefik_state=$(ensure_traefik) || die "Traefik setup failed"
 
 if ! id saigonquest >/dev/null 2>&1; then
   useradd --system --home-dir /opt/saigonquest --create-home --shell /usr/sbin/nologin saigonquest
@@ -119,14 +122,23 @@ install -d -o saigonquest -g saigonquest -m 750 /opt/saigonquest /opt/saigonques
 
 install_arango_repo() {
   install -d -m 755 /usr/share/keyrings
-  if [[ ! -f /usr/share/keyrings/arangodb.gpg ]]; then
-    local key
-    key=$(mktemp)
-    curl -fsSL https://download.arangodb.com/arangodb312/DEBIAN/Release.key | gpg --dearmor -o "$key"
-    install -m 644 "$key" /usr/share/keyrings/arangodb.gpg
-    rm -f "$key"
+  local asc key opts
+  asc=$(mktemp)
+  key=$(mktemp)
+  curl_fetch https://download.arangodb.com/arangodb312/DEBIAN/Release.key "$asc" \
+    || die "failed to download the ArangoDB signing key"
+  dearmor_key "$asc" "$key"
+  install -m 644 "$key" /usr/share/keyrings/arangodb.gpg
+  if gpg_key_expired "$asc"; then
+    # The published 3.12 key expired on 2026-03-24 and still signs the repo.
+    # signed-by makes apt reject it; trusted=yes keeps the official HTTPS repo usable.
+    log "ArangoDB signing key is expired and no replacement is published. Trusting the HTTPS repository without signature checks."
+    opts="trusted=yes"
+  else
+    opts="signed-by=/usr/share/keyrings/arangodb.gpg"
   fi
-  printf '%s\n' 'deb [signed-by=/usr/share/keyrings/arangodb.gpg] https://download.arangodb.com/arangodb312/DEBIAN/ /' \
+  rm -f "$asc" "$key"
+  printf 'deb [%s] https://download.arangodb.com/arangodb312/DEBIAN/ /\n' "$opts" \
     > /etc/apt/sources.list.d/arangodb.list
   APT_UPDATED=0
 }

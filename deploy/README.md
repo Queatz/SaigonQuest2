@@ -15,6 +15,14 @@ cp deploy/web.env.example deploy/web.env
 
 Re-running either script does not reinitialize the host. It does not drop the ArangoDB database, reset the root password, delete uploads, or replace Traefik certificates. `--skip-init` also skips package installation, firewall changes, nginx/Traefik setup, and ArangoDB user creation. It still uploads the new build, restarts the API when that script is used, and runs the health check.
 
+Traefik is downloaded on this machine and uploaded. The host does not need to reach GitHub. Signing keys are imported without a terminal, so `gpg` does not prompt.
+
+If SSH reports that the host key changed, the script stops. Confirm the new fingerprint, remove the old entry, and rerun:
+
+```bash
+ssh-keygen -f "$HOME/.ssh/known_hosts" -R example.com
+```
+
 ## How the web knows the server domain
 
 The browser keeps calling `/api` and `/media` on the web origin. That matches local webpack, and it keeps the session cookie first-party (`SameSite=Lax`).
@@ -34,7 +42,7 @@ Leave `API_MODE=proxy` unless the browser must call the API host directly. `dire
 
 CORS is not hardcoded. Set `CORS_ALLOWED_HOSTS` in `.env.prod` (`https://town.example.com,localhost:3000`). If that key is missing and `WEB_DOMAIN` is set, the script adds it. Dev still allows `localhost:3000` and `127.0.0.1:3000` when the variable is unset.
 
-The script creates the ArangoDB user and database from `.env.prod` with `arangosh` when they are missing, and grants `rw`. It does not drop an existing database. `ARANGO_ROOT_PASSWORD` in `deploy/server.env` is only used for that admin connection. It is not copied into the app `.env`. If ArangoDB is already installed, its data directory and root password are left alone; the password in `deploy/server.env` must then match the existing root user.
+The script creates the ArangoDB user and database from `.env.prod` with `arangosh` when they are missing, and grants `rw`. It does not drop an existing database. The official 3.12 signing key expired and has no published replacement, so apt trusts that HTTPS repository without a signature until a valid key is available. `ARANGO_ROOT_PASSWORD` in `deploy/server.env` is only used for that admin connection. It is not copied into the app `.env`. If ArangoDB is already installed, its data directory and root password are left alone; the password in `deploy/server.env` must then match the existing root user.
 
 nginx proxies every path, including WebSocket upgrades and SSE, to the app on `127.0.0.1`. Traefik terminates TLS on 443 and flushes streaming responses. The firewall opens 80 and 443. Those are the WebSocket and SSE ports; the app does not listen on a separate public port. ArangoDB stays on localhost.
 

@@ -84,6 +84,8 @@ grep -q 'sq-config.js' "$stage/index.html" || die "index.html does not load sq-c
 
 if [[ "$SKIP_INIT" -eq 0 ]]; then
   log "Configuring nginx and Traefik on ${SSH_TARGET}"
+  TRAEFIK_VERSION=${TRAEFIK_VERSION:-v3.7.13}
+  stage_traefik_tarball
   send_remote "$ROOT" \
     "WEB_DOMAIN=$WEB_DOMAIN" \
     "SERVER_DOMAIN=$SERVER_DOMAIN" \
@@ -92,7 +94,8 @@ if [[ "$SKIP_INIT" -eq 0 ]]; then
     "NGINX_BIND=$NGINX_BIND" \
     "ACME_EMAIL=${ACME_EMAIL:-}" \
     "SSH_PORT=$SSH_PORT" \
-    "TRAEFIK_VERSION=${TRAEFIK_VERSION:-v3.7.13}" \
+    "TRAEFIK_VERSION=$TRAEFIK_VERSION" \
+    "TRAEFIK_TARBALL=${TRAEFIK_TARBALL:-}" \
     "TRAEFIK_DYNAMIC_DIR=${TRAEFIK_DYNAMIC_DIR:-}" <<'REMOTE'
 set -euo pipefail
 require_root
@@ -105,7 +108,7 @@ require_root
 ensure_base_packages
 free_edge_ports
 ensure_nginx_upgrade_map >/dev/null
-traefik_state=$(ensure_traefik)
+traefik_state=$(ensure_traefik) || die "Traefik setup failed"
 install -d -m 755 "$WEB_ROOT"
 
 ssl_directives=""
