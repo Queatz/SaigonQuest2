@@ -142,7 +142,7 @@ private fun rotateUploadPrompts(label: HTMLElement) {
             index = (index + 1) % 10
             label.textContent = Town.t("uploadPrompt${index + 1}")
         }
-    }, 2000)
+    }, 3000)
 }
 
 private fun profileArrow(): HTMLElement {

@@ -243,9 +243,11 @@ private fun mountPager(
 
     ensureKeys()
     feedKeyHandler = { key ->
-        when (key) {
-            "ArrowDown", "PageDown" -> commit(1)
-            "ArrowUp", "PageUp" -> commit(-1)
+        if (!feedDialogOpen()) {
+            when (key) {
+                "ArrowDown", "PageDown" -> commit(1)
+                "ArrowUp", "PageUp" -> commit(-1)
+            }
         }
     }
     rebuild()
@@ -268,10 +270,13 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
     card.appendChild(el("span", "name-chip", text = post.authorName))
     val message = el("p", "message")
     card.appendChild(message)
-    card.appendChild(el("button", "reply", text = Town.t("replyTo", mapOf("name" to post.authorName))) { button ->
+    val actions = el("div", "card-actions")
+    actions.appendChild(el("button", "reply", text = Town.t("replyTo", mapOf("name" to post.authorName))) { button ->
         button.setAttribute("type", "button")
         button.onClick { openZalo(post.id, host, button) }
     })
+    actions.appendChild(shareButton(post, host))
+    card.appendChild(actions)
     stack.appendChild(card)
     slide.appendChild(stack)
     return slide
@@ -397,12 +402,18 @@ private fun interactive(target: dynamic): Boolean {
 
 private fun now(): Double = num(window.asDynamic().performance.now())
 
+private fun feedDialogOpen(): Boolean {
+    val dialog = document.asDynamic().querySelector(".dialog-backdrop")
+    return dialog != null && dialog != undefined
+}
+
 private fun ensureKeys() {
     if (keysInstalled) return
     keysInstalled = true
     window.asDynamic().addEventListener("keydown", { event: dynamic ->
         val key = event.key as? String ?: return@addEventListener
-        if (feedKeyHandler != null && (key == "ArrowDown" || key == "ArrowUp" || key == "PageDown" || key == "PageUp")) {
+        val paging = key == "ArrowDown" || key == "ArrowUp" || key == "PageDown" || key == "PageUp"
+        if (feedKeyHandler != null && paging && !feedDialogOpen()) {
             event.preventDefault()
         }
         feedKeyHandler?.invoke(key)

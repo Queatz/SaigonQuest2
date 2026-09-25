@@ -50,5 +50,9 @@ class TownRulesTest {
         assertEquals("Whatcha doin'?", Copy.uploadPrompts(Language.EN).first())
         assertEquals("Reply to Linh", Copy.text(Language.EN, "replyTo", mapOf("name" to "Linh")))
         assertEquals("Trả lời Linh", Copy.text(Language.VI, "replyTo", mapOf("name" to "Linh")))
+        assertEquals("Saigon.Town", Copy.text(Language.EN, "appName"))
+        assertEquals("Saigon.Town", Copy.text(Language.VI, "appName"))
+        assertEquals("Dành cho Sài Gòn!", Copy.text(Language.EN, "motto"))
+        assertEquals("Dành cho Sài Gòn!", Copy.text(Language.VI, "motto"))
     }
 }
