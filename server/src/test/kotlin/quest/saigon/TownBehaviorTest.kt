@@ -154,12 +154,11 @@ class TownBehaviorTest {
             QwenResponses.chatText(QwenResponses.parse("""{"choices":[{"message":{"content":"smiling"}}]}""")),
         )
         val instruction = AvatarPrompts.editInstruction("smiling", "pleased")
-        assertTrue(instruction.contains("#7A00FF"))
+        assertTrue(instruction.contains("#bababa"))
         assertTrue(instruction.contains("pleased"))
-        assertTrue(instruction.contains("no white border"))
+        assertTrue(instruction.contains("No white border"))
         assertTrue(instruction.contains("no sticker edge"))
-        assertTrue(instruction.contains("realistic"))
-        assertTrue(instruction.contains("expressive"))
+        assertTrue(instruction.contains("illustrated character"))
         assertFalse(instruction.contains("visual-novel character"))
         assertEquals(360L, QwenClient.GENERATION_TIMEOUT_SECONDS)
         assertEquals(360_000L, QwenClient.GENERATION_POLL_MILLIS)
@@ -376,9 +375,14 @@ class TownBehaviorTest {
         assertEquals(HttpStatusCode.OK, contact.status)
         assertEquals(1, services.repo.findPost(first.id)!!.replyClicks)
 
+        val share = createClient { }.post("/api/posts/${first.id}/share")
+        assertEquals(HttpStatusCode.OK, share.status)
+        assertEquals(1, services.repo.findPost(first.id)!!.shareClicks)
+
         val anonymous = createClient { }
         assertEquals(HttpStatusCode.Unauthorized, anonymous.get("/api/me/posts").status)
         assertEquals(HttpStatusCode.NotFound, anonymous.post("/api/posts/missing/view").status)
+        assertEquals(HttpStatusCode.NotFound, anonymous.post("/api/posts/missing/share").status)
 
         val page = http.get("/api/me/posts?limit=1")
         val listed = mapper.readTree(page.bodyAsText())
@@ -386,6 +390,7 @@ class TownBehaviorTest {
         assertEquals("Hello town", listed.path("posts").path(0).path("message").asText())
         assertEquals(1, listed.path("posts").path(0).path("views").asInt())
         assertEquals(1, listed.path("posts").path(0).path("replyClicks").asInt())
+        assertEquals(1, listed.path("posts").path(0).path("shareClicks").asInt())
         assertTrue(listed.path("nextCursor").asText().isNotBlank())
         assertFalse(page.bodyAsText().contains("phone"))
 

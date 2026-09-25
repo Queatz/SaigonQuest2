@@ -69,7 +69,7 @@ fi
 build_ssh
 
 log "Building the server jar"
-./gradlew :server:shadowJar
+./gradlew clean :server:shadowJar
 jar=$(find "$ROOT/server/build/libs" -maxdepth 1 -type f -name '*-all.jar' | sort | tail -n 1)
 if [[ -z "$jar" ]]; then
   jar=$(find "$ROOT/server/build/libs" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -printf '%s %p\n' | sort -n | tail -n 1 | cut -d' ' -f2-)

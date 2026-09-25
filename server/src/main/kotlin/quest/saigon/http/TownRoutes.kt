@@ -256,6 +256,12 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("zaloUrl" to PhoneNumbers.zaloUrl(author.phone)))
     }
 
+    post("/posts/{id}/share") {
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
+        services.repo.recordShareClick(post.id)
+        call.respondJson(mapOf("ok" to true))
+    }
+
     delete("/posts/{id}") {
         val user = call.user(services) ?: return@delete call.fail("unauthorized")
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")
@@ -381,6 +387,7 @@ private fun ownedPostPayload(item: OwnedPost) = mapOf(
     "createdAt" to item.createdAt,
     "views" to item.views,
     "replyClicks" to item.replyClicks,
+    "shareClicks" to item.shareClicks,
 )
 
 private fun cleanName(raw: String): String? {

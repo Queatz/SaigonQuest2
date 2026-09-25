@@ -382,6 +382,7 @@ private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter)
     val stats = el("p", "post-stats")
     stats.appendChild(stat(countLabel(post.views), Town.t("views")))
     stats.appendChild(stat(countLabel(post.replyClicks), Town.t("repliesClicked")))
+    stats.appendChild(stat(countLabel(post.shareClicks), Town.t("shareClicked")))
     copy.appendChild(stats)
     copy.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
         button.setAttribute("type", "button")

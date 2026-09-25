@@ -21,5 +21,6 @@ interface TownRepository {
     fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage
     fun recordView(id: String)
     fun recordReplyClick(id: String)
+    fun recordShareClick(id: String)
     fun deletePost(id: String)
 }

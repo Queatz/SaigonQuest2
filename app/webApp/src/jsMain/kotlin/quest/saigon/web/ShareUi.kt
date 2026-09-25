@@ -18,13 +18,13 @@ internal fun shareButton(post: PostCard, host: HTMLElement): HTMLElement =
         button.setAttribute("aria-label", Town.t("share"))
         button.asDynamic().innerHTML = """
             <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M8.6 12.1 15.3 8.3M8.6 12.1l6.7 3.7"/>
-                <circle cx="6.2" cy="12.1" r="2.15" fill="none" stroke="currentColor" stroke-width="2"/>
-                <circle cx="17.5" cy="6.5" r="2.15" fill="none" stroke="currentColor" stroke-width="2"/>
-                <circle cx="17.5" cy="17.6" r="2.15" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linejoin="miter" stroke-miterlimit="4" d="M22.15 9.15 L14.2 2.6 L14.2 6.45 C9.2 6.45 5.2 13.2 3.15 21.65 C5.9 15.6 9.5 10.85 14.2 10.85 L14.2 15.7 Z"/>
             </svg>
         """.trimIndent()
-        button.onClick { openShare(post, host) }
+        button.onClick {
+            http("POST", "/api/posts/${post.id}/share", "{}") { _, _ -> }
+            openShare(post, host)
+        }
     }
 
 internal fun openShare(post: PostCard, host: HTMLElement) {

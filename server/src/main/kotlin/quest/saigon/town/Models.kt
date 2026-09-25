@@ -37,6 +37,7 @@ data class PostRecord(
     val createdAt: Long,
     val views: Long = 0,
     val replyClicks: Long = 0,
+    val shareClicks: Long = 0,
 )
 
 data class FeedItem(
@@ -63,6 +64,7 @@ data class OwnedPost(
     val createdAt: Long,
     val views: Long,
     val replyClicks: Long,
+    val shareClicks: Long,
 )
 
 data class OwnedPostPage(

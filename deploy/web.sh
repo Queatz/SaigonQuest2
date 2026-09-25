@@ -68,7 +68,7 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 
 log "Building the production web app"
-./gradlew :app:webApp:jsBrowserProductionWebpack
+./gradlew clean :app:webApp:jsBrowserProductionWebpack
 js=$(find "$ROOT/app/webApp/build" -type f -name webApp.js -path '*productionExecutable*' -print -quit)
 resources="$ROOT/app/webApp/build/processedResources/js/main"
 [[ -n "$js" && -f "$resources/index.html" ]] || die "production build did not produce webApp.js and index.html"

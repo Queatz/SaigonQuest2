@@ -137,6 +137,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("createdAt", post.createdAt)
         doc.addAttribute("views", post.views)
         doc.addAttribute("replyClicks", post.replyClicks)
+        doc.addAttribute("shareClicks", post.shareClicks)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -195,6 +196,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 createdAt = long(doc, "createdAt"),
                 views = long(doc, "views"),
                 replyClicks = long(doc, "replyClicks"),
+                shareClicks = long(doc, "shareClicks"),
             )
         }
 
@@ -222,7 +224,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 avatarPath: avatar.imagePath,
                 createdAt: p.createdAt,
                 views: p.views == null ? 0 : p.views,
-                replyClicks: p.replyClicks == null ? 0 : p.replyClicks
+                replyClicks: p.replyClicks == null ? 0 : p.replyClicks,
+                shareClicks: p.shareClicks == null ? 0 : p.shareClicks
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -237,6 +240,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 createdAt = long(row, "createdAt"),
                 views = long(row, "views"),
                 replyClicks = long(row, "replyClicks"),
+                shareClicks = long(row, "shareClicks"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -249,6 +253,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
 
     override fun recordReplyClick(id: String) {
         bump(id, "replyClicks")
+    }
+
+    override fun recordShareClick(id: String) {
+        bump(id, "shareClicks")
     }
 
     override fun deletePost(id: String) {

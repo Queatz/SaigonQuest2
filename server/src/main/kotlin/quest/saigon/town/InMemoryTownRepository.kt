@@ -131,6 +131,7 @@ class InMemoryTownRepository : TownRepository {
                 createdAt = post.createdAt,
                 views = post.views,
                 replyClicks = post.replyClicks,
+                shareClicks = post.shareClicks,
             )
         }
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -145,6 +146,11 @@ class InMemoryTownRepository : TownRepository {
     override fun recordReplyClick(id: String) {
         val post = posts[id] ?: return
         posts[id] = post.copy(replyClicks = post.replyClicks + 1)
+    }
+
+    override fun recordShareClick(id: String) {
+        val post = posts[id] ?: return
+        posts[id] = post.copy(shareClicks = post.shareClicks + 1)
     }
 
     override fun deletePost(id: String) {
