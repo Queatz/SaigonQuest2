@@ -31,6 +31,7 @@ import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -410,6 +411,42 @@ class TownBehaviorTest {
         val feed = http.get("/api/posts").bodyAsText()
         assertFalse(feed.contains("Hello town"))
         assertTrue(feed.contains("Second story"))
+    }
+
+    @Test
+    fun feedServesAuthorProfilePhotoOnTheNameChipUrl() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905556677","password":"secretpass"}""")
+        }
+        val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        val jpeg = ImageOps().writeJpeg(solid(8, 8, Color(40, 90, 160)), 0.85f)
+        val photoPath = services.uploads.writeProfile(jpeg)
+        val user = services.repo.findUser(userId)!!
+        services.repo.updateUser(user.copy(profilePhotoPath = photoPath))
+        val avatar = services.repo.insertAvatar(userId, "smiling", 10)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
+        val post = services.repo.insertPost(
+            PostRecord("", userId, avatar.id, services.uploads.writePost(jpeg), "Hello town", "Cát Lái", 5L),
+        )
+
+        val feed = mapper.readTree(http.get("/api/posts").bodyAsText())
+        val card = feed.path("posts").path(0)
+        assertEquals("Linh", card.path("authorName").asText())
+        assertEquals("/api/posts/${post.id}/author-photo", card.path("authorPhotoUrl").asText())
+
+        val anonymous = createClient { }
+        val photo = anonymous.get("/api/posts/${post.id}/author-photo")
+        assertEquals(HttpStatusCode.OK, photo.status)
+        assertContentEquals(jpeg, photo.bodyAsBytes())
+        assertEquals(HttpStatusCode.NotFound, anonymous.get("/api/posts/missing/author-photo").status)
+
+        services.repo.updateUser(user.copy(profilePhotoPath = null))
+        assertEquals(HttpStatusCode.NotFound, anonymous.get("/api/posts/${post.id}/author-photo").status)
+        assertTrue(mapper.readTree(http.get("/api/posts").bodyAsText()).path("posts").path(0).path("authorPhotoUrl").isNull)
     }
 
     @Test

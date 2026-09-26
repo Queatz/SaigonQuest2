@@ -266,7 +266,15 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
         stack.appendChild(avatar)
     }
     val card = el("div", "card")
-    card.appendChild(el("span", "name-chip", text = post.authorName))
+    val name = el("span", if (post.authorPhotoUrl.isNullOrBlank()) "name-chip" else "name-chip has-face")
+    if (!post.authorPhotoUrl.isNullOrBlank()) {
+        val face = el("img", "name-face")
+        face.setAttribute("alt", "")
+        face.setAttribute("src", post.authorPhotoUrl)
+        name.appendChild(face)
+    }
+    name.appendChild(el("span", text = post.authorName))
+    card.appendChild(name)
     val message = el("p", "message")
     card.appendChild(message)
     val actions = el("div", "card-actions")

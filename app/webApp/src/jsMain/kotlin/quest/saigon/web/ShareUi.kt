@@ -3,6 +3,7 @@ package quest.saigon.web
 import web.dom.document
 import web.html.HTMLElement
 import web.window.window
+import kotlin.math.PI
 import kotlin.math.min
 
 private const val SHARE_PX = 1080.0
@@ -148,14 +149,16 @@ private fun copyImageBlob(blob: dynamic, done: (Boolean) -> Unit) {
 private fun renderShareCard(post: PostCard, done: (dynamic?) -> Unit) {
     loadBitmap(post.photoUrl) { photo ->
         loadBitmap(post.avatarUrl) { avatar ->
-            whenFontsReady {
-                try {
-                    val canvas = paintShareCard(post, photo, avatar)
-                    canvas.toBlob({ blob: dynamic ->
-                        if (blob == null || blob == undefined) done(null) else done(blob)
-                    }, "image/png")
-                } catch (_: Throwable) {
-                    done(null)
+            loadBitmap(post.authorPhotoUrl) { face ->
+                whenFontsReady {
+                    try {
+                        val canvas = paintShareCard(post, photo, avatar, face)
+                        canvas.toBlob({ blob: dynamic ->
+                            if (blob == null || blob == undefined) done(null) else done(blob)
+                        }, "image/png")
+                    } catch (_: Throwable) {
+                        done(null)
+                    }
                 }
             }
         }
@@ -199,7 +202,7 @@ private fun whenFontsReady(then: () -> Unit) {
     fonts.load("700 42px \"Be Vietnam Pro\", Nunito, sans-serif").then({ then() }, { _: dynamic -> then() })
 }
 
-private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic): dynamic {
+private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face: dynamic): dynamic {
     val canvas = document.createElement("canvas").asDynamic()
     canvas.width = SHARE_PX.toInt()
     canvas.height = SHARE_PX.toInt()
@@ -242,7 +245,7 @@ private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic): dyn
     ctx.fill()
     ctx.restore()
 
-    drawNameChip(ctx, post.authorName, cardX, cardY, cardW)
+    drawNameChip(ctx, post.authorName, cardX, cardY, cardW, face)
     ctx.font = "700 ${fitted.size.toInt()}px $SHARE_FONT"
     ctx.fillStyle = "#2a241e"
     ctx.textAlign = "left"
@@ -354,21 +357,45 @@ private fun contentCrop(image: dynamic, width: Int, height: Int): Crop {
     }
 }
 
-private fun drawNameChip(ctx: dynamic, name: String, cardX: Double, cardY: Double, cardW: Double) {
-    ctx.font = "800 44px $SHARE_FONT"
-    val label = ellipsize(ctx, name.ifBlank { " " }, cardW - 140.0)
-    val textW = num(ctx.measureText(label).width)
+private fun drawNameChip(ctx: dynamic, name: String, cardX: Double, cardY: Double, cardW: Double, face: dynamic) {
     val chipH = 58.0
-    val chipW = textW + 52.0
+    val hasFace = face != null
+    val photo = if (hasFace) 46.0 else 0.0
+    val leftPad = if (hasFace) 6.0 else 26.0
+    val textPad = if (hasFace) leftPad + photo + 10.0 else 26.0
+    ctx.font = "800 44px $SHARE_FONT"
+    val label = ellipsize(ctx, name.ifBlank { " " }, cardW - 140.0 - photo)
+    val textW = num(ctx.measureText(label).width)
+    val chipW = textPad + textW + 26.0
     val chipX = cardX + 32.0
     val chipY = cardY - chipH / 2
     traceRound(ctx, chipX, chipY, chipW, chipH, chipH / 2)
     ctx.fillStyle = "#e9897c"
     ctx.fill()
+    if (hasFace) {
+        drawCircleImage(ctx, face, chipX + leftPad + photo / 2, chipY + chipH / 2, photo)
+    }
     ctx.fillStyle = "#ffffff"
     ctx.textAlign = "left"
     ctx.textBaseline = "middle"
-    ctx.fillText(label, chipX + 26.0, chipY + chipH / 2)
+    ctx.fillText(label, chipX + textPad, chipY + chipH / 2)
+}
+
+private fun drawCircleImage(ctx: dynamic, image: dynamic, cx: Double, cy: Double, diameter: Double) {
+    val sw = num(image.naturalWidth)
+    val sh = num(image.naturalHeight)
+    if (sw < 1.0 || sh < 1.0) return
+    val radius = diameter / 2
+    val scale = maxOf(diameter / sw, diameter / sh)
+    val dw = sw * scale
+    val dh = sh * scale
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, 0.0, PI * 2)
+    ctx.closePath()
+    ctx.clip()
+    ctx.drawImage(image, cx - dw / 2, cy - dh / 2, dw, dh)
+    ctx.restore()
 }
 
 private data class FittedText(val size: Double, val lineHeight: Double, val lines: List<String>)

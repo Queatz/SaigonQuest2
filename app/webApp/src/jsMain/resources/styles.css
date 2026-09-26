@@ -280,6 +280,28 @@ button { cursor: pointer; }
     border-radius: 999px;
     padding: 6px 16px;
     font-size: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100% - 32px);
+}
+
+.name-chip.has-face { padding: 4px 14px 4px 4px; }
+
+.name-chip .name-face {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #d9d0c6;
+    flex: 0 0 auto;
+}
+
+.name-chip > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .message {

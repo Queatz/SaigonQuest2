@@ -43,6 +43,7 @@ data class PostRecord(
 data class FeedItem(
     val id: String,
     val authorName: String,
+    val authorPhotoPath: String?,
     val message: String,
     val location: String,
     val photoPath: String,

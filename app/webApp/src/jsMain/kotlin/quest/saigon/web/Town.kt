@@ -19,6 +19,7 @@ internal data class Me(
 internal data class PostCard(
     val id: String,
     val authorName: String,
+    val authorPhotoUrl: String?,
     val message: String,
     val location: String,
     val photoUrl: String,
@@ -60,6 +61,7 @@ internal fun meFrom(node: dynamic): Me = Me(
 internal fun postFrom(node: dynamic): PostCard = PostCard(
     id = node.id as String,
     authorName = (node.authorName as? String).orEmpty(),
+    authorPhotoUrl = (node.authorPhotoUrl as? String)?.let(::prefixServerOrigin),
     message = (node.message as? String).orEmpty(),
     location = (node.location as? String).orEmpty(),
     photoUrl = prefixServerOrigin((node.photoUrl as? String).orEmpty()),

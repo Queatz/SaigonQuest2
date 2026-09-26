@@ -96,6 +96,7 @@ class InMemoryTownRepository : TownRepository {
             FeedItem(
                 id = post.id,
                 authorName = author?.name ?: "",
+                authorPhotoPath = author?.profilePhotoPath,
                 message = post.message,
                 location = post.location,
                 photoPath = post.photoPath,

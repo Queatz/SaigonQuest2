@@ -160,6 +160,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               RETURN {
                 id: p._key,
                 authorName: author.name,
+                authorPhotoPath: author.profilePhotoPath,
                 message: p.message,
                 location: p.location,
                 photoPath: p.photoPath,
@@ -173,6 +174,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             FeedItem(
                 id = string(row, "id"),
                 authorName = string(row, "authorName"),
+                authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
                 message = string(row, "message"),
                 location = string(row, "location"),
                 photoPath = string(row, "photoPath"),

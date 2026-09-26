@@ -226,6 +226,7 @@ fun Route.townApi(services: TownServices) {
                 FeedItem(
                     id = post.id,
                     authorName = user.name,
+                    authorPhotoPath = user.profilePhotoPath,
                     message = post.message,
                     location = post.location,
                     photoPath = post.photoPath,
@@ -235,6 +236,15 @@ fun Route.townApi(services: TownServices) {
             ),
             HttpStatusCode.Created,
         )
+    }
+
+    get("/posts/{id}/author-photo") {
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val author = services.repo.findUser(post.userId) ?: return@get call.fail("not_found")
+        val path = author.profilePhotoPath ?: return@get call.fail("not_found")
+        val file = services.uploads.resolve(path) ?: return@get call.fail("not_found")
+        call.response.headers.append("Cache-Control", "public, max-age=300")
+        call.respondBytes(file.readBytes(), ContentType.Image.JPEG)
     }
 
     post("/posts/{id}/view") {
@@ -371,6 +381,7 @@ private fun avatarPayload(avatar: AvatarRecord) = mapOf(
 private fun postPayload(item: FeedItem) = mapOf(
     "id" to item.id,
     "authorName" to item.authorName,
+    "authorPhotoUrl" to if (item.authorPhotoPath != null) "/api/posts/${item.id}/author-photo" else null,
     "message" to item.message,
     "location" to item.location,
     "photoUrl" to "/media/${item.photoPath}",
