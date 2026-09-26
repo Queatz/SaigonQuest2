@@ -142,9 +142,14 @@ private fun avatarStudio(host: HTMLElement, router: HistoryRouter, me: Me): HTML
     val create = el("button", "secondary", text = Town.t("createAvatar"))
     create.setAttribute("type", "button")
     create.setAttribute("style", "margin-top: 8px;")
-    val note = el("p", "hint", text = if (me.hasProfilePhoto) "" else Town.t("needProfilePhoto"))
+    val note = el("p", "form-error")
+    note.asDynamic().hidden = true
     create.onClick {
-        if (!me.hasProfilePhoto) return@onClick
+        if (!me.hasProfilePhoto) {
+            note.textContent = Town.t("needProfilePhoto")
+            note.asDynamic().hidden = false
+            return@onClick
+        }
         val text = (prompt.asDynamic().value as String).trim()
         if (text.isEmpty()) {
             toast(host, Town.t("invalidPrompt"))
