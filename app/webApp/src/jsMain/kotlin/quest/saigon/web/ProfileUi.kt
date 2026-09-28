@@ -135,48 +135,10 @@ private fun avatarStudio(host: HTMLElement, router: HistoryRouter, me: Me): HTML
     val box = el("div", "studio")
     val row = el("div", "avatar-row")
     box.appendChild(row)
-    val prompt = el("input")
-    prompt.setAttribute("type", "text")
-    prompt.setAttribute("maxlength", "200")
-    prompt.setAttribute("placeholder", Town.t("avatarPrompt"))
-    val create = el("button", "secondary", text = Town.t("createAvatar"))
-    create.setAttribute("type", "button")
-    create.setAttribute("style", "margin-top: 8px;")
-    val note = el("p", "form-error")
-    note.asDynamic().hidden = true
-    create.onClick {
-        if (!me.hasProfilePhoto) {
-            note.textContent = Town.t("needProfilePhoto")
-            note.asDynamic().hidden = false
-            return@onClick
-        }
-        val text = (prompt.asDynamic().value as String).trim()
-        if (text.isEmpty()) {
-            toast(host, Town.t("invalidPrompt"))
-            return@onClick
-        }
-        create.setAttribute("disabled", "disabled")
-        create.asDynamic().classList.add("busy")
-        create.textContent = ""
-        create.appendChild(el("span", "avatar-spinner"))
-        val payload = js("({})")
-        payload.prompt = text
-        http("POST", "/api/avatars", jsonStringify(payload)) { status, body ->
-            create.removeAttribute("disabled")
-            create.asDynamic().classList.remove("busy")
-            create.textContent = Town.t("createAvatar")
-            if (status == 202 || status == 200) {
-                prompt.asDynamic().value = ""
-                pollAvatar(parseJson(body).id as String, router)
-                refresh(router)
-            } else {
-                toast(host, errorText(body, status))
-            }
-        }
-    }
-    box.appendChild(prompt)
-    box.appendChild(create)
-    box.appendChild(note)
+    box.appendChild(avatarPromptForm(host, me) { id ->
+        pollAvatar(id) { refresh(router) }
+        refresh(router)
+    })
     http("GET", "/api/avatars") { status, body ->
         if (status != 200) return@http
         val avatars = parseJson(body).avatars
@@ -207,7 +169,7 @@ private fun avatarTile(avatar: dynamic, router: HistoryRouter): HTMLElement {
         tile.asDynamic().classList.add("generating")
         tile.appendChild(el("span", "avatar-spinner"))
         tile.appendChild(el("span", "avatar-state", text = Town.t("generating")))
-        pollAvatar(id, router)
+        pollAvatar(id) { refresh(router) }
     }
     tile.appendChild(el("small", text = avatar.prompt as? String ?: ""))
     val actions = el("div", "avatar-actions")
@@ -218,7 +180,7 @@ private fun avatarTile(avatar: dynamic, router: HistoryRouter): HTMLElement {
                 button.setAttribute("disabled", "disabled")
                 http("POST", "/api/avatars/$id/retry") { code, body ->
                     if (code == 202 || code == 200) {
-                        pollAvatar(id, router)
+                        pollAvatar(id) { refresh(router) }
                         refresh(router)
                     } else {
                         button.removeAttribute("disabled")
@@ -281,12 +243,60 @@ private fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes:
     host.appendChild(backdrop)
 }
 
-private fun pollAvatar(id: String, router: HistoryRouter) {
+internal fun avatarPromptForm(host: HTMLElement, me: Me, onCreated: (String) -> Unit): HTMLElement {
+    val box = el("div")
+    box.setAttribute("style", "display: contents;")
+    val prompt = el("input")
+    prompt.setAttribute("type", "text")
+    prompt.setAttribute("maxlength", "200")
+    prompt.setAttribute("placeholder", Town.t("avatarPrompt"))
+    val create = el("button", "secondary", text = Town.t("createAvatar"))
+    create.setAttribute("type", "button")
+    create.setAttribute("style", "margin-top: 8px;")
+    val note = el("p", "form-error")
+    note.asDynamic().hidden = true
+    create.onClick {
+        if (!me.hasProfilePhoto) {
+            note.textContent = Town.t("needProfilePhoto")
+            note.asDynamic().hidden = false
+            return@onClick
+        }
+        val text = (prompt.asDynamic().value as String).trim()
+        if (text.isEmpty()) {
+            toast(host, Town.t("invalidPrompt"))
+            return@onClick
+        }
+        create.setAttribute("disabled", "disabled")
+        create.asDynamic().classList.add("busy")
+        create.textContent = ""
+        create.appendChild(el("span", "avatar-spinner"))
+        val payload = js("({})")
+        payload.prompt = text
+        http("POST", "/api/avatars", jsonStringify(payload)) { status, body ->
+            create.removeAttribute("disabled")
+            create.asDynamic().classList.remove("busy")
+            create.textContent = Town.t("createAvatar")
+            if (status == 202 || status == 200) {
+                prompt.asDynamic().value = ""
+                onCreated(parseJson(body).id as String)
+            } else {
+                toast(host, errorText(body, status))
+            }
+        }
+    }
+    box.appendChild(prompt)
+    box.appendChild(create)
+    box.appendChild(note)
+    return box
+}
+
+internal fun pollAvatar(id: String, onDone: (dynamic) -> Unit) {
     window.asDynamic().setTimeout({
         http("GET", "/api/avatars/$id") { status, body ->
             if (status != 200) return@http
-            val statusName = parseJson(body).status as? String
-            if (statusName == "generating") pollAvatar(id, router) else refresh(router)
+            val parsed = parseJson(body)
+            val statusName = parsed.status as? String
+            if (statusName == "generating") pollAvatar(id, onDone) else onDone(parsed)
         }
     }, 2000)
 }

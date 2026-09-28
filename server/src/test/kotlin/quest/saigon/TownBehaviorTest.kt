@@ -347,6 +347,33 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun postPhotosAreCappedAtEightHundredPixels() {
+        val images = ImageOps()
+        val source = BufferedImage(1600, 2844, BufferedImage.TYPE_INT_RGB)
+        val graphics = source.createGraphics()
+        graphics.color = Color(40, 90, 160)
+        graphics.fillRect(0, 0, source.width, source.height)
+        graphics.dispose()
+        val prepared = images.read(images.preparePostPhoto(images.writeJpeg(source, 0.95f)))
+        assertEquals(800, Limits.PHOTO_MAX_EDGE)
+        assertEquals(0.85, Limits.JPEG_QUALITY)
+        assertTrue(maxOf(prepared.width, prepared.height) <= Limits.PHOTO_MAX_EDGE)
+    }
+
+    @Test
+    fun avatarsAreCappedAtFiveHundredTwelvePixels() {
+        val images = ImageOps()
+        val source = BufferedImage(1024, 1400, BufferedImage.TYPE_INT_ARGB)
+        val graphics = source.createGraphics()
+        graphics.color = Color(220, 40, 40, 255)
+        graphics.fillRect(0, 0, source.width, source.height)
+        graphics.dispose()
+        val prepared = images.read(images.prepareAvatar(source))
+        assertEquals(512, Limits.AVATAR_MAX_EDGE)
+        assertTrue(maxOf(prepared.width, prepared.height) <= Limits.AVATAR_MAX_EDGE)
+    }
+
+    @Test
     fun publicStatsAreBatchedBySaigonDay() = testApplication {
         val services = services()
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
@@ -551,6 +578,26 @@ class TownBehaviorTest {
         assertEquals(0, served.getRGB(5, 5) ushr 24)
         assertEquals(255, served.getRGB(4, 5) ushr 24)
         assertEquals(0, images.read(services.uploads.resolve(path)!!.readBytes()).getRGB(5, 5) ushr 24)
+    }
+
+    @Test
+    fun servedOversizedAvatarIsDownscaledToMaxEdge() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val images = ImageOps()
+        val avatar = BufferedImage(800, 900, BufferedImage.TYPE_INT_ARGB)
+        val graphics = avatar.createGraphics()
+        graphics.color = Color(220, 40, 40, 255)
+        graphics.fillRect(0, 0, avatar.width, avatar.height)
+        graphics.dispose()
+        val path = services.uploads.writeAvatar(images.writePng(avatar))
+
+        val response = client.get("/media/$path")
+        assertEquals(HttpStatusCode.OK, response.status)
+        val served = images.read(response.bodyAsBytes())
+        assertTrue(maxOf(served.width, served.height) <= Limits.AVATAR_MAX_EDGE)
+        val stored = images.read(services.uploads.resolve(path)!!.readBytes())
+        assertTrue(maxOf(stored.width, stored.height) <= Limits.AVATAR_MAX_EDGE)
     }
 
     @Test

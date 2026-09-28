@@ -39,6 +39,6 @@ class AvatarPipeline(
         } else {
             images.chromaKeyGray(color)
         }
-        return images.writePng(images.trimToContent(cutout))
+        return images.prepareAvatar(cutout)
     }
 }

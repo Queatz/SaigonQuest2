@@ -26,8 +26,11 @@ class ImageOps {
 
     fun prepareProfilePhoto(bytes: ByteArray): ByteArray {
         val fitted = limitEdge(read(bytes), 1600)
-        return writeJpeg(fitted, 0.9f)
+        return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
     }
+
+    fun prepareAvatar(image: BufferedImage): ByteArray =
+        writePng(limitEdge(trimToContent(image), Limits.AVATAR_MAX_EDGE))
 
     fun limitEdge(image: BufferedImage, maxEdge: Int): BufferedImage {
         val edge = max(image.width, image.height)

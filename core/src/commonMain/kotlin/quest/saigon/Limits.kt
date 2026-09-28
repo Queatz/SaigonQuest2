@@ -7,7 +7,8 @@ object Limits {
     const val LOCATION_MAX = 80
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72
-    const val PHOTO_MAX_EDGE = 1200
+    const val PHOTO_MAX_EDGE = 800
+    const val AVATAR_MAX_EDGE = 512
     const val JPEG_QUALITY = 0.85
     const val TYPEWRITER_MILLIS_PER_CHAR = 33
     const val AVATAR_ENTER_PX = 50

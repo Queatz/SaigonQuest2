@@ -344,8 +344,9 @@ fun Route.mediaRoutes(services: TownServices) {
 private fun trimmedAvatar(images: ImageOps, file: File): ByteArray {
     val source = images.read(file.readBytes())
     val trimmed = images.trimToContent(source)
-    if (trimmed.width == source.width && trimmed.height == source.height) return file.readBytes()
-    val bytes = images.writePng(trimmed)
+    val fitted = images.limitEdge(trimmed, Limits.AVATAR_MAX_EDGE)
+    if (fitted.width == source.width && fitted.height == source.height) return file.readBytes()
+    val bytes = images.writePng(fitted)
     file.writeBytes(bytes)
     return bytes
 }
