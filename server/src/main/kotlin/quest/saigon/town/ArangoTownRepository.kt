@@ -27,6 +27,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("passwordHash", passwordHash)
         doc.addAttribute("name", name)
         doc.addAttribute("location", "")
+        doc.addAttribute("intro", "")
         doc.addAttribute("profilePhotoPath", null)
         doc.addAttribute("language", "system")
         doc.addAttribute("createdAt", createdAt)
@@ -53,6 +54,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("passwordHash", user.passwordHash)
         doc.addAttribute("name", user.name)
         doc.addAttribute("location", user.location)
+        doc.addAttribute("intro", user.intro)
         doc.addAttribute("profilePhotoPath", user.profilePhotoPath)
         doc.addAttribute("language", user.language)
         doc.addAttribute("createdAt", user.createdAt)
@@ -162,6 +164,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 id: p._key,
                 authorName: author.name,
                 authorPhotoPath: author.profilePhotoPath,
+                authorLocation: author.location,
+                authorIntro: author.intro,
                 message: p.message,
                 location: p.location,
                 photoPath: p.photoPath,
@@ -181,6 +185,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 photoPath = string(row, "photoPath"),
                 avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
                 createdAt = long(row, "createdAt"),
+                authorLocation = string(row, "authorLocation"),
+                authorIntro = string(row, "authorIntro"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -425,6 +431,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         profilePhotoPath = doc.getAttribute("profilePhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
         language = string(doc, "language").ifBlank { "system" },
         createdAt = long(doc, "createdAt"),
+        intro = string(doc, "intro"),
     )
 
     private fun avatarFrom(doc: BaseDocument) = AvatarRecord(

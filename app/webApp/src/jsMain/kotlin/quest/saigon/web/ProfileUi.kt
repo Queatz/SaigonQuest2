@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.Limits
 import web.html.HTMLElement
 import web.window.window
 
@@ -45,6 +46,8 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     phone.input.asDynamic().value = me.phone
     val location = field(Town.t("yourLocation"), "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
+    val intro = area(Town.t("introduceYourself"), Town.t("introduceYourselfHint"), Limits.INTRO_MAX)
+    intro.input.asDynamic().value = me.intro
     val languageSelect = languageField(me.language) { value ->
         val typed = Town.me
         if (typed != null) {
@@ -52,6 +55,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
                 name = name.value(),
                 phone = phone.value(),
                 location = location.value(),
+                intro = intro.value(),
                 language = value,
             )
         }
@@ -68,6 +72,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
                     name = pending.name,
                     phone = pending.phone,
                     location = pending.location,
+                    intro = pending.intro,
                 )
                 Town.rememberLanguage(saved.language)
                 Town.applyLanguage()
@@ -86,6 +91,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
         payload.name = name.value()
         payload.phone = phone.value()
         payload.location = location.value()
+        payload.intro = intro.value()
         payload.language = languageSelect.asDynamic().querySelector("select").value
         http("PATCH", "/api/me", jsonStringify(payload)) { status, text ->
             save.removeAttribute("disabled")
@@ -108,6 +114,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(name.root)
     body.appendChild(phone.root)
     body.appendChild(location.root)
+    body.appendChild(intro.root)
     body.appendChild(error)
     body.appendChild(el("h3", text = Town.t("createAvatar")))
     body.appendChild(avatarStudio(shell, router, me))

@@ -5,6 +5,7 @@ object Limits {
     const val MESSAGE_MAX = 280
     const val PROMPT_MAX = 200
     const val LOCATION_MAX = 80
+    const val INTRO_MAX = 280
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72
     const val PHOTO_MAX_EDGE = 800

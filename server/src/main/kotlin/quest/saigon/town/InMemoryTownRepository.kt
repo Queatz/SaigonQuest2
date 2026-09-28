@@ -102,6 +102,8 @@ class InMemoryTownRepository : TownRepository {
                 location = post.location,
                 photoPath = post.photoPath,
                 avatarPath = avatar?.imagePath,
+                authorLocation = author?.location.orEmpty(),
+                authorIntro = author?.intro.orEmpty(),
                 createdAt = post.createdAt,
             )
         }

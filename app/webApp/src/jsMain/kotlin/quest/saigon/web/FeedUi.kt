@@ -269,7 +269,8 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
         stack.appendChild(avatar)
     }
     val card = el("div", "card")
-    val name = el("span", if (post.authorPhotoUrl.isNullOrBlank()) "name-chip" else "name-chip has-face")
+    val name = el("button", if (post.authorPhotoUrl.isNullOrBlank()) "name-chip" else "name-chip has-face")
+    name.setAttribute("type", "button")
     if (!post.authorPhotoUrl.isNullOrBlank()) {
         val face = el("img", "name-face")
         face.setAttribute("alt", "")
@@ -277,6 +278,7 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
         name.appendChild(face)
     }
     name.appendChild(el("span", text = post.authorName))
+    name.onClick { openMiniProfile(post, host) }
     card.appendChild(name)
     val message = el("p", "message")
     card.appendChild(message)
@@ -290,6 +292,33 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
     stack.appendChild(card)
     slide.appendChild(stack)
     return slide
+}
+
+private fun openMiniProfile(post: PostCard, host: HTMLElement) {
+    if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
+    val backdrop = el("div", "dialog-backdrop")
+    val card = el("div", "dialog mini-profile")
+    if (!post.authorPhotoUrl.isNullOrBlank()) {
+        val face = el("img", "face large")
+        face.setAttribute("alt", "")
+        face.setAttribute("src", post.authorPhotoUrl)
+        card.appendChild(face)
+    } else {
+        card.appendChild(el("span", "face large initial", text = post.authorName.take(1).uppercase()))
+    }
+    card.appendChild(el("h2", text = post.authorName))
+    if (post.authorLocation.isNotBlank()) {
+        card.appendChild(el("p", "mini-profile-location", text = post.authorLocation))
+    }
+    if (post.authorIntro.isNotBlank()) {
+        card.appendChild(el("p", "mini-profile-intro", text = post.authorIntro))
+    }
+    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { backdrop.asDynamic().remove() }
+    })
+    backdrop.appendChild(card)
+    host.appendChild(backdrop)
 }
 
 private fun openZalo(postId: String, host: HTMLElement, button: HTMLElement) {

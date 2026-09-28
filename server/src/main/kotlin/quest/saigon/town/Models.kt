@@ -9,6 +9,7 @@ data class UserRecord(
     val profilePhotoPath: String?,
     val language: String,
     val createdAt: Long,
+    val intro: String = "",
 )
 
 data class SessionRecord(
@@ -49,6 +50,8 @@ data class FeedItem(
     val photoPath: String,
     val avatarPath: String?,
     val createdAt: Long,
+    val authorLocation: String = "",
+    val authorIntro: String = "",
 )
 
 data class FeedPage(

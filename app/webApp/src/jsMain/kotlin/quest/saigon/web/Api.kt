@@ -65,6 +65,7 @@ internal fun errorText(body: String, status: Int): String {
         "invalid_name" -> "invalidName"
         "invalid_message" -> "invalidMessage"
         "invalid_location" -> "invalidLocation"
+        "invalid_intro" -> "invalidIntro"
         "invalid_prompt" -> "invalidPrompt"
         "photo_required" -> "photoRequired"
         "avatar_required" -> "avatarRequired"

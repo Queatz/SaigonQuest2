@@ -559,6 +559,49 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun introIsSavedOnProfileAndIncludedInFeed() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905556688","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, created.status)
+        val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
+
+        val tooLong = http.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"intro":"${"x".repeat(Limits.INTRO_MAX + 1)}"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooLong.status)
+        assertEquals("invalid_intro", mapper.readTree(tooLong.bodyAsText()).path("error").asText())
+
+        val saved = http.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Thảo Điền","intro":"Coffee, bikes, and late dinners."}""")
+        }
+        assertEquals(HttpStatusCode.OK, saved.status)
+        val me = mapper.readTree(saved.bodyAsText())
+        assertEquals("Coffee, bikes, and late dinners.", me.path("intro").asText())
+        assertEquals("Thảo Điền", me.path("location").asText())
+
+        val jpeg = ImageOps().writeJpeg(solid(8, 8, Color(40, 90, 160)), 0.85f)
+        val avatar = services.repo.insertAvatar(userId, "smiling", 10)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
+        services.repo.insertPost(
+            PostRecord("", userId, avatar.id, services.uploads.writePost(jpeg), "Hello town", "Cát Lái", 5L),
+        )
+
+        val feed = mapper.readTree(http.get("/api/posts").bodyAsText())
+        val card = feed.path("posts").path(0)
+        assertEquals("Linh", card.path("authorName").asText())
+        assertEquals("Thảo Điền", card.path("authorLocation").asText())
+        assertEquals("Coffee, bikes, and late dinners.", card.path("authorIntro").asText())
+        assertEquals("Cát Lái", card.path("location").asText())
+    }
+
+    @Test
     fun servedAvatarKeepsEnclosedHolesTransparent() = testApplication {
         val services = services()
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }

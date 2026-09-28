@@ -117,3 +117,13 @@ internal fun field(label: String, type: String, hint: String, autocomplete: Stri
     if (hint.isNotBlank()) root.appendChild(el("small", text = hint))
     return Field(root, input)
 }
+
+internal fun area(label: String, hint: String, maxLength: Int): Field {
+    val root = el("label", "field")
+    root.appendChild(el("span", text = label))
+    val input = el("textarea")
+    input.setAttribute("maxlength", maxLength.toString())
+    root.appendChild(input)
+    if (hint.isNotBlank()) root.appendChild(el("small", text = hint))
+    return Field(root, input)
+}

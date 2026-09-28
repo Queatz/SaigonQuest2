@@ -119,6 +119,9 @@ fun Route.townApi(services: TownServices) {
             if (location.length > Limits.LOCATION_MAX) return@patch call.fail("invalid_location")
             next = next.copy(location = location)
         }
+        if (body.has("intro")) {
+            next = next.copy(intro = cleanIntro(Jsons.text(body, "intro")) ?: return@patch call.fail("invalid_intro"))
+        }
         if (body.has("language")) {
             val language = languagePreference(Jsons.text(body, "language")) ?: return@patch call.fail("invalid_language")
             next = next.copy(language = language)
@@ -262,6 +265,8 @@ fun Route.townApi(services: TownServices) {
                     location = post.location,
                     photoPath = post.photoPath,
                     avatarPath = avatar.imagePath,
+                    authorLocation = user.location,
+                    authorIntro = user.intro,
                     createdAt = post.createdAt,
                 ),
             ),
@@ -407,6 +412,7 @@ private fun mePayload(user: UserRecord) = mapOf(
     "name" to user.name,
     "phone" to PhoneNumbers.display(user.phone),
     "location" to user.location,
+    "intro" to user.intro,
     "language" to user.language,
     "hasProfilePhoto" to (user.profilePhotoPath != null),
     "photoUrl" to if (user.profilePhotoPath != null) "/api/me/photo" else null,
@@ -425,6 +431,8 @@ private fun postPayload(item: FeedItem) = mapOf(
     "id" to item.id,
     "authorName" to item.authorName,
     "authorPhotoUrl" to if (item.authorPhotoPath != null) "/api/posts/${item.id}/author-photo" else null,
+    "authorLocation" to item.authorLocation,
+    "authorIntro" to item.authorIntro,
     "message" to item.message,
     "location" to item.location,
     "photoUrl" to "/media/${item.photoPath}",
@@ -449,6 +457,13 @@ private fun cleanName(raw: String): String? {
     if (name.length !in 1..Limits.NAME_MAX) return null
     if (name.any { it.isISOControl() }) return null
     return name
+}
+
+private fun cleanIntro(raw: String): String? {
+    val intro = raw.replace("\r\n", "\n").trim()
+    if (intro.length > Limits.INTRO_MAX) return null
+    if (intro.any { it.isISOControl() && it != '\n' }) return null
+    return intro
 }
 
 private fun clientIp(call: ApplicationCall, trustProxy: Boolean): String {
