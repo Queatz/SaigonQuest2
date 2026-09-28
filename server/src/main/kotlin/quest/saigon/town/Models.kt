@@ -73,6 +73,18 @@ data class OwnedPostPage(
     val nextCursor: String?,
 )
 
+data class DayStats(
+    val day: String,
+    val visitorVisits: Long = 0,
+    val userVisits: Long = 0,
+    val uniqueUserVisits: Long = 0,
+    val posts: Long = 0,
+    val newUsers: Long = 0,
+    val replyClicks: Long = 0,
+    val shareClicks: Long = 0,
+    val postViews: Long = 0,
+)
+
 object AvatarStatus {
     const val GENERATING = "generating"
     const val READY = "ready"

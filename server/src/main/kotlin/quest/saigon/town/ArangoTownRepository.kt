@@ -8,10 +8,11 @@ import com.arangodb.entity.BaseDocument
 import com.arangodb.model.PersistentIndexOptions
 import com.arangodb.serde.jackson.JacksonSerde
 import quest.saigon.AppConfig
+import java.time.LocalDate
 
 class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
-        listOf(USERS, SESSIONS, AVATARS, POSTS).forEach { name ->
+        listOf(USERS, SESSIONS, AVATARS, POSTS, DAY_STATS).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
         }
@@ -265,6 +266,125 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(POSTS).deleteDocument(id)
     }
 
+    override fun recordVisit(userId: String?, at: Long) {
+        val day = SaigonDays.dayKey(at)
+        if (userId == null) {
+            bumpDaily(day, "visitorVisits")
+            return
+        }
+        exec(
+            """
+            UPSERT { _key: @day }
+            INSERT {
+              _key: @day,
+              visitorVisits: 0,
+              userVisits: 1,
+              uniqueUserIds: [@userId],
+              replyClicks: 0,
+              shareClicks: 0,
+              postViews: 0
+            }
+            UPDATE {
+              userVisits: (OLD.userVisits == null ? 0 : OLD.userVisits) + 1,
+              uniqueUserIds: (
+                @userId IN (OLD.uniqueUserIds == null ? [] : OLD.uniqueUserIds)
+                  ? (OLD.uniqueUserIds == null ? [] : OLD.uniqueUserIds)
+                  : APPEND(OLD.uniqueUserIds == null ? [] : OLD.uniqueUserIds, @userId)
+              )
+            } IN $DAY_STATS
+            RETURN NEW
+            """.trimIndent(),
+            mapOf("day" to day, "userId" to userId),
+        )
+    }
+
+    override fun recordDailyEvent(field: String, at: Long) {
+        bumpDaily(SaigonDays.dayKey(at), field)
+    }
+
+    override fun statsByDay(now: Long): List<DayStats> {
+        val days = SaigonDays.range(now)
+        val from = SaigonDays.startMillis(days.first())
+        val to = SaigonDays.startMillis(LocalDate.parse(days.last()).plusDays(1).toString())
+        val postsByDay = countsByDay(POSTS, from, to)
+        val usersByDay = countsByDay(USERS, from, to)
+        val stored = queryList(
+            "FOR d IN $DAY_STATS FILTER d._key >= @fromDay AND d._key <= @toDay RETURN d",
+            mapOf("fromDay" to days.first(), "toDay" to days.last()),
+        ).associateBy { it.key }
+        return days.map { day ->
+            val doc = stored[day]
+            DayStats(
+                day = day,
+                visitorVisits = long(doc, "visitorVisits"),
+                userVisits = long(doc, "userVisits"),
+                uniqueUserVisits = uniqueUserCount(doc),
+                posts = postsByDay[day] ?: 0L,
+                newUsers = usersByDay[day] ?: 0L,
+                replyClicks = long(doc, "replyClicks"),
+                shareClicks = long(doc, "shareClicks"),
+                postViews = long(doc, "postViews"),
+            )
+        }
+    }
+
+    private fun bumpDaily(day: String, field: String) {
+        val fieldName = DAILY_FIELDS.find { it == field } ?: return
+        val visitor = if (fieldName == "visitorVisits") 1 else 0
+        val users = if (fieldName == "userVisits") 1 else 0
+        val replies = if (fieldName == "replyClicks") 1 else 0
+        val shares = if (fieldName == "shareClicks") 1 else 0
+        val views = if (fieldName == "postViews") 1 else 0
+        exec(
+            """
+            UPSERT { _key: @day }
+            INSERT {
+              _key: @day,
+              visitorVisits: $visitor,
+              userVisits: $users,
+              uniqueUserIds: [],
+              replyClicks: $replies,
+              shareClicks: $shares,
+              postViews: $views
+            }
+            UPDATE { $fieldName: (OLD.$fieldName == null ? 0 : OLD.$fieldName) + 1 }
+            IN $DAY_STATS
+            RETURN NEW
+            """.trimIndent(),
+            mapOf("day" to day),
+        )
+    }
+
+    private fun countsByDay(collection: String, from: Long, to: Long): Map<String, Long> {
+        val query = if (collection == POSTS) {
+            """
+            FOR d IN $POSTS
+              FILTER d.createdAt >= @from AND d.createdAt < @to
+              COLLECT day = DATE_FORMAT(d.createdAt + 25200000, "%yyyy-%mm-%dd")
+              WITH COUNT INTO n
+              RETURN { day, n }
+            """.trimIndent()
+        } else {
+            """
+            FOR d IN $USERS
+              FILTER d.createdAt >= @from AND d.createdAt < @to
+              COLLECT day = DATE_FORMAT(d.createdAt + 25200000, "%yyyy-%mm-%dd")
+              WITH COUNT INTO n
+              RETURN { day, n }
+            """.trimIndent()
+        }
+        return queryList(query, mapOf("from" to from, "to" to to)).associate { string(it, "day") to long(it, "n") }
+    }
+
+    private fun uniqueUserCount(doc: BaseDocument?): Long {
+        val raw = doc?.getAttribute("uniqueUserIds") ?: return 0L
+        return when (raw) {
+            is Collection<*> -> raw.size.toLong()
+            is Array<*> -> raw.size.toLong()
+            else -> 0L
+        }
+    }
+
     private fun bump(id: String, field: String) {
         exec(
             """
@@ -319,13 +439,16 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
 
     private fun string(doc: BaseDocument, name: String): String = doc.getAttribute(name)?.toString().orEmpty()
 
-    private fun long(doc: BaseDocument, name: String): Long = (doc.getAttribute(name) as? Number)?.toLong() ?: 0L
+    private fun long(doc: BaseDocument?, name: String): Long =
+        (doc?.getAttribute(name) as? Number)?.toLong() ?: 0L
 
     companion object {
         private const val USERS = "users"
         private const val SESSIONS = "sessions"
         private const val AVATARS = "avatars"
         private const val POSTS = "posts"
+        private const val DAY_STATS = "dayStats"
+        private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 
         fun open(config: AppConfig): ArangoTownRepository {
             val client = ArangoDB.Builder()

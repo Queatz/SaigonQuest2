@@ -14,12 +14,14 @@ fun main() {
     Town.applyLanguage()
     router.start()
     http("GET", "/api/me") { status, body ->
-        if (status != 200) return@http
-        try {
-            Town.me = meFrom(parseJson(body))
-            Town.applyLanguage()
-            refresh(router)
-        } catch (_: Throwable) {
+        if (status == 200) {
+            try {
+                Town.me = meFrom(parseJson(body))
+                Town.applyLanguage()
+                refresh(router)
+            } catch (_: Throwable) {
+            }
         }
+        recordAppVisit()
     }
 }

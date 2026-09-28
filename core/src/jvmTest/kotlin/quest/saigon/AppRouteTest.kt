@@ -19,6 +19,8 @@ class AppRouteTest {
         assertEquals(AppRoute.Profile, matchAppRoute("/profile"))
         assertEquals(AppRoute.MyPosts, matchAppRoute("/profile/posts"))
         assertEquals(AppRoute.MyPosts, matchAppRoute("/profile/posts/"))
+        assertEquals(AppRoute.Stats, matchAppRoute("/stats"))
+        assertEquals(AppRoute.Stats, matchAppRoute("/stats/"))
     }
 
     @Test

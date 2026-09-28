@@ -71,6 +71,37 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("ok" to true))
     }
 
+    get("/stats") {
+        val days = services.repo.statsByDay(services.clock())
+        call.respondJson(
+            mapOf(
+                "timezone" to "UTC+7",
+                "days" to days.map { row ->
+                    mapOf(
+                        "day" to row.day,
+                        "visitorVisits" to row.visitorVisits,
+                        "userVisits" to row.userVisits,
+                        "uniqueUserVisits" to row.uniqueUserVisits,
+                        "posts" to row.posts,
+                        "newUsers" to row.newUsers,
+                        "replyClicks" to row.replyClicks,
+                        "shareClicks" to row.shareClicks,
+                        "postViews" to row.postViews,
+                    )
+                },
+            ),
+        )
+    }
+
+    post("/stats/visit") {
+        val user = call.user(services)
+        val ip = clientIp(call, services.config.trustProxy)
+        if (services.visitLimiter.allow(user?.id ?: ip)) {
+            services.repo.recordVisit(user?.id, services.clock())
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
     get("/me") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         call.respondJson(mePayload(user))
@@ -252,7 +283,10 @@ fun Route.townApi(services: TownServices) {
         val viewer = call.user(services)
         if (viewer?.id != post.userId) {
             val ip = clientIp(call, services.config.trustProxy)
-            if (services.viewLimiter.allow("$ip:${post.id}")) services.repo.recordView(post.id)
+            if (services.viewLimiter.allow("$ip:${post.id}")) {
+                services.repo.recordView(post.id)
+                services.repo.recordDailyEvent("postViews", services.clock())
+            }
         }
         call.respondJson(mapOf("ok" to true))
     }
@@ -265,6 +299,7 @@ fun Route.townApi(services: TownServices) {
             val ip = clientIp(call, services.config.trustProxy)
             if (!services.contactLimiter.allow(ip)) return@post call.fail("rate_limited")
             services.repo.recordReplyClick(post.id)
+            services.repo.recordDailyEvent("replyClicks", services.clock())
         }
         call.respondJson(mapOf("zaloUrl" to PhoneNumbers.zaloUrl(author.phone)))
     }
@@ -274,6 +309,7 @@ fun Route.townApi(services: TownServices) {
         val actor = call.user(services)
         if (actor?.id != post.userId) {
             services.repo.recordShareClick(post.id)
+            services.repo.recordDailyEvent("shareClicks", services.clock())
         }
         call.respondJson(mapOf("ok" to true))
     }

@@ -89,3 +89,14 @@ internal fun num(value: dynamic): Double {
 
 internal fun encodeQuery(value: String): String =
     window.asDynamic().encodeURIComponent(value) as String
+
+internal fun recordAppVisit() {
+    val storage = window.asDynamic().sessionStorage
+    if (storage.getItem("sq_visit") == "1") return
+    storage.setItem("sq_visit", "1")
+    http("POST", "/api/stats/visit", "{}") { _, _ -> }
+}
+
+internal fun recordUserVisit() {
+    http("POST", "/api/stats/visit", "{}") { _, _ -> }
+}

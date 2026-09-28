@@ -9,6 +9,7 @@ class InMemoryTownRepository : TownRepository {
     private val sessions = ConcurrentHashMap<String, SessionRecord>()
     private val avatars = ConcurrentHashMap<String, AvatarRecord>()
     private val posts = ConcurrentHashMap<String, PostRecord>()
+    private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
         val id = newId()
@@ -158,5 +159,64 @@ class InMemoryTownRepository : TownRepository {
         posts.remove(id)
     }
 
+    override fun recordVisit(userId: String?, at: Long) {
+        val bucket = daily.getOrPut(SaigonDays.dayKey(at)) { DailyBucket() }
+        synchronized(bucket) {
+            if (userId == null) {
+                bucket.visitorVisits += 1
+            } else {
+                bucket.userVisits += 1
+                bucket.uniqueUsers.add(userId)
+            }
+        }
+    }
+
+    override fun recordDailyEvent(field: String, at: Long) {
+        val bucket = daily.getOrPut(SaigonDays.dayKey(at)) { DailyBucket() }
+        synchronized(bucket) {
+            when (field) {
+                "postViews" -> bucket.postViews += 1
+                "replyClicks" -> bucket.replyClicks += 1
+                "shareClicks" -> bucket.shareClicks += 1
+            }
+        }
+    }
+
+    override fun statsByDay(now: Long): List<DayStats> {
+        val postsByDay = posts.values.groupingBy { SaigonDays.dayKey(it.createdAt) }.eachCount()
+        val usersByDay = users.values.groupingBy { SaigonDays.dayKey(it.createdAt) }.eachCount()
+        return SaigonDays.range(now).map { day ->
+            val bucket = daily[day]
+            val snapshot = if (bucket == null) {
+                DayStats(day)
+            } else {
+                synchronized(bucket) {
+                    DayStats(
+                        day = day,
+                        visitorVisits = bucket.visitorVisits,
+                        userVisits = bucket.userVisits,
+                        uniqueUserVisits = bucket.uniqueUsers.size.toLong(),
+                        replyClicks = bucket.replyClicks,
+                        shareClicks = bucket.shareClicks,
+                        postViews = bucket.postViews,
+                    )
+                }
+            }
+            snapshot.copy(
+                posts = postsByDay[day]?.toLong() ?: 0L,
+                newUsers = usersByDay[day]?.toLong() ?: 0L,
+            )
+        }
+    }
+
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
+
+    private class DailyBucket {
+        var visitorVisits = 0L
+        var userVisits = 0L
+        val uniqueUsers: MutableSet<String> = ConcurrentHashMap.newKeySet()
+        var replyClicks = 0L
+        var shareClicks = 0L
+        var postViews = 0L
+    }
 }

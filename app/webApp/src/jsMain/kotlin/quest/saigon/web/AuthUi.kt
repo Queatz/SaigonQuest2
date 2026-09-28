@@ -77,6 +77,7 @@ private fun authDialog(onSuccess: () -> Unit, onClose: () -> Unit): HTMLElement 
                     Town.me = meFrom(parseJson(body))
                     Town.rememberLanguage(Town.me?.language ?: "system")
                     Town.applyLanguage()
+                    recordUserVisit()
                     onSuccess()
                 } else {
                     error.textContent = errorText(body, status)

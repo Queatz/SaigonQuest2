@@ -109,6 +109,18 @@ object Copy {
         "deletePostAsk" to "Delete this post?",
         "deletePostHint" to "It will leave the town.",
         "loadMore" to "Load more",
+        "stats" to "Stats",
+        "statsHint" to "Daily totals in Ho Chi Minh time (UTC+7).",
+        "visitorVisits" to "Visitor visits",
+        "userVisits" to "User visits",
+        "uniqueUserVisits" to "Unique user visits",
+        "postsPerDay" to "Posts",
+        "newUsersPerDay" to "New users",
+        "postViews" to "Post views",
+        "statsLive" to "Live",
+        "statsRange7" to "7 days",
+        "statsRange30" to "30 days",
+        "statsToday" to "Today",
     )
 
     private val vi = mapOf(
@@ -219,6 +231,18 @@ object Copy {
         "deletePostAsk" to "Xóa bài này?",
         "deletePostHint" to "Bài sẽ không còn trên phố.",
         "loadMore" to "Xem thêm",
+        "stats" to "Thống kê",
+        "statsHint" to "Tổng theo ngày theo giờ Sài Gòn (UTC+7).",
+        "visitorVisits" to "Lượt khách",
+        "userVisits" to "Lượt người dùng",
+        "uniqueUserVisits" to "Người dùng khác nhau",
+        "postsPerDay" to "Bài viết",
+        "newUsersPerDay" to "Người dùng mới",
+        "postViews" to "Lượt xem bài",
+        "statsLive" to "Trực tiếp",
+        "statsRange7" to "7 ngày",
+        "statsRange30" to "30 ngày",
+        "statsToday" to "Hôm nay",
     )
 
     fun text(language: Language, key: String, values: Map<String, String> = emptyMap()): String {

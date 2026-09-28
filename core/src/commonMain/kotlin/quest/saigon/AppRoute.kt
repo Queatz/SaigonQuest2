@@ -5,6 +5,7 @@ sealed class AppRoute {
     data object NewPost : AppRoute()
     data object Profile : AppRoute()
     data object MyPosts : AppRoute()
+    data object Stats : AppRoute()
     data class NotFound(val path: String) : AppRoute()
 }
 
@@ -17,6 +18,7 @@ fun matchAppRoute(path: String): AppRoute {
         "/new" -> AppRoute.NewPost
         "/profile" -> AppRoute.Profile
         "/profile/posts" -> AppRoute.MyPosts
+        "/stats" -> AppRoute.Stats
         else -> AppRoute.NotFound(path)
     }
 }

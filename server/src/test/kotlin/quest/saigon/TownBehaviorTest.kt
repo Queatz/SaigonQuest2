@@ -1,5 +1,6 @@
 package quest.saigon
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete
@@ -25,6 +26,7 @@ import quest.saigon.town.AvatarService
 import quest.saigon.town.AvatarStatus
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.PostRecord
+import quest.saigon.town.SaigonDays
 import quest.saigon.town.TownServices
 import quest.saigon.town.avatarFailureReason
 import java.awt.Color
@@ -345,6 +347,78 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun publicStatsAreBatchedBySaigonDay() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val anonymous = createClient { }
+        val empty = mapper.readTree(anonymous.get("/api/stats").bodyAsText())
+        assertEquals("UTC+7", empty.path("timezone").asText())
+        assertEquals(30, empty.path("days").size())
+        val today = SaigonDays.dayKey(1_700_000_000_000L)
+        assertEquals(today, empty.path("days").path(29).path("day").asText())
+
+        assertEquals(HttpStatusCode.OK, anonymous.post("/api/stats/visit").status)
+        val afterVisit = todayNode(mapper.readTree(anonymous.get("/api/stats").bodyAsText()), today)
+        assertEquals(1, afterVisit.path("visitorVisits").asInt())
+        assertEquals(0, afterVisit.path("userVisits").asInt())
+
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0903334455","password":"secretpass"}""")
+        }
+        val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        http.post("/api/stats/visit")
+        http.post("/api/stats/visit")
+        val afterUser = todayNode(mapper.readTree(anonymous.get("/api/stats").bodyAsText()), today)
+        assertEquals(1, afterUser.path("visitorVisits").asInt())
+        assertEquals(2, afterUser.path("userVisits").asInt())
+        assertEquals(1, afterUser.path("uniqueUserVisits").asInt())
+        assertEquals(1, afterUser.path("newUsers").asInt())
+
+        val avatar = services.repo.insertAvatar(userId, "smiling", 10)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
+        val jpeg = ImageOps().writeJpeg(solid(8, 8, Color(40, 90, 160)), 0.85f)
+        val path = services.uploads.writePost(jpeg)
+        val post = services.repo.insertPost(PostRecord("", userId, avatar.id, path, "Hello town", "Cát Lái", 1_700_000_000_000L))
+        assertEquals(HttpStatusCode.OK, anonymous.post("/api/posts/${post.id}/view").status)
+        assertEquals(HttpStatusCode.OK, anonymous.post("/api/posts/${post.id}/contact").status)
+        assertEquals(HttpStatusCode.OK, anonymous.post("/api/posts/${post.id}/share").status)
+
+        val counted = todayNode(mapper.readTree(anonymous.get("/api/stats").bodyAsText()), today)
+        assertEquals(1, counted.path("posts").asInt())
+        assertEquals(1, counted.path("postViews").asInt())
+        assertEquals(1, counted.path("replyClicks").asInt())
+        assertEquals(1, counted.path("shareClicks").asInt())
+    }
+
+    @Test
+    fun statsSplitAcrossSaigonMidnight() {
+        val before = SaigonDays.startMillis("2023-11-15") - 1
+        val after = SaigonDays.startMillis("2023-11-15")
+        val repo = InMemoryTownRepository()
+        repo.createUser("0901000001", "hash", "Linh", before)
+        repo.insertPost(PostRecord("p1", "u", "a", "posts/x.jpg", "hi", "SG", before))
+        repo.recordVisit(null, before)
+        repo.recordVisit("u1", before)
+        repo.recordDailyEvent("postViews", before)
+        repo.recordVisit(null, after)
+
+        val days = repo.statsByDay(after)
+        val nov14 = days.first { it.day == "2023-11-14" }
+        val nov15 = days.first { it.day == "2023-11-15" }
+        assertEquals(1, nov14.visitorVisits)
+        assertEquals(1, nov14.userVisits)
+        assertEquals(1, nov14.uniqueUserVisits)
+        assertEquals(1, nov14.posts)
+        assertEquals(1, nov14.newUsers)
+        assertEquals(1, nov14.postViews)
+        assertEquals(1, nov15.visitorVisits)
+        assertEquals(0, nov15.posts)
+        assertEquals(0, nov15.newUsers)
+    }
+
+    @Test
     fun ownerCanSeePostStatsAndDeleteThem() = testApplication {
         val services = services()
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
@@ -494,6 +568,13 @@ class TownBehaviorTest {
         }
         assertEquals(HttpStatusCode.ServiceUnavailable, missingPhoto.status)
         assertTrue(missingPhoto.bodyAsText().contains("qwen_not_configured"))
+    }
+
+    private fun todayNode(body: JsonNode, day: String): JsonNode {
+        body.path("days").forEach { row ->
+            if (row.path("day").asText() == day) return row
+        }
+        error("missing day $day")
     }
 
     private fun services(): TownServices {

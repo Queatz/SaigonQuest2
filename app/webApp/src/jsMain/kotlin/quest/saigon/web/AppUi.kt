@@ -5,6 +5,7 @@ import web.html.HTMLElement
 
 internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute) {
     clearFeedKeys()
+    clearStatsPoll()
     root.clear()
     Town.applyLanguage()
     val loggedOutGate = Town.me == null && (
@@ -15,6 +16,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
         route == AppRoute.MyPosts -> myPostsScreen(router)
+        route == AppRoute.Stats -> statsScreen(router)
         else -> missingScreen(router)
     }
     root.appendChild(page)

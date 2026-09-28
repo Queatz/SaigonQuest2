@@ -23,4 +23,7 @@ interface TownRepository {
     fun recordReplyClick(id: String)
     fun recordShareClick(id: String)
     fun deletePost(id: String)
+    fun recordVisit(userId: String?, at: Long)
+    fun recordDailyEvent(field: String, at: Long)
+    fun statsByDay(now: Long): List<DayStats>
 }
