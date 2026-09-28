@@ -41,6 +41,7 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
 
     var days = emptyList<DayPoint>()
     var rangeDays = 30
+    var hoverX: Double? = null
     val hidden = mutableSetOf<String>()
     val series = seriesDefs()
 
@@ -62,7 +63,10 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
             }
             paint()
         }
-        paintChart(chartHost, visibleDays(), series.filter { it.key !in hidden })
+        val restoreHoverX = hoverX
+        paintChart(chartHost, visibleDays(), series.filter { it.key !in hidden }, restoreHoverX) { x ->
+            hoverX = x
+        }
         paintToday(today, days.lastOrNull(), series)
     }
 
@@ -182,7 +186,13 @@ private const val PR = 10.0
 private const val PT = 16.0
 private const val PB = 28.0
 
-private fun paintChart(host: HTMLElement, days: List<DayPoint>, series: List<SeriesDef>) {
+private fun paintChart(
+    host: HTMLElement,
+    days: List<DayPoint>,
+    series: List<SeriesDef>,
+    restoreHoverX: Double? = null,
+    onHover: (Double?) -> Unit = {},
+) {
     host.clear()
     if (days.isEmpty() || series.isEmpty()) return
     val svg = svgEl("svg")
@@ -319,11 +329,13 @@ private fun paintChart(host: HTMLElement, days: List<DayPoint>, series: List<Ser
         tooltip.style.left = "${left}px"
         tooltip.style.transform = if (idx > days.size / 2) "translateX(-108%)" else "translateX(8px)"
         host.asDynamic().classList.add("is-hovering")
+        onHover(eventX)
     }
 
     fun hide() {
         host.asDynamic().classList.remove("is-hovering")
         tooltip.asDynamic().hidden = true
+        onHover(null)
     }
 
     overlay.asDynamic().onmousemove = { event: dynamic ->
@@ -335,6 +347,9 @@ private fun paintChart(host: HTMLElement, days: List<DayPoint>, series: List<Ser
         val touch = event.touches[0] ?: return@handler
         event.preventDefault()
         val clientX = num(touch.clientX)
+        show(nearestIndex(pointerX(clientX), days.size, width), clientX)
+    }
+    restoreHoverX?.let { clientX ->
         show(nearestIndex(pointerX(clientX), days.size, width), clientX)
     }
 }
