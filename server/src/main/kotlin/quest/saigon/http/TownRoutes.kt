@@ -258,17 +258,23 @@ fun Route.townApi(services: TownServices) {
     }
 
     post("/posts/{id}/contact") {
-        val ip = clientIp(call, services.config.trustProxy)
-        if (!services.contactLimiter.allow(ip)) return@post call.fail("rate_limited")
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
         val author = services.repo.findUser(post.userId) ?: return@post call.fail("not_found")
-        services.repo.recordReplyClick(post.id)
+        val actor = call.user(services)
+        if (actor?.id != post.userId) {
+            val ip = clientIp(call, services.config.trustProxy)
+            if (!services.contactLimiter.allow(ip)) return@post call.fail("rate_limited")
+            services.repo.recordReplyClick(post.id)
+        }
         call.respondJson(mapOf("zaloUrl" to PhoneNumbers.zaloUrl(author.phone)))
     }
 
     post("/posts/{id}/share") {
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
-        services.repo.recordShareClick(post.id)
+        val actor = call.user(services)
+        if (actor?.id != post.userId) {
+            services.repo.recordShareClick(post.id)
+        }
         call.respondJson(mapOf("ok" to true))
     }
 

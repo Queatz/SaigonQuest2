@@ -366,6 +366,14 @@ class TownBehaviorTest {
         assertEquals(HttpStatusCode.OK, ownView.status)
         assertEquals(0, services.repo.findPost(first.id)!!.views)
 
+        val ownContact = http.post("/api/posts/${first.id}/contact")
+        assertEquals(HttpStatusCode.OK, ownContact.status)
+        assertEquals(0, services.repo.findPost(first.id)!!.replyClicks)
+
+        val ownShare = http.post("/api/posts/${first.id}/share")
+        assertEquals(HttpStatusCode.OK, ownShare.status)
+        assertEquals(0, services.repo.findPost(first.id)!!.shareClicks)
+
         val seen = createClient { }.post("/api/posts/${first.id}/view")
         assertEquals(HttpStatusCode.OK, seen.status)
         assertEquals(1, services.repo.findPost(first.id)!!.views)
