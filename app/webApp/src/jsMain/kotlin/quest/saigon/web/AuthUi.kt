@@ -6,13 +6,15 @@ import web.window.window
 internal fun showAuthDialog(host: HTMLElement, onSuccess: () -> Unit, onClose: () -> Unit = {}) {
     if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop")
+    fun dismiss() {
+        backdrop.asDynamic().remove()
+        onClose()
+    }
     backdrop.appendChild(authDialog(onSuccess = {
         backdrop.asDynamic().remove()
         onSuccess()
-    }, onClose = {
-        backdrop.asDynamic().remove()
-        onClose()
-    }))
+    }, onClose = { dismiss() }))
+    backdrop.closeOnOutsideClick { dismiss() }
     host.appendChild(backdrop)
 }
 

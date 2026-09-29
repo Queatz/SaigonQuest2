@@ -93,6 +93,7 @@ internal fun openShare(post: PostCard, host: HTMLElement) {
         button.onClick { dismiss() }
     })
     backdrop.appendChild(panel)
+    backdrop.closeOnOutsideClick { dismiss() }
     host.appendChild(backdrop)
     window.asDynamic().setTimeout({ panel.asDynamic().focus() }, 30)
 

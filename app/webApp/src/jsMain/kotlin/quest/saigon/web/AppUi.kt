@@ -27,6 +27,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             else -> "/new"
         }
         showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })
+    } else if (route == AppRoute.Home && Town.me == null) {
+        showVisitorWelcome(page)
     }
 }
 

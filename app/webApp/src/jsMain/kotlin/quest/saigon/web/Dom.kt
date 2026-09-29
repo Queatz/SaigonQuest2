@@ -34,6 +34,12 @@ internal fun HTMLElement.onClick(handler: () -> Unit) {
     }
 }
 
+internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
+    asDynamic().addEventListener("click", { event: dynamic ->
+        if (event.target == event.currentTarget) onClose()
+    })
+}
+
 internal fun routeLink(router: HistoryRouter, path: String, label: String, active: Boolean): HTMLElement =
     el("a", className = if (active) "active" else null, text = label) { anchor ->
         anchor.setAttribute("href", path)

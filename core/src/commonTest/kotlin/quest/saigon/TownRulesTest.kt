@@ -72,5 +72,9 @@ class TownRulesTest {
         assertEquals("Saigon.Town", Copy.text(Language.VI, "appName"))
         assertEquals("Dành cho Sài Gòn!", Copy.text(Language.EN, "motto"))
         assertEquals("Dành cho Sài Gòn!", Copy.text(Language.VI, "motto"))
+        assertEquals(
+            "Bí mật bự nhất Sài Gòn nè! Kết nối thiệt lòng, xây dựng mối quan hệ thiệt, chia sẻ với mấy người xung quanh mình thui, chứ hong phải cả thế giới đâu.",
+            Copy.text(Language.VI, "visitorWelcome"),
+        )
     }
 }

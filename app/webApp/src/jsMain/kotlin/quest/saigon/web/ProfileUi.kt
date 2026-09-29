@@ -247,6 +247,7 @@ private fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes:
     })
     card.appendChild(actions)
     backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
 }
 

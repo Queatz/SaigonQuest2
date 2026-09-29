@@ -294,6 +294,31 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
     return slide
 }
 
+internal fun showVisitorWelcome(host: HTMLElement) {
+    if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
+    val backdrop = el("div", "dialog-backdrop")
+    val card = el("div", "dialog visitor-welcome")
+    card.setAttribute("role", "dialog")
+    card.setAttribute("aria-modal", "true")
+    card.setAttribute("aria-labelledby", "visitor-welcome-text")
+    val emojis = el("div", "visitor-welcome-emojis")
+    emojis.setAttribute("aria-hidden", "true")
+    listOf("😜", "😍", "😅").forEachIndexed { index, emoji ->
+        emojis.appendChild(el("span", "bob bob-${index + 1}", text = emoji))
+    }
+    card.appendChild(emojis)
+    val message = el("p", "visitor-welcome-text", text = Town.t("visitorWelcome"))
+    message.setAttribute("id", "visitor-welcome-text")
+    card.appendChild(message)
+    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { backdrop.asDynamic().remove() }
+    })
+    backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
+    host.appendChild(backdrop)
+}
+
 private fun openMiniProfile(post: PostCard, host: HTMLElement) {
     if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop")
@@ -318,6 +343,7 @@ private fun openMiniProfile(post: PostCard, host: HTMLElement) {
         button.onClick { backdrop.asDynamic().remove() }
     })
     backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
 }
 
