@@ -125,7 +125,9 @@ object Copy {
         "statsRange7" to "7 days",
         "statsRange30" to "30 days",
         "statsToday" to "Today",
-        "visitorWelcome" to "Saigon's little secret! Connect authentically, build worthwhile relationships, and share with people around town — not the whole world.",
+        "visitorWelcome" to "Saigon's little secret! Connect authentically, build lasting relationships, and share with people around town — not the whole world.",
+        "visitorWelcomeGo" to "Let's go!",
+        "swipeDown" to "Swipe down",
     )
 
     private val vi = mapOf(
@@ -253,6 +255,8 @@ object Copy {
         "statsRange30" to "30 ngày",
         "statsToday" to "Hôm nay",
         "visitorWelcome" to "Bí mật bé nhất Sài Gòn nè! Kết nối thiệt lòng, xây dựng mối quan hệ thiệt đáng giá, chia sẻ với mấy người xung quanh mình thui, chứ hong phải cả thế giới đâu.",
+        "visitorWelcomeGo" to "Vào thui!",
+        "swipeDown" to "Vuốt xuống",
     )
 
     fun text(language: Language, key: String, values: Map<String, String> = emptyMap()): String {

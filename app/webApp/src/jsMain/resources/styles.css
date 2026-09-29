@@ -255,6 +255,38 @@ button { cursor: pointer; }
     user-select: none;
 }
 
+.swipe-hint {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    pointer-events: none;
+    color: #fff;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, .55);
+    animation: swipe-hint-flash .55s ease-in-out 2 forwards;
+}
+
+.swipe-hint-arrow {
+    font-size: 64px;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.swipe-hint-text {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+@keyframes swipe-hint-flash {
+    0%, 100% { opacity: 0; }
+    40%, 60% { opacity: 1; }
+}
+
 .slide, .photo { position: absolute; inset: 0; }
 
 .photo {
@@ -521,6 +553,7 @@ small, .hint { color: var(--muted); font-size: 13px; }
     padding: 20px;
     overflow: auto;
     z-index: 8;
+    backdrop-filter: blur(2px);
 }
 
 .dialog {

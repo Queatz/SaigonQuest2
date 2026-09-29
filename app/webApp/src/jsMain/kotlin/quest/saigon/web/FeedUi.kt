@@ -9,9 +9,12 @@ import kotlin.math.abs
 
 private var feedKeyHandler: ((String) -> Unit)? = null
 private var keysInstalled = false
+private var swipeHintTimer: dynamic = null
+private var swipeHintDone = false
 
 internal fun clearFeedKeys() {
     feedKeyHandler = null
+    stopSwipeHint()
 }
 
 internal fun feedScreen(router: HistoryRouter): HTMLElement {
@@ -150,6 +153,7 @@ private fun mountPager(
         index = (index + delta).coerceIn(0, posts.lastIndex)
         drag = 0.0
         animating = false
+        if (index >= 1) dismissSwipeHint(host)
         if (index >= posts.lastIndex - 1) loadMore()
         rebuild()
     }
@@ -253,6 +257,7 @@ private fun mountPager(
         }
     }
     rebuild()
+    startSwipeHint(host) { index < 1 }
 }
 
 private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): HTMLElement {
@@ -310,7 +315,7 @@ internal fun showVisitorWelcome(host: HTMLElement) {
     val message = el("p", "visitor-welcome-text", text = Town.t("visitorWelcome"))
     message.setAttribute("id", "visitor-welcome-text")
     card.appendChild(message)
-    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
+    card.appendChild(el("button", "text-button", text = Town.t("visitorWelcomeGo")) { button ->
         button.setAttribute("type", "button")
         button.onClick { backdrop.asDynamic().remove() }
     })
@@ -470,6 +475,38 @@ private fun now(): Double = num(window.asDynamic().performance.now())
 private fun feedDialogOpen(): Boolean {
     val dialog = document.asDynamic().querySelector(".dialog-backdrop")
     return dialog != null && dialog != undefined
+}
+
+private fun startSwipeHint(host: HTMLElement, onFirstItem: () -> Boolean) {
+    if (Town.me != null || swipeHintDone) return
+    stopSwipeHint()
+    swipeHintTimer = window.asDynamic().setInterval({
+        if (swipeHintDone || !onFirstItem() || feedDialogOpen()) return@setInterval
+        flashSwipeHint(host)
+    }, 3000)
+}
+
+private fun dismissSwipeHint(host: HTMLElement) {
+    swipeHintDone = true
+    stopSwipeHint()
+    host.asDynamic().querySelector(".swipe-hint")?.remove()
+}
+
+private fun stopSwipeHint() {
+    if (swipeHintTimer != null && swipeHintTimer != undefined) {
+        window.asDynamic().clearInterval(swipeHintTimer)
+    }
+    swipeHintTimer = null
+}
+
+private fun flashSwipeHint(host: HTMLElement) {
+    host.asDynamic().querySelector(".swipe-hint")?.remove()
+    val hint = el("div", "swipe-hint")
+    hint.setAttribute("aria-hidden", "true")
+    hint.appendChild(el("div", "swipe-hint-arrow", text = "↓"))
+    hint.appendChild(el("div", "swipe-hint-text", text = Town.t("swipeDown")))
+    host.appendChild(hint)
+    window.asDynamic().setTimeout({ hint.asDynamic().remove() }, 1200)
 }
 
 private fun ensureKeys() {
