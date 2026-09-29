@@ -210,6 +210,43 @@ button { cursor: pointer; }
     70% { transform: scale(.55) rotate(-8deg); opacity: .7; }
 }
 
+.first-post-bubble {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: max-content;
+    max-width: min(220px, calc(100vw - 40px));
+    padding: 8px 12px;
+    border-radius: 16px;
+    background: #fff;
+    color: #241f1a;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.25;
+    text-align: right;
+    white-space: nowrap;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .22);
+    z-index: 5;
+    animation: bubble-bob 1.6s ease-in-out infinite;
+}
+
+.first-post-bubble::after {
+    content: "";
+    position: absolute;
+    top: -5px;
+    right: 16px;
+    width: 10px;
+    height: 10px;
+    background: #fff;
+    transform: rotate(45deg);
+    border-radius: 2px;
+}
+
+@keyframes bubble-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(7px); }
+}
+
 .stage {
     position: absolute;
     inset: 0;

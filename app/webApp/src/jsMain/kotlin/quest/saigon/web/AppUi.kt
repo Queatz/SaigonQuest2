@@ -49,7 +49,10 @@ internal fun viewerButton(router: HistoryRouter, toComposer: Boolean, editBadge:
     button.setAttribute("aria-label", Town.t(if (toComposer) "createPost" else "openProfile"))
     if (me == null) {
         button.appendChild(el("span", "plus-mark", text = "+"))
-        if (toComposer) button.appendChild(sparkles())
+        if (toComposer) {
+            button.appendChild(sparkles())
+            button.appendChild(firstPostBubble())
+        }
     } else {
         button.appendChild(profileFace(me, large = false))
         if (toComposer) button.appendChild(el("span", "plus-badge", text = "+"))
@@ -81,6 +84,12 @@ private fun sparkles(): HTMLElement {
         layer.appendChild(el("i", "spark $name"))
     }
     return layer
+}
+
+private fun firstPostBubble(): HTMLElement {
+    val bubble = el("span", "first-post-bubble", text = Town.t("createFirstPost"))
+    bubble.setAttribute("aria-hidden", "true")
+    return bubble
 }
 
 private fun missingScreen(router: HistoryRouter): HTMLElement {

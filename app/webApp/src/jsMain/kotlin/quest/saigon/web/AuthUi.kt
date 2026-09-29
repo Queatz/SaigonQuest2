@@ -17,7 +17,7 @@ internal fun showAuthDialog(host: HTMLElement, onSuccess: () -> Unit, onClose: (
 }
 
 private fun authDialog(onSuccess: () -> Unit, onClose: () -> Unit): HTMLElement {
-    var creating = false
+    var creating = true
     val card = el("form", "dialog")
     card.setAttribute("aria-label", Town.t("signIn"))
     val title = el("h2", text = Town.t("signIn"))
@@ -98,6 +98,7 @@ private fun authDialog(onSuccess: () -> Unit, onClose: () -> Unit): HTMLElement 
         button.onClick { onClose() }
     })
     window.asDynamic().setTimeout({ phone.input.asDynamic().focus() }, 30)
+    paint()
     return card
 }
 
