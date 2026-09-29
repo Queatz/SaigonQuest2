@@ -78,7 +78,7 @@ private fun mountPager(
 
     fun layout(offset: Double, showAvatar: Boolean) {
         val height = stageHeight()
-        location.textContent = posts.getOrNull(index)?.location.orEmpty()
+        location.textContent = "📍 " + posts.getOrNull(index)?.location.orEmpty()
         for (i in (index - 1)..(index + 1)) {
             val slide = slides[i] ?: continue
             val motion = feedSlideMotion(offset, i - index, height)
@@ -308,7 +308,7 @@ internal fun showVisitorWelcome(host: HTMLElement) {
     card.setAttribute("aria-labelledby", "visitor-welcome-text")
     val emojis = el("div", "visitor-welcome-emojis")
     emojis.setAttribute("aria-hidden", "true")
-    listOf("😜", "😍", "😅").forEachIndexed { index, emoji ->
+    listOf("📍", "😍", "🍵").forEachIndexed { index, emoji ->
         emojis.appendChild(el("span", "bob bob-${index + 1}", text = emoji))
     }
     card.appendChild(emojis)

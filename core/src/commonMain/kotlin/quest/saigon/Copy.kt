@@ -125,7 +125,7 @@ object Copy {
         "statsRange7" to "7 days",
         "statsRange30" to "30 days",
         "statsToday" to "Today",
-        "visitorWelcome" to "Saigon's little secret! Connect authentically, build lasting relationships, and share with people around town — not the whole world.",
+        "visitorWelcome" to "Saigon's little secret! Connect authentically, build deep relationships, and talk with people around town — not the whole world.",
         "visitorWelcomeGo" to "Let's go!",
         "swipeDown" to "Swipe down",
     )
