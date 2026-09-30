@@ -14,7 +14,7 @@ object Limits {
     const val PHOTO_MAX_EDGE = 800
     const val AVATAR_MAX_EDGE = 512
     const val JPEG_QUALITY = 0.85
-    const val TYPEWRITER_MILLIS_PER_CHAR = 33
+    const val TYPEWRITER_MILLIS_PER_CHAR = 16
     const val AVATAR_ENTER_PX = 50
     const val CARD_SPEED = 1.1
     const val FEED_PAGE_SIZE = 8

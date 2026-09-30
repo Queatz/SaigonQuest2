@@ -22,7 +22,7 @@ class QwenClient(
     private val workspaceId: String?,
     private val http: HttpClient = HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_1_1)
-        .connectTimeout(Duration.ofSeconds(20))
+        .connectTimeout(Duration.ofSeconds(30))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build(),
     private val sleep: (Long) -> Unit = Thread::sleep,
@@ -46,7 +46,7 @@ class QwenClient(
             "${root(baseUrl)}/compatible-mode/v1/chat/completions",
             body,
             async = false,
-            timeoutSeconds = 45,
+            timeoutSeconds = 120,
         )
         if (response.status !in 200..299) {
             throw QwenException("text_${response.status}")
@@ -96,7 +96,7 @@ class QwenClient(
                 "$api/api/v1/services/aigc/image-generation/generation",
                 body,
                 async = true,
-                timeoutSeconds = 60,
+                timeoutSeconds = 120,
             )
         } else {
             throw QwenException(failure(sync))
@@ -215,7 +215,7 @@ class QwenClient(
 
     private fun download(url: String): ByteArray {
         val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(60))
+            .timeout(Duration.ofSeconds(120))
             .GET()
             .build()
         val response = http.send(request, HttpResponse.BodyHandlers.ofByteArray())

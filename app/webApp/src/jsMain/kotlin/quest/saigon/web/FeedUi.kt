@@ -25,7 +25,8 @@ internal fun feedScreen(router: HistoryRouter): HTMLElement {
     val shell = el("section", "shell feed-shell")
     shell.asDynamic().style.setProperty("--avatar-enter", "${Limits.AVATAR_ENTER_PX}px")
     val stage = el("div", "stage")
-    val location = el("div", "location")
+    val location = el("button", "location")
+    location.setAttribute("type", "button")
     val brand = el("div", "feed-brand")
     brand.appendChild(location)
     brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
@@ -260,6 +261,12 @@ private fun mountPager(
                 "ArrowUp", "PageUp" -> commit(-1)
             }
         }
+    }
+    location.onClick {
+        val place = posts.getOrNull(index)?.location.orEmpty().trim()
+        if (place.isBlank()) return@onClick
+        val query = encodeQuery("$place ở gần Sài Gòn")
+        window.asDynamic().open("https://www.google.com/maps/search/?api=1&query=$query", "_blank")
     }
     ensureResize()
     feedResizeHandler = {

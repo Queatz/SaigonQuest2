@@ -320,9 +320,15 @@ button { cursor: pointer; }
     color: #fff;
     font-weight: 800;
     font-size: 22px;
+    font-family: inherit;
     letter-spacing: -0.03em;
     text-shadow: 0 1px 4px rgba(0, 0, 0, .85), 0 1px 8px rgba(0, 0, 0, .45);
     text-align: center;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    pointer-events: auto;
 }
 
 .feed-app-name {
@@ -1387,9 +1393,12 @@ button.busy .avatar-spinner {
 }
 
 .card-stack > .music-line {
-    position: relative;
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 100%;
     z-index: 2;
-    margin: 0 18px 28px;
+    margin: 0 0 28px;
     color: #fff;
     text-shadow: 0 1px 4px rgba(0, 0, 0, .85), 0 1px 8px rgba(0, 0, 0, .45);
 }
@@ -1402,7 +1411,7 @@ button.busy .avatar-spinner {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 14px;
 }
 
 .mute-btn {
