@@ -8,6 +8,23 @@ object QwenResponses {
 
     fun parse(json: String): JsonNode = mapper.readTree(json)
 
+    fun audioUrl(node: JsonNode): String? {
+        val direct = node.path("output").path("audio").path("url")
+        if (direct.isTextual) {
+            val url = direct.asText().trim()
+            if (url.startsWith("http")) return url
+        }
+        return imageUrls(node).firstOrNull { url ->
+            url.contains(".mp3", true) || "fun-music" in url || "/audio" in url
+        }
+    }
+
+    fun lyrics(node: JsonNode): String? =
+        text(node.path("output").path("extra_info"), "lyrics")
+            ?: text(node.path("extra_info"), "lyrics")
+            ?: text(node.path("output"), "lyrics")
+            ?: text(node, "lyrics")
+
     fun imageUrls(node: JsonNode): List<String> {
         val found = mutableListOf<String>()
         walk(node, found)

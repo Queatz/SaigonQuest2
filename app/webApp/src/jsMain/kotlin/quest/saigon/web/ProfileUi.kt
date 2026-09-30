@@ -118,6 +118,8 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(error)
     body.appendChild(el("h3", text = Town.t("createAvatar")))
     body.appendChild(avatarStudio(shell, router, me))
+    body.appendChild(el("h3", text = Town.t("yourMusic")))
+    body.appendChild(musicStudio(shell, router))
     body.appendChild(postsPreview(shell, router))
     body.appendChild(el("h3", text = Town.t("settings")))
     body.appendChild(languageSelect)
@@ -227,7 +229,7 @@ private fun confirmDelete(host: HTMLElement, onYes: () -> Unit) {
     confirmDialog(host, Town.t("deleteAvatarAsk"), Town.t("deleteAvatarHint"), onYes)
 }
 
-private fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes: () -> Unit) {
+internal fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes: () -> Unit) {
     if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop")
     val card = el("div", "dialog")
@@ -402,6 +404,10 @@ private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter)
     row.appendChild(photo)
     val copy = el("div", "own-post-copy")
     copy.appendChild(el("p", "own-post-message", text = post.message as? String ?: ""))
+    val musicName = post.musicName as? String
+    if (!musicName.isNullOrBlank()) {
+        copy.appendChild(el("p", "own-post-music", text = "🎵 $musicName"))
+    }
     val stats = el("p", "post-stats")
     stats.appendChild(stat(countLabel(post.views), Town.t("views")))
     stats.appendChild(stat(countLabel(post.replyClicks), Town.t("repliesClicked")))

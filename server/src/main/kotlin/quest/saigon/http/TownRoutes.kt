@@ -19,12 +19,15 @@ import io.ktor.server.routing.route
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import quest.saigon.AppConfig
 import quest.saigon.Limits
+import quest.saigon.MusicNames
 import quest.saigon.PhoneNumbers
 import quest.saigon.languagePreference
 import quest.saigon.media.ImageOps
 import quest.saigon.town.AvatarRecord
 import quest.saigon.town.AvatarStatus
 import quest.saigon.town.FeedItem
+import quest.saigon.town.MusicRecord
+import quest.saigon.town.MusicStatus
 import quest.saigon.town.OwnedPost
 import quest.saigon.town.PostRecord
 import quest.saigon.town.TownException
@@ -218,6 +221,82 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("ok" to true))
     }
 
+    get("/music") {
+        call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.repo.searchMusic(
+            call.request.queryParameters["q"].orEmpty(),
+            call.request.queryParameters["cursor"],
+            limit,
+        )
+        call.respondJson(
+            mapOf(
+                "music" to page.items.map(::musicPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    get("/me/music") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        call.respondJson(mapOf("music" to services.repo.musicsFor(user.id).map(::musicPayload)))
+    }
+
+    get("/music/{id}") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val music = services.repo.findMusic(call.parameters["id"].orEmpty())
+        if (music == null || music.userId != user.id) return@get call.fail("not_found")
+        call.respondJson(musicPayload(music))
+    }
+
+    post("/music") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val prompt = Jsons.text(body, "prompt")
+        if (prompt.length !in 1..Limits.MUSIC_PROMPT_MAX) return@post call.fail("invalid_music_prompt")
+        val gender = Jsons.text(body, "gender").lowercase().ifBlank { null }
+        if (gender != null && gender != "male" && gender != "female") return@post call.fail("invalid_gender")
+        val instrumental = body.path("instrumental").asBoolean(false)
+        val music = try {
+            services.music.enqueue(user, prompt, gender, instrumental)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(musicPayload(music), HttpStatusCode.Accepted)
+    }
+
+    post("/music/{id}/retry") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val music = try {
+            services.music.retry(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(musicPayload(music), HttpStatusCode.Accepted)
+    }
+
+    patch("/music/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val name = MusicNames.cleanTitle(Jsons.text(body, "name")) ?: return@patch call.fail("invalid_music_name")
+        val music = try {
+            services.music.rename(user, call.parameters["id"].orEmpty(), name)
+        } catch (error: TownException) {
+            return@patch call.fail(error.code)
+        }
+        call.respondJson(musicPayload(music))
+    }
+
+    delete("/music/{id}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        try {
+            services.music.delete(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
     get("/posts") {
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 20) ?: Limits.FEED_PAGE_SIZE
         val page = services.repo.feed(call.request.queryParameters["cursor"], limit)
@@ -240,6 +319,11 @@ fun Route.townApi(services: TownServices) {
         }
         val location = form.text("location").trim().ifBlank { user.location.trim() }
         if (location.isEmpty() || location.length > Limits.LOCATION_MAX) return@post call.fail("invalid_location")
+        val musicId = form.text("musicId").trim().ifBlank { null }
+        val music = musicId?.let { services.repo.findMusic(it) }
+        if (musicId != null && (music == null || music.status != MusicStatus.READY || music.audioPath == null)) {
+            return@post call.fail("invalid_music")
+        }
         val photo = form.file("photo") ?: return@post call.fail("photo_required")
         val jpeg = try {
             services.images.preparePostPhoto(photo)
@@ -256,6 +340,7 @@ fun Route.townApi(services: TownServices) {
                 message = message,
                 location = location,
                 createdAt = services.clock(),
+                musicId = music?.id,
             ),
         )
         call.respondJson(
@@ -271,6 +356,8 @@ fun Route.townApi(services: TownServices) {
                     authorLocation = user.location,
                     authorIntro = user.intro,
                     createdAt = post.createdAt,
+                    musicName = music?.name,
+                    musicPath = music?.audioPath,
                 ),
             ),
             HttpStatusCode.Created,
@@ -343,7 +430,11 @@ fun Route.mediaRoutes(services: TownServices) {
             call.respondBytes(trimmedAvatar(images, file), ContentType.Image.PNG)
             return@get
         }
-        val type = if (file.extension.equals("png", true)) ContentType.Image.PNG else ContentType.Image.JPEG
+        val type = when {
+            file.extension.equals("mp3", true) -> ContentType.Audio.MPEG
+            file.extension.equals("png", true) -> ContentType.Image.PNG
+            else -> ContentType.Image.JPEG
+        }
         call.response.headers.append("Cache-Control", "public, max-age=86400")
         call.respondBytes(file.readBytes(), type)
     }
@@ -372,7 +463,7 @@ private fun statusFor(code: String): HttpStatusCode = when (code) {
     "not_found" -> HttpStatusCode.NotFound
     "unavailable", "qwen_not_configured" -> HttpStatusCode.ServiceUnavailable
     "rate_limited" -> HttpStatusCode.TooManyRequests
-    "phone_taken", "avatar_busy", "avatar_not_failed" -> HttpStatusCode.Conflict
+    "phone_taken", "avatar_busy", "avatar_not_failed", "music_busy", "music_not_failed" -> HttpStatusCode.Conflict
     else -> HttpStatusCode.BadRequest
 }
 
@@ -430,6 +521,19 @@ private fun avatarPayload(avatar: AvatarRecord) = mapOf(
     "createdAt" to avatar.createdAt,
 )
 
+private fun musicPayload(music: MusicRecord) = mapOf(
+    "id" to music.id,
+    "name" to music.name,
+    "prompt" to music.prompt,
+    "status" to music.status,
+    "audioUrl" to music.audioPath?.let { "/media/$it" },
+    "error" to music.error,
+    "gender" to music.gender,
+    "instrumental" to music.instrumental,
+    "lyrics" to music.lyrics,
+    "createdAt" to music.createdAt,
+)
+
 private fun postPayload(item: FeedItem) = mapOf(
     "id" to item.id,
     "authorName" to item.authorName,
@@ -441,6 +545,8 @@ private fun postPayload(item: FeedItem) = mapOf(
     "photoUrl" to "/media/${item.photoPath}",
     "avatarUrl" to item.avatarPath?.let { "/media/$it" },
     "createdAt" to item.createdAt,
+    "musicName" to item.musicName,
+    "musicUrl" to item.musicPath?.let { "/media/$it" },
 )
 
 private fun ownedPostPayload(item: OwnedPost) = mapOf(
@@ -453,6 +559,7 @@ private fun ownedPostPayload(item: OwnedPost) = mapOf(
     "views" to item.views,
     "replyClicks" to item.replyClicks,
     "shareClicks" to item.shareClicks,
+    "musicName" to item.musicName,
 )
 
 private fun cleanName(raw: String): String? {

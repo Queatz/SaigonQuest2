@@ -15,6 +15,28 @@ interface TownRepository {
     fun hasGeneratingAvatar(userId: String): Boolean
     fun deleteAvatar(id: String)
     fun avatarReferenced(id: String): Boolean
+    fun insertMusic(
+        userId: String,
+        prompt: String,
+        name: String,
+        gender: String?,
+        instrumental: Boolean,
+        createdAt: Long,
+    ): MusicRecord
+    fun updateMusic(
+        id: String,
+        status: String,
+        audioPath: String?,
+        error: String?,
+        name: String? = null,
+        lyrics: String? = null,
+    )
+    fun findMusic(id: String): MusicRecord?
+    fun musicsFor(userId: String): List<MusicRecord>
+    fun searchMusic(query: String, cursor: String?, limit: Int): MusicPage
+    fun hasGeneratingMusic(userId: String): Boolean
+    fun deleteMusic(id: String)
+    fun musicReferenced(id: String): Boolean
     fun insertPost(post: PostRecord): PostRecord
     fun feed(cursor: String?, limit: Int): FeedPage
     fun findPost(id: String): PostRecord?

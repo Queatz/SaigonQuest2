@@ -73,12 +73,24 @@ class TownRulesTest {
         assertEquals("Dành cho Sài Gòn!", Copy.text(Language.EN, "motto"))
         assertEquals("Dành cho Sài Gòn!", Copy.text(Language.VI, "motto"))
         assertEquals(
-            "Bí mật bé nhất Sài Gòn nè! Kết nối thiệt lòng, xây dựng mối quan hệ thiệt đáng giá, chia sẻ với mấy người xung quanh mình thui, chứ hong phải cả thế giới đâu.",
+            "Bí mật bé nhất Sài Gòn nè! Kết nối thiệt lòng, xây dựng mối quan hệ đáng giá, chia sẻ với mấy người xung quanh mình thui, chứ hong phải cả thế giới đâu.",
             Copy.text(Language.VI, "visitorWelcome"),
         )
         assertEquals("Let's go!", Copy.text(Language.EN, "visitorWelcomeGo"))
         assertEquals("Vào thui!", Copy.text(Language.VI, "visitorWelcomeGo"))
         assertEquals("Swipe down", Copy.text(Language.EN, "swipeDown"))
         assertEquals("Vuốt xuống", Copy.text(Language.VI, "swipeDown"))
+        assertEquals("Select music", Copy.text(Language.EN, "selectMusic"))
+        assertEquals("Chọn nhạc", Copy.text(Language.VI, "selectMusic"))
+    }
+
+    @Test
+    fun musicNamesPreferLyricsThenPrompt() {
+        assertEquals("Sáng sớm trời mưa", MusicNames.fromPrompt("Sáng sớm trời mưa"))
+        assertEquals(
+            "Coffee aroma fills the room",
+            MusicNames.fromLyrics("[verse]\nCoffee aroma fills the room"),
+        )
+        assertEquals("Rain song", MusicNames.cleanTitle("  \"Rain song\"  "))
     }
 }

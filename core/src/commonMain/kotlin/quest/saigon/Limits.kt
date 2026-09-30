@@ -4,6 +4,9 @@ object Limits {
     const val NAME_MAX = 40
     const val MESSAGE_MAX = 280
     const val PROMPT_MAX = 200
+    const val MUSIC_PROMPT_MAX = 400
+    const val MUSIC_NAME_MAX = 40
+    const val MUSIC_LYRICS_MAX = 4000
     const val LOCATION_MAX = 80
     const val INTRO_MAX = 280
     const val PASSWORD_MIN = 8

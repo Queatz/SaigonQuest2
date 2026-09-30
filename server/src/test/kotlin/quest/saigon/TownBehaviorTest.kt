@@ -21,8 +21,10 @@ import quest.saigon.ai.QwenResponses
 import quest.saigon.auth.PasswordHasher
 import quest.saigon.auth.RateLimiter
 import quest.saigon.media.ImageOps
+import quest.saigon.ai.MusicRender
 import quest.saigon.media.UploadStore
 import quest.saigon.town.AvatarService
+import quest.saigon.town.MusicService
 import quest.saigon.town.AvatarStatus
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.PostRecord
@@ -173,6 +175,18 @@ class TownBehaviorTest {
             "https://dashscope.aliyuncs.com",
             QwenClient.apiRoot("https://dashscope.aliyuncs.com/compatible-mode/v1", null),
         )
+        val audio = QwenResponses.parse(
+            """
+            {
+              "output": {
+                "audio": { "url": "https://cdn.example/song.mp3" },
+                "extra_info": { "lyrics": "[verse] Morning rain" }
+              }
+            }
+            """.trimIndent(),
+        )
+        assertEquals("https://cdn.example/song.mp3", QwenResponses.audioUrl(audio))
+        assertEquals("[verse] Morning rain", QwenResponses.lyrics(audio))
     }
 
     @Test
@@ -692,6 +706,14 @@ class TownBehaviorTest {
                 repo = repo,
                 uploads = uploads,
                 renderer = { _, _ -> byteArrayOf(1) },
+                configured = false,
+                executor = { it.run() },
+                clock = clock,
+            ),
+            music = MusicService(
+                repo = repo,
+                uploads = uploads,
+                renderer = { _, _, _ -> MusicRender(byteArrayOf(1, 2, 3, 4), "Song") },
                 configured = false,
                 executor = { it.run() },
                 clock = clock,

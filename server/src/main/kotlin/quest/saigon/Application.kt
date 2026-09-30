@@ -125,7 +125,7 @@ private fun statusFor(code: String): HttpStatusCode = when (code) {
     "not_found" -> HttpStatusCode.NotFound
     "unavailable", "qwen_not_configured" -> HttpStatusCode.ServiceUnavailable
     "rate_limited" -> HttpStatusCode.TooManyRequests
-    "phone_taken", "avatar_busy" -> HttpStatusCode.Conflict
+    "phone_taken", "avatar_busy", "music_busy" -> HttpStatusCode.Conflict
     "too_large" -> HttpStatusCode.PayloadTooLarge
     else -> HttpStatusCode.BadRequest
 }

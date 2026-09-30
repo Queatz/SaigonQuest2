@@ -8,6 +8,7 @@ class InMemoryTownRepository : TownRepository {
     private val phones = ConcurrentHashMap<String, String>()
     private val sessions = ConcurrentHashMap<String, SessionRecord>()
     private val avatars = ConcurrentHashMap<String, AvatarRecord>()
+    private val music = ConcurrentHashMap<String, MusicRecord>()
     private val posts = ConcurrentHashMap<String, PostRecord>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
@@ -75,6 +76,75 @@ class InMemoryTownRepository : TownRepository {
 
     override fun avatarReferenced(id: String): Boolean = posts.values.any { it.avatarId == id }
 
+    override fun insertMusic(
+        userId: String,
+        prompt: String,
+        name: String,
+        gender: String?,
+        instrumental: Boolean,
+        createdAt: Long,
+    ): MusicRecord {
+        val record = MusicRecord(
+            id = newId(),
+            userId = userId,
+            prompt = prompt,
+            name = name,
+            audioPath = null,
+            status = MusicStatus.GENERATING,
+            error = null,
+            gender = gender,
+            instrumental = instrumental,
+            createdAt = createdAt,
+        )
+        music[record.id] = record
+        return record
+    }
+
+    override fun updateMusic(id: String, status: String, audioPath: String?, error: String?, name: String?, lyrics: String?) {
+        val current = music[id] ?: return
+        music[id] = current.copy(
+            status = status,
+            audioPath = audioPath ?: current.audioPath,
+            error = error,
+            name = name?.takeIf { it.isNotBlank() } ?: current.name,
+            lyrics = lyrics ?: current.lyrics,
+        )
+    }
+
+    override fun findMusic(id: String): MusicRecord? = music[id]
+
+    override fun musicsFor(userId: String): List<MusicRecord> =
+        music.values.filter { it.userId == userId && it.status != MusicStatus.REMOVED }
+            .sortedByDescending { it.createdAt }
+
+    override fun searchMusic(query: String, cursor: String?, limit: Int): MusicPage {
+        val needle = query.trim().lowercase()
+        val parsed = Cursors.parse(cursor)
+        val sorted = music.values
+            .filter { it.status == MusicStatus.READY && it.audioPath != null }
+            .filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.prompt.lowercase().contains(needle) }
+            .sortedWith(compareByDescending<MusicRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit)
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return MusicPage(items, next)
+    }
+
+    override fun hasGeneratingMusic(userId: String): Boolean =
+        music.values.any { it.userId == userId && it.status == MusicStatus.GENERATING }
+
+    override fun deleteMusic(id: String) {
+        music.remove(id)
+    }
+
+    override fun musicReferenced(id: String): Boolean = posts.values.any { it.musicId == id }
+
     override fun insertPost(post: PostRecord): PostRecord {
         val stored = if (post.id.isBlank()) post.copy(id = newId()) else post
         posts[stored.id] = stored
@@ -94,6 +164,7 @@ class InMemoryTownRepository : TownRepository {
         val items = page.take(limit).map { post ->
             val author = users[post.userId]
             val avatar = avatars[post.avatarId]
+            val track = post.musicId?.let { music[it] }
             FeedItem(
                 id = post.id,
                 authorName = author?.name ?: "",
@@ -105,6 +176,8 @@ class InMemoryTownRepository : TownRepository {
                 authorLocation = author?.location.orEmpty(),
                 authorIntro = author?.intro.orEmpty(),
                 createdAt = post.createdAt,
+                musicName = track?.name,
+                musicPath = track?.audioPath,
             )
         }
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -136,6 +209,7 @@ class InMemoryTownRepository : TownRepository {
                 views = post.views,
                 replyClicks = post.replyClicks,
                 shareClicks = post.shareClicks,
+                musicName = post.musicId?.let { music[it]?.name },
             )
         }
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null

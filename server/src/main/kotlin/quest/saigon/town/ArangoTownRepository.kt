@@ -12,13 +12,15 @@ import java.time.LocalDate
 
 class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
-        listOf(USERS, SESSIONS, AVATARS, POSTS, DAY_STATS).forEach { name ->
+        listOf(USERS, SESSIONS, AVATARS, MUSIC, POSTS, DAY_STATS).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
         }
         db.collection(USERS).ensurePersistentIndex(listOf("phone"), PersistentIndexOptions().unique(true))
         db.collection(POSTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
+        db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
     }
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -130,6 +132,96 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         mapOf("id" to id),
     ) != null
 
+    override fun insertMusic(
+        userId: String,
+        prompt: String,
+        name: String,
+        gender: String?,
+        instrumental: Boolean,
+        createdAt: Long,
+    ): MusicRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("prompt", prompt)
+        doc.addAttribute("name", name)
+        doc.addAttribute("audioPath", null)
+        doc.addAttribute("status", MusicStatus.GENERATING)
+        doc.addAttribute("error", null)
+        doc.addAttribute("gender", gender)
+        doc.addAttribute("instrumental", instrumental)
+        doc.addAttribute("lyrics", null)
+        doc.addAttribute("createdAt", createdAt)
+        val key = db.collection(MUSIC).insertDocument(doc).key
+        return musicFrom(doc.apply { this.key = key })
+    }
+
+    override fun updateMusic(id: String, status: String, audioPath: String?, error: String?, name: String?, lyrics: String?) {
+        val current = findMusic(id) ?: return
+        val doc = BaseDocument(id)
+        doc.addAttribute("userKey", current.userId)
+        doc.addAttribute("prompt", current.prompt)
+        doc.addAttribute("name", name?.takeIf { it.isNotBlank() } ?: current.name)
+        doc.addAttribute("audioPath", audioPath ?: current.audioPath)
+        doc.addAttribute("status", status)
+        doc.addAttribute("error", error)
+        doc.addAttribute("gender", current.gender)
+        doc.addAttribute("instrumental", current.instrumental)
+        doc.addAttribute("lyrics", lyrics ?: current.lyrics)
+        doc.addAttribute("createdAt", current.createdAt)
+        db.collection(MUSIC).replaceDocument(id, doc)
+    }
+
+    override fun findMusic(id: String): MusicRecord? =
+        db.collection(MUSIC).getDocument(id, BaseDocument::class.java)?.let(::musicFrom)
+
+    override fun musicsFor(userId: String): List<MusicRecord> =
+        queryList(
+            "FOR m IN $MUSIC FILTER m.userKey == @userKey AND m.status != @hidden SORT m.createdAt DESC RETURN m",
+            mapOf("userKey" to userId, "hidden" to MusicStatus.REMOVED),
+        ).map(::musicFrom)
+
+    override fun searchMusic(query: String, cursor: String?, limit: Int): MusicPage {
+        val parsed = Cursors.parse(cursor)
+        val needle = query.trim().lowercase()
+        val like = if (needle.isEmpty()) "" else "%${escapeLike(needle)}%"
+        val bind = mapOf(
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+            "ready" to MusicStatus.READY,
+            "hasQuery" to needle.isNotEmpty(),
+            "like" to like,
+        )
+        val aql = """
+            FOR m IN $MUSIC
+              FILTER m.status == @ready AND m.audioPath != null AND m.audioPath != ""
+              FILTER @hasQuery == false OR LIKE(LOWER(m.name), @like, true) OR LIKE(LOWER(m.prompt), @like, true)
+              FILTER @hasCursor == false OR m.createdAt < @cursorAt OR (m.createdAt == @cursorAt AND m._key < @cursorKey)
+              SORT m.createdAt DESC, m._key DESC
+              LIMIT @limit
+              RETURN m
+        """.trimIndent()
+        val rows = queryList(aql, bind)
+        val items = rows.take(limit).map(::musicFrom)
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return MusicPage(items, next)
+    }
+
+    override fun hasGeneratingMusic(userId: String): Boolean = first(
+        "FOR m IN $MUSIC FILTER m.userKey == @userKey AND m.status == @status LIMIT 1 RETURN m",
+        mapOf("userKey" to userId, "status" to MusicStatus.GENERATING),
+    ) != null
+
+    override fun deleteMusic(id: String) {
+        db.collection(MUSIC).deleteDocument(id)
+    }
+
+    override fun musicReferenced(id: String): Boolean = first(
+        "FOR p IN $POSTS FILTER p.musicKey == @id LIMIT 1 RETURN p",
+        mapOf("id" to id),
+    ) != null
+
     override fun insertPost(post: PostRecord): PostRecord {
         val doc = BaseDocument()
         doc.addAttribute("userKey", post.userId)
@@ -141,6 +233,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("views", post.views)
         doc.addAttribute("replyClicks", post.replyClicks)
         doc.addAttribute("shareClicks", post.shareClicks)
+        doc.addAttribute("musicKey", post.musicId)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -160,6 +253,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               LIMIT @limit
               LET author = DOCUMENT("$USERS", p.userKey)
               LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
+              LET track = DOCUMENT("$MUSIC", p.musicKey)
               RETURN {
                 id: p._key,
                 authorName: author.name,
@@ -170,7 +264,9 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 location: p.location,
                 photoPath: p.photoPath,
                 avatarPath: avatar.imagePath,
-                createdAt: p.createdAt
+                createdAt: p.createdAt,
+                musicName: track.name,
+                musicPath: track.audioPath
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -187,6 +283,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 createdAt = long(row, "createdAt"),
                 authorLocation = string(row, "authorLocation"),
                 authorIntro = string(row, "authorIntro"),
+                musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                musicPath = row.getAttribute("musicPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -206,6 +304,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 views = long(doc, "views"),
                 replyClicks = long(doc, "replyClicks"),
                 shareClicks = long(doc, "shareClicks"),
+                musicId = string(doc, "musicKey").takeIf { it.isNotBlank() && it != "null" },
             )
         }
 
@@ -225,6 +324,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               SORT p.createdAt DESC, p._key DESC
               LIMIT @limit
               LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
+              LET track = DOCUMENT("$MUSIC", p.musicKey)
               RETURN {
                 id: p._key,
                 message: p.message,
@@ -234,7 +334,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 createdAt: p.createdAt,
                 views: p.views == null ? 0 : p.views,
                 replyClicks: p.replyClicks == null ? 0 : p.replyClicks,
-                shareClicks: p.shareClicks == null ? 0 : p.shareClicks
+                shareClicks: p.shareClicks == null ? 0 : p.shareClicks,
+                musicName: track.name
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -250,6 +351,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 views = long(row, "views"),
                 replyClicks = long(row, "replyClicks"),
                 shareClicks = long(row, "shareClicks"),
+                musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -439,6 +541,26 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         intro = string(doc, "intro"),
     )
 
+    private fun musicFrom(doc: BaseDocument) = MusicRecord(
+        id = doc.key,
+        userId = string(doc, "userKey"),
+        prompt = string(doc, "prompt"),
+        name = string(doc, "name"),
+        audioPath = doc.getAttribute("audioPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        status = string(doc, "status"),
+        error = doc.getAttribute("error")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        gender = doc.getAttribute("gender")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        instrumental = when (val raw = doc.getAttribute("instrumental")) {
+            is Boolean -> raw
+            else -> raw?.toString().equals("true", true)
+        },
+        createdAt = long(doc, "createdAt"),
+        lyrics = doc.getAttribute("lyrics")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+    )
+
+    private fun escapeLike(value: String): String =
+        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     private fun avatarFrom(doc: BaseDocument) = AvatarRecord(
         id = doc.key,
         userId = string(doc, "userKey"),
@@ -458,6 +580,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val USERS = "users"
         private const val SESSIONS = "sessions"
         private const val AVATARS = "avatars"
+        private const val MUSIC = "music"
         private const val POSTS = "posts"
         private const val DAY_STATS = "dayStats"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")

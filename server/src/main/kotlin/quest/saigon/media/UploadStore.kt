@@ -7,12 +7,15 @@ class UploadStore(val root: File) {
     fun ensure() {
         File(root, "posts").mkdirs()
         File(root, "avatars").mkdirs()
+        File(root, "music").mkdirs()
         File(root, "private").mkdirs()
     }
 
     fun writePost(jpeg: ByteArray): String = write("posts", "jpg", jpeg)
 
     fun writeAvatar(png: ByteArray): String = write("avatars", "png", png)
+
+    fun writeMusic(mp3: ByteArray): String = write("music", "mp3", mp3)
 
     fun writeProfile(jpeg: ByteArray): String = write("private", "jpg", jpeg)
 
@@ -26,7 +29,7 @@ class UploadStore(val root: File) {
     }
 
     fun publicFile(kind: String, name: String): File? {
-        if (kind != "posts" && kind != "avatars") return null
+        if (kind != "posts" && kind != "avatars" && kind != "music") return null
         if (!safeName(name)) return null
         return resolve("$kind/$name")
     }

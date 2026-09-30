@@ -2,6 +2,7 @@ package quest.saigon.ai
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import quest.saigon.AppConfig
+import quest.saigon.MusicNames
 import quest.saigon.media.ImageOps
 import java.net.URI
 import java.net.http.HttpClient
@@ -17,6 +18,7 @@ class QwenClient(
     private val baseUrl: String,
     private val textModel: String,
     private val imageModel: String,
+    private val musicModel: String,
     private val workspaceId: String?,
     private val http: HttpClient = HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_1_1)
@@ -102,6 +104,62 @@ class QwenClient(
         return download(poll(api, async.body))
     }
 
+    fun musicTitle(prompt: String): String? {
+        val body = mapper.writeValueAsString(
+            mapOf(
+                "model" to textModel,
+                "messages" to listOf(
+                    mapOf("role" to "system", "content" to MusicPrompts.TITLE_SYSTEM.trim()),
+                    mapOf("role" to "user", "content" to prompt),
+                ),
+                "temperature" to 0.7,
+                "enable_thinking" to false,
+            ),
+        )
+        val response = postJson(
+            "${root(baseUrl)}/compatible-mode/v1/chat/completions",
+            body,
+            async = false,
+            timeoutSeconds = 30,
+        )
+        if (response.status !in 200..299) return null
+        return MusicNames.cleanTitle(QwenResponses.chatText(QwenResponses.parse(response.body)))
+    }
+
+    fun generateMusic(prompt: String, gender: String?, instrumental: Boolean): GeneratedMusic {
+        val input = linkedMapOf<String, Any>(
+            "prompt" to prompt,
+            "format" to "mp3",
+        )
+        if (instrumental) {
+            input["is_instrumental"] = true
+        } else if (!gender.isNullOrBlank()) {
+            input["gender"] = gender
+        }
+        val body = mapper.writeValueAsString(
+            mapOf(
+                "model" to musicModel,
+                "input" to input,
+            ),
+        )
+        val api = root(baseUrl)
+        val response = postJson(
+            "$api/api/v1/services/audio/music/generation",
+            body,
+            async = false,
+            timeoutSeconds = GENERATION_TIMEOUT_SECONDS,
+        )
+        if (response.status !in 200..299) throw QwenException(failure(response))
+        val parsed = QwenResponses.parse(response.body)
+        val url = QwenResponses.audioUrl(parsed)
+        if (url != null) return GeneratedMusic(download(url), QwenResponses.lyrics(parsed))
+        if (QwenResponses.taskId(parsed) == null) {
+            throw QwenException(QwenResponses.errorMessage(parsed) ?: "no_audio")
+        }
+        val polled = pollAudio(api, response.body)
+        return GeneratedMusic(download(polled.first), polled.second)
+    }
+
     private fun imageFrom(response: HttpResult): String? {
         if (response.status !in 200..299) return null
         val node = QwenResponses.parse(response.body)
@@ -126,6 +184,29 @@ class QwenClient(
             val parsed = QwenResponses.parse(body)
             when (QwenResponses.taskStatus(parsed)) {
                 "SUCCEEDED" -> return QwenResponses.imageUrls(parsed).firstOrNull() ?: throw QwenException("no_image")
+                "FAILED", "CANCELED", "UNKNOWN" -> throw QwenException(QwenResponses.errorMessage(parsed) ?: "failed")
+            }
+        }
+        throw QwenException("timeout")
+    }
+
+    private fun pollAudio(api: String, submitBody: String): Pair<String, String?> {
+        val node = QwenResponses.parse(submitBody)
+        val existing = QwenResponses.audioUrl(node)
+        if (existing != null && QwenResponses.taskStatus(node) == null) {
+            return existing to QwenResponses.lyrics(node)
+        }
+        val taskId = QwenResponses.taskId(node) ?: throw QwenException(QwenResponses.errorMessage(node) ?: "no_task")
+        val deadline = System.currentTimeMillis() + GENERATION_POLL_MILLIS
+        while (System.currentTimeMillis() < deadline) {
+            sleep(2_000)
+            val body = get("$api/api/v1/tasks/$taskId")
+            val parsed = QwenResponses.parse(body)
+            when (QwenResponses.taskStatus(parsed)) {
+                "SUCCEEDED" -> {
+                    val url = QwenResponses.audioUrl(parsed) ?: throw QwenException("no_audio")
+                    return url to QwenResponses.lyrics(parsed)
+                }
                 "FAILED", "CANCELED", "UNKNOWN" -> throw QwenException(QwenResponses.errorMessage(parsed) ?: "failed")
             }
         }
@@ -187,6 +268,7 @@ class QwenClient(
             baseUrl = config.qwenBaseUrl,
             textModel = config.qwenTextModel,
             imageModel = config.qwenImageModel,
+            musicModel = config.qwenMusicModel,
             workspaceId = config.qwenWorkspaceId,
         )
 
@@ -209,3 +291,8 @@ class QwenClient(
         }
     }
 }
+
+data class GeneratedMusic(
+    val bytes: ByteArray,
+    val lyrics: String?,
+)

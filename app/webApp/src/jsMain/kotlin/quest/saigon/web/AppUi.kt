@@ -5,6 +5,7 @@ import web.html.HTMLElement
 
 internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute) {
     clearFeedKeys()
+    stopMusicPreview()
     clearStatsPoll()
     root.clear()
     Town.applyLanguage()

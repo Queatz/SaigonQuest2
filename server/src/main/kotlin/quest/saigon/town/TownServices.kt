@@ -4,6 +4,7 @@ import org.slf4j.LoggerFactory
 import quest.saigon.AppConfig
 import quest.saigon.ai.AvatarPipeline
 import quest.saigon.ai.AvatarRenderer
+import quest.saigon.ai.MusicPipeline
 import quest.saigon.ai.QwenClient
 import quest.saigon.auth.RateLimiter
 import quest.saigon.auth.SessionTokens
@@ -16,6 +17,7 @@ class TownServices(
     val repo: TownRepository,
     val uploads: UploadStore,
     val avatars: AvatarService,
+    val music: MusicService,
     val config: AppConfig,
     val clock: () -> Long = System::currentTimeMillis,
     val tokens: () -> String = SessionTokens::new,
@@ -33,6 +35,7 @@ class TownServices(
                 repo = repo,
                 uploads = uploads,
                 avatars = AvatarService(repo, uploads, AvatarPipeline(qwen), config.qwenConfigured),
+                music = MusicService(repo, uploads, MusicPipeline(qwen), config.qwenConfigured),
                 config = config,
             )
         }

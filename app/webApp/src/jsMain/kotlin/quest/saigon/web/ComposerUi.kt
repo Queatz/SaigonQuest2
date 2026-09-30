@@ -12,6 +12,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     error.asDynamic().hidden = true
     var photoBlob: dynamic = null
     var selectedAvatar: String? = null
+    var selectedMusicId: String? = null
 
     val upload = el("button", "upload")
     upload.setAttribute("type", "button")
@@ -129,6 +130,8 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 form.append("message", text)
                 form.append("location", place)
                 form.append("avatarId", selectedAvatar)
+                val musicId = selectedMusicId
+                if (!musicId.isNullOrBlank()) form.append("musicId", musicId)
                 http("POST", "/api/posts", form = form) { status, body ->
                     post.removeAttribute("disabled")
                     post.textContent = Town.t("postNow")
@@ -147,6 +150,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(picker)
     body.appendChild(messageLabel)
     body.appendChild(location.root)
+    body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)
     body.appendChild(avatarRow)
     body.appendChild(studio)

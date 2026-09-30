@@ -27,7 +27,8 @@ internal data class PostCard(
     val location: String,
     val photoUrl: String,
     val avatarUrl: String?,
-    val createdAt: Double,
+    val musicName: String?,
+    val musicUrl: String?,
 )
 
 internal object Town {
@@ -72,7 +73,8 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     location = (node.location as? String).orEmpty(),
     photoUrl = prefixServerOrigin((node.photoUrl as? String).orEmpty()),
     avatarUrl = (node.avatarUrl as? String)?.let(::prefixServerOrigin),
-    createdAt = num(node.createdAt),
+    musicName = (node.musicName as? String)?.takeIf { it.isNotBlank() },
+    musicUrl = (node.musicUrl as? String)?.let(::prefixServerOrigin),
 )
 
 internal fun go(router: HistoryRouter, path: String) {

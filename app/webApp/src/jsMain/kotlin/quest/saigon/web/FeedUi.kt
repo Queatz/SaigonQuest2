@@ -18,6 +18,7 @@ internal fun clearFeedKeys() {
     feedKeyHandler = null
     feedResizeHandler = null
     stopSwipeHint()
+    stopFeedAudio()
 }
 
 internal fun feedScreen(router: HistoryRouter): HTMLElement {
@@ -98,6 +99,7 @@ private fun mountPager(
     fun playCurrent() {
         cancelType()
         val post = posts.getOrNull(index) ?: return
+        syncFeedAudio(post)
         val message = slides[index]?.asDynamic()?.querySelector(".message") ?: return
         if (viewedId != post.id) {
             viewedId = post.id
@@ -281,6 +283,7 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
         avatar.setAttribute("src", post.avatarUrl)
         stack.appendChild(avatar)
     }
+    if (!post.musicName.isNullOrBlank()) stack.appendChild(musicLine(post))
     val card = el("div", "card")
     val name = el("button", if (post.authorPhotoUrl.isNullOrBlank()) "name-chip" else "name-chip has-face")
     name.setAttribute("type", "button")

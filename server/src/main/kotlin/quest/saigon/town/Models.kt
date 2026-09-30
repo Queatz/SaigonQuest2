@@ -28,6 +28,25 @@ data class AvatarRecord(
     val createdAt: Long,
 )
 
+data class MusicRecord(
+    val id: String,
+    val userId: String,
+    val prompt: String,
+    val name: String,
+    val audioPath: String?,
+    val status: String,
+    val error: String?,
+    val gender: String?,
+    val instrumental: Boolean,
+    val createdAt: Long,
+    val lyrics: String? = null,
+)
+
+data class MusicPage(
+    val items: List<MusicRecord>,
+    val nextCursor: String?,
+)
+
 data class PostRecord(
     val id: String,
     val userId: String,
@@ -39,6 +58,7 @@ data class PostRecord(
     val views: Long = 0,
     val replyClicks: Long = 0,
     val shareClicks: Long = 0,
+    val musicId: String? = null,
 )
 
 data class FeedItem(
@@ -52,6 +72,8 @@ data class FeedItem(
     val createdAt: Long,
     val authorLocation: String = "",
     val authorIntro: String = "",
+    val musicName: String? = null,
+    val musicPath: String? = null,
 )
 
 data class FeedPage(
@@ -69,6 +91,7 @@ data class OwnedPost(
     val views: Long,
     val replyClicks: Long,
     val shareClicks: Long,
+    val musicName: String? = null,
 )
 
 data class OwnedPostPage(
@@ -94,6 +117,13 @@ data class AllTimeStats(
 )
 
 object AvatarStatus {
+    const val GENERATING = "generating"
+    const val READY = "ready"
+    const val FAILED = "failed"
+    const val REMOVED = "removed"
+}
+
+object MusicStatus {
     const val GENERATING = "generating"
     const val READY = "ready"
     const val FAILED = "failed"
