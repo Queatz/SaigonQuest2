@@ -335,6 +335,21 @@ button { cursor: pointer; }
     margin-top: 2px;
 }
 
+@media (max-width: 539px) {
+    .topbar {
+        justify-content: flex-start;
+    }
+
+    .feed-brand {
+        align-items: flex-start;
+    }
+
+    .location,
+    .feed-app-name {
+        text-align: left;
+    }
+}
+
 .card-stack {
     position: absolute;
     left: 0;
