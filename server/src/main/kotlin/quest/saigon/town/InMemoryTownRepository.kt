@@ -211,6 +211,11 @@ class InMemoryTownRepository : TownRepository {
         }
     }
 
+    override fun allTimeStats() = AllTimeStats(
+        totalUsers = users.size.toLong(),
+        totalPosts = posts.size.toLong(),
+    )
+
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 
     private class DailyBucket {

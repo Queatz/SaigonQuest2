@@ -321,7 +321,7 @@ button { cursor: pointer; }
     font-weight: 800;
     font-size: 22px;
     letter-spacing: -0.03em;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, .45);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .85), 0 1px 8px rgba(0, 0, 0, .45);
     text-align: center;
 }
 
@@ -331,7 +331,7 @@ button { cursor: pointer; }
     font-weight: 600;
     letter-spacing: 0.02em;
     opacity: .82;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, .45);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .85), 0 1px 8px rgba(0, 0, 0, .45);
     margin-top: 2px;
 }
 

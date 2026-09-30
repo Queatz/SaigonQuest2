@@ -26,4 +26,5 @@ interface TownRepository {
     fun recordVisit(userId: String?, at: Long)
     fun recordDailyEvent(field: String, at: Long)
     fun statsByDay(now: Long): List<DayStats>
+    fun allTimeStats(): AllTimeStats
 }

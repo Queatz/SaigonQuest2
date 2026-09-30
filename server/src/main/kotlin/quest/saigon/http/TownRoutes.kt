@@ -73,9 +73,12 @@ fun Route.townApi(services: TownServices) {
 
     get("/stats") {
         val days = services.repo.statsByDay(services.clock())
+        val allTime = services.repo.allTimeStats()
         call.respondJson(
             mapOf(
                 "timezone" to "UTC+7",
+                "totalUsers" to allTime.totalUsers,
+                "totalPosts" to allTime.totalPosts,
                 "days" to days.map { row ->
                     mapOf(
                         "day" to row.day,

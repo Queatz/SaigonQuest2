@@ -30,6 +30,7 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
     val chartHost = el("div", "stats-chart")
     val legend = el("div", "stats-legend")
     val today = el("div", "stats-today")
+    val allTime = el("div", "stats-today")
     body.appendChild(live)
     body.appendChild(hint)
     body.appendChild(ranges)
@@ -37,9 +38,12 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(legend)
     body.appendChild(el("h2", "stats-today-title", text = Town.t("statsToday")))
     body.appendChild(today)
+    body.appendChild(el("h2", "stats-today-title", text = Town.t("statsAllTime")))
+    body.appendChild(allTime)
     shell.appendChild(body)
 
     var days = emptyList<DayPoint>()
+    var totals = AllTimeTotals()
     var rangeDays = 30
     var hoverX: Double? = null
     val hidden = mutableSetOf<String>()
@@ -68,6 +72,7 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
             hoverX = x
         }
         paintToday(today, days.lastOrNull(), series)
+        paintAllTime(allTime, totals)
     }
 
     fun load() {
@@ -78,7 +83,9 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
                 chartHost.appendChild(el("p", "stats-error", text = errorText(body, status)))
                 return@http
             }
-            days = readDays(parseJson(body))
+            val json = parseJson(body)
+            days = readDays(json)
+            totals = readTotals(json)
             paint()
         }
     }
@@ -108,6 +115,11 @@ private data class SeriesDef(
     val value: (DayPoint) -> Long,
 )
 
+private data class AllTimeTotals(
+    val totalUsers: Long = 0,
+    val totalPosts: Long = 0,
+)
+
 private fun seriesDefs() = listOf(
     SeriesDef("visitorVisits", "#8aa2b4", Town.t("visitorVisits")) { it.visitorVisits },
     SeriesDef("userVisits", "#e9897c", Town.t("userVisits")) { it.userVisits },
@@ -117,6 +129,11 @@ private fun seriesDefs() = listOf(
     SeriesDef("replyClicks", "#2a9d8f", Town.t("repliesClicked")) { it.replyClicks },
     SeriesDef("shareClicks", "#e76f51", Town.t("sharesClicked")) { it.shareClicks },
     SeriesDef("postViews", "#457b9d", Town.t("postViews")) { it.postViews },
+)
+
+private fun readTotals(node: dynamic) = AllTimeTotals(
+    totalUsers = num(node.totalUsers).toLong(),
+    totalPosts = num(node.totalPosts).toLong(),
 )
 
 private fun readDays(node: dynamic): List<DayPoint> {
@@ -175,6 +192,19 @@ private fun paintToday(host: HTMLElement, day: DayPoint?, series: List<SeriesDef
         val card = el("div", "stats-card")
         card.appendChild(el("small", text = item.label))
         card.appendChild(el("b", text = item.value(day).toString()))
+        host.appendChild(card)
+    }
+}
+
+private fun paintAllTime(host: HTMLElement, totals: AllTimeTotals) {
+    host.clear()
+    listOf(
+        Town.t("totalUsers") to totals.totalUsers,
+        Town.t("totalPosts") to totals.totalPosts,
+    ).forEach { (label, value) ->
+        val card = el("div", "stats-card")
+        card.appendChild(el("small", text = label))
+        card.appendChild(el("b", text = value.toString()))
         host.appendChild(card)
     }
 }

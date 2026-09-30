@@ -88,6 +88,11 @@ data class DayStats(
     val postViews: Long = 0,
 )
 
+data class AllTimeStats(
+    val totalUsers: Long = 0,
+    val totalPosts: Long = 0,
+)
+
 object AvatarStatus {
     const val GENERATING = "generating"
     const val READY = "ready"

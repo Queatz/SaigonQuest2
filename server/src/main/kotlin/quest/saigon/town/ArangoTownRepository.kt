@@ -334,6 +334,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         }
     }
 
+    override fun allTimeStats() = AllTimeStats(
+        totalUsers = db.collection(USERS).count().count,
+        totalPosts = db.collection(POSTS).count().count,
+    )
+
     private fun bumpDaily(day: String, field: String) {
         val fieldName = DAILY_FIELDS.find { it == field } ?: return
         val visitor = if (fieldName == "visitorVisits") 1 else 0

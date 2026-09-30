@@ -380,6 +380,8 @@ class TownBehaviorTest {
         val anonymous = createClient { }
         val empty = mapper.readTree(anonymous.get("/api/stats").bodyAsText())
         assertEquals("UTC+7", empty.path("timezone").asText())
+        assertEquals(0, empty.path("totalUsers").asInt())
+        assertEquals(0, empty.path("totalPosts").asInt())
         assertEquals(30, empty.path("days").size())
         val today = SaigonDays.dayKey(1_700_000_000_000L)
         assertEquals(today, empty.path("days").path(29).path("day").asText())
@@ -397,11 +399,14 @@ class TownBehaviorTest {
         val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
         http.post("/api/stats/visit")
         http.post("/api/stats/visit")
-        val afterUser = todayNode(mapper.readTree(anonymous.get("/api/stats").bodyAsText()), today)
+        val afterUserBody = mapper.readTree(anonymous.get("/api/stats").bodyAsText())
+        val afterUser = todayNode(afterUserBody, today)
         assertEquals(1, afterUser.path("visitorVisits").asInt())
         assertEquals(2, afterUser.path("userVisits").asInt())
         assertEquals(1, afterUser.path("uniqueUserVisits").asInt())
         assertEquals(1, afterUser.path("newUsers").asInt())
+        assertEquals(1, afterUserBody.path("totalUsers").asInt())
+        assertEquals(0, afterUserBody.path("totalPosts").asInt())
 
         val avatar = services.repo.insertAvatar(userId, "smiling", 10)
         services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
@@ -412,11 +417,14 @@ class TownBehaviorTest {
         assertEquals(HttpStatusCode.OK, anonymous.post("/api/posts/${post.id}/contact").status)
         assertEquals(HttpStatusCode.OK, anonymous.post("/api/posts/${post.id}/share").status)
 
-        val counted = todayNode(mapper.readTree(anonymous.get("/api/stats").bodyAsText()), today)
+        val countedBody = mapper.readTree(anonymous.get("/api/stats").bodyAsText())
+        val counted = todayNode(countedBody, today)
         assertEquals(1, counted.path("posts").asInt())
         assertEquals(1, counted.path("postViews").asInt())
         assertEquals(1, counted.path("replyClicks").asInt())
         assertEquals(1, counted.path("shareClicks").asInt())
+        assertEquals(1, countedBody.path("totalUsers").asInt())
+        assertEquals(1, countedBody.path("totalPosts").asInt())
     }
 
     @Test
@@ -443,6 +451,9 @@ class TownBehaviorTest {
         assertEquals(1, nov15.visitorVisits)
         assertEquals(0, nov15.posts)
         assertEquals(0, nov15.newUsers)
+        val allTime = repo.allTimeStats()
+        assertEquals(1, allTime.totalUsers)
+        assertEquals(1, allTime.totalPosts)
     }
 
     @Test
