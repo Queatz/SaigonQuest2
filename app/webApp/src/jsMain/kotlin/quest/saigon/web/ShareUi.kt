@@ -370,6 +370,9 @@ private fun drawNameChip(ctx: dynamic, name: String, cardX: Double, cardY: Doubl
     val chipW = textPad + textW + 26.0
     val chipX = cardX + 32.0
     val chipY = cardY - chipH / 2
+    traceRound(ctx, chipX + 2.0, chipY + 2.0, chipW, chipH, chipH / 2)
+    ctx.fillStyle = "#00000024"
+    ctx.fill()
     traceRound(ctx, chipX, chipY, chipW, chipH, chipH / 2)
     ctx.fillStyle = "#e9897c"
     ctx.fill()
