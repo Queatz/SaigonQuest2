@@ -44,7 +44,7 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
 
     var days = emptyList<DayPoint>()
     var totals = AllTimeTotals()
-    var rangeDays = 30
+    var rangeDays = 7
     var hoverX: Double? = null
     val hidden = mutableSetOf<String>()
     val series = seriesDefs()
@@ -92,7 +92,7 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
 
     paint()
     load()
-    statsTimer = window.asDynamic().setInterval({ load() }, 4000)
+    statsTimer = window.asDynamic().setInterval({ load() }, 15000)
     return shell
 }
 

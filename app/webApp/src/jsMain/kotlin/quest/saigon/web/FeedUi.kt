@@ -8,12 +8,15 @@ import web.window.window
 import kotlin.math.abs
 
 private var feedKeyHandler: ((String) -> Unit)? = null
+private var feedResizeHandler: (() -> Unit)? = null
 private var keysInstalled = false
+private var resizeInstalled = false
 private var swipeHintTimer: dynamic = null
 private var swipeHintDone = false
 
 internal fun clearFeedKeys() {
     feedKeyHandler = null
+    feedResizeHandler = null
     stopSwipeHint()
 }
 
@@ -255,6 +258,11 @@ private fun mountPager(
                 "ArrowUp", "PageUp" -> commit(-1)
             }
         }
+    }
+    ensureResize()
+    feedResizeHandler = {
+        if (!animating && !dragging) layout(0.0, true)
+        else layout(drag, false)
     }
     rebuild()
     startSwipeHint(host) { index < 1 }
@@ -519,5 +527,13 @@ private fun ensureKeys() {
             event.preventDefault()
         }
         feedKeyHandler?.invoke(key)
+    })
+}
+
+private fun ensureResize() {
+    if (resizeInstalled) return
+    resizeInstalled = true
+    window.asDynamic().addEventListener("resize", {
+        feedResizeHandler?.invoke()
     })
 }
