@@ -8,11 +8,12 @@ import com.arangodb.entity.BaseDocument
 import com.arangodb.model.PersistentIndexOptions
 import com.arangodb.serde.jackson.JacksonSerde
 import quest.saigon.AppConfig
+import quest.saigon.Limits
 import java.time.LocalDate
 
 class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
-        listOf(USERS, SESSIONS, AVATARS, MUSIC, POSTS, DAY_STATS).forEach { name ->
+        listOf(USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES, NOTIFICATIONS, DAY_STATS).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
         }
@@ -21,6 +22,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
+        db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
+        db.collection(COMMENT_WATCHES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(NOTIFICATIONS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
+        db.collection(NOTIFICATIONS).ensurePersistentIndex(listOf("userKey", "readAt"), PersistentIndexOptions())
     }
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -234,6 +239,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("replyClicks", post.replyClicks)
         doc.addAttribute("shareClicks", post.shareClicks)
         doc.addAttribute("musicKey", post.musicId)
+        doc.addAttribute("quickReplies", post.quickReplies)
+        doc.addAttribute("commentCount", post.commentCount)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -254,8 +261,32 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               LET author = DOCUMENT("$USERS", p.userKey)
               LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
               LET track = DOCUMENT("$MUSIC", p.musicKey)
+              LET preview = (
+                FOR c IN $COMMENTS
+                  FILTER c.postKey == p._key
+                  SORT c.createdAt DESC, c._key DESC
+                  LIMIT ${Limits.COMMENT_PREVIEW}
+                  LET commenter = DOCUMENT("$USERS", c.userKey)
+                  LET parent = (c.replyToKey == null || c.replyToKey == "") ? null : DOCUMENT("$COMMENTS", c.replyToKey)
+                  LET parentAuthor = parent == null ? null : DOCUMENT("$USERS", parent.userKey)
+                  RETURN {
+                    id: c._key,
+                    postId: c.postKey,
+                    userId: c.userKey,
+                    authorName: commenter.name,
+                    authorPhotoPath: commenter.profilePhotoPath,
+                    authorLocation: commenter.location,
+                    authorIntro: commenter.intro,
+                    text: c.text,
+                    createdAt: c.createdAt,
+                    replyToId: parent == null ? null : parent._key,
+                    replyToAuthorName: parentAuthor == null ? null : parentAuthor.name,
+                    replyToText: parent == null ? null : parent.text
+                  }
+              )
               RETURN {
                 id: p._key,
+                authorId: p.userKey,
                 authorName: author.name,
                 authorPhotoPath: author.profilePhotoPath,
                 authorLocation: author.location,
@@ -266,7 +297,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 avatarPath: avatar.imagePath,
                 createdAt: p.createdAt,
                 musicName: track.name,
-                musicPath: track.audioPath
+                musicPath: track.audioPath,
+                quickReplies: p.quickReplies == null ? [] : p.quickReplies,
+                commentCount: p.commentCount == null ? 0 : p.commentCount,
+                previewComments: preview
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -274,6 +308,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         val items = page.map { row ->
             FeedItem(
                 id = string(row, "id"),
+                authorId = string(row, "authorId"),
                 authorName = string(row, "authorName"),
                 authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
                 message = string(row, "message"),
@@ -285,6 +320,9 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 authorIntro = string(row, "authorIntro"),
                 musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
                 musicPath = row.getAttribute("musicPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                quickReplies = stringList(row, "quickReplies"),
+                commentCount = long(row, "commentCount"),
+                previewComments = commentList(row, "previewComments"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -305,8 +343,82 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 replyClicks = long(doc, "replyClicks"),
                 shareClicks = long(doc, "shareClicks"),
                 musicId = string(doc, "musicKey").takeIf { it.isNotBlank() && it != "null" },
+                quickReplies = stringList(doc, "quickReplies"),
+                commentCount = long(doc, "commentCount"),
             )
         }
+
+    override fun feedItem(id: String): FeedItem? {
+        val bind = mapOf("id" to id, "preview" to Limits.COMMENT_PREVIEW)
+        val query = """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              LIMIT 1
+              LET author = DOCUMENT("$USERS", p.userKey)
+              LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
+              LET track = DOCUMENT("$MUSIC", p.musicKey)
+              LET preview = (
+                FOR c IN $COMMENTS
+                  FILTER c.postKey == p._key
+                  SORT c.createdAt DESC, c._key DESC
+                  LIMIT @preview
+                  LET commenter = DOCUMENT("$USERS", c.userKey)
+                  LET parent = (c.replyToKey == null || c.replyToKey == "") ? null : DOCUMENT("$COMMENTS", c.replyToKey)
+                  LET parentAuthor = parent == null ? null : DOCUMENT("$USERS", parent.userKey)
+                  RETURN {
+                    id: c._key,
+                    postId: c.postKey,
+                    userId: c.userKey,
+                    authorName: commenter.name,
+                    authorPhotoPath: commenter.profilePhotoPath,
+                    authorLocation: commenter.location,
+                    authorIntro: commenter.intro,
+                    text: c.text,
+                    createdAt: c.createdAt,
+                    replyToId: parent == null ? null : parent._key,
+                    replyToAuthorName: parentAuthor == null ? null : parentAuthor.name,
+                    replyToText: parent == null ? null : parent.text
+                  }
+              )
+              RETURN {
+                id: p._key,
+                authorId: p.userKey,
+                authorName: author.name,
+                authorPhotoPath: author.profilePhotoPath,
+                authorLocation: author.location,
+                authorIntro: author.intro,
+                message: p.message,
+                location: p.location,
+                photoPath: p.photoPath,
+                avatarPath: avatar.imagePath,
+                createdAt: p.createdAt,
+                musicName: track.name,
+                musicPath: track.audioPath,
+                quickReplies: p.quickReplies == null ? [] : p.quickReplies,
+                commentCount: p.commentCount == null ? 0 : p.commentCount,
+                previewComments: preview
+              }
+        """.trimIndent()
+        val row = first(query, bind) ?: return null
+        return FeedItem(
+            id = string(row, "id"),
+            authorId = string(row, "authorId"),
+            authorName = string(row, "authorName"),
+            authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            message = string(row, "message"),
+            location = string(row, "location"),
+            photoPath = string(row, "photoPath"),
+            avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            createdAt = long(row, "createdAt"),
+            authorLocation = string(row, "authorLocation"),
+            authorIntro = string(row, "authorIntro"),
+            musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            musicPath = row.getAttribute("musicPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            quickReplies = stringList(row, "quickReplies"),
+            commentCount = long(row, "commentCount"),
+            previewComments = commentList(row, "previewComments"),
+        )
+    }
 
     override fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage {
         val parsed = Cursors.parse(cursor)
@@ -370,8 +482,289 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         bump(id, "shareClicks")
     }
 
+    override fun updateQuickReplies(id: String, replies: List<String>) {
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { quickReplies: @replies } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to id, "replies" to replies.take(Limits.QUICK_REPLY_COUNT)),
+        )
+    }
+
     override fun deletePost(id: String) {
+        exec("FOR c IN $COMMENTS FILTER c.postKey == @id REMOVE c IN $COMMENTS RETURN OLD", mapOf("id" to id))
+        exec("FOR w IN $COMMENT_WATCHES FILTER w.postKey == @id REMOVE w IN $COMMENT_WATCHES RETURN OLD", mapOf("id" to id))
         db.collection(POSTS).deleteDocument(id)
+    }
+
+    override fun insertComment(comment: CommentRecord): CommentRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("postKey", comment.postId)
+        doc.addAttribute("userKey", comment.userId)
+        doc.addAttribute("text", comment.text)
+        doc.addAttribute("replyToKey", comment.replyToId)
+        doc.addAttribute("createdAt", comment.createdAt)
+        val key = db.collection(COMMENTS).insertDocument(doc).key
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { commentCount: (p.commentCount == null ? 0 : p.commentCount) + 1 } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to comment.postId),
+        )
+        return comment.copy(id = key)
+    }
+
+    override fun deleteComment(id: String) {
+        val comment = findComment(id) ?: return
+        db.collection(COMMENTS).deleteDocument(id)
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { commentCount: (p.commentCount == null || p.commentCount < 1 ? 0 : p.commentCount - 1) } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to comment.postId),
+        )
+    }
+
+    override fun findComment(id: String): CommentRecord? =
+        db.collection(COMMENTS).getDocument(id, BaseDocument::class.java)?.let { doc ->
+            CommentRecord(
+                id = doc.key,
+                postId = string(doc, "postKey"),
+                userId = string(doc, "userKey"),
+                text = string(doc, "text"),
+                replyToId = string(doc, "replyToKey").takeIf { it.isNotBlank() && it != "null" },
+                createdAt = long(doc, "createdAt"),
+            )
+        }
+
+    override fun commentItem(id: String): CommentItem? {
+        val row = first(
+            """
+            FOR c IN $COMMENTS
+              FILTER c._key == @id
+              LIMIT 1
+              LET commenter = DOCUMENT("$USERS", c.userKey)
+              LET parent = (c.replyToKey == null || c.replyToKey == "") ? null : DOCUMENT("$COMMENTS", c.replyToKey)
+              LET parentAuthor = parent == null ? null : DOCUMENT("$USERS", parent.userKey)
+              RETURN {
+                id: c._key,
+                postId: c.postKey,
+                userId: c.userKey,
+                authorName: commenter.name,
+                authorPhotoPath: commenter.profilePhotoPath,
+                authorLocation: commenter.location,
+                authorIntro: commenter.intro,
+                text: c.text,
+                createdAt: c.createdAt,
+                replyToId: parent == null ? null : parent._key,
+                replyToAuthorName: parentAuthor == null ? null : parentAuthor.name,
+                replyToText: parent == null ? null : parent.text
+              }
+            """.trimIndent(),
+            mapOf("id" to id),
+        ) ?: return null
+        return commentFromAny(row)
+    }
+
+    override fun commentsForPost(postId: String, cursor: String?, limit: Int): CommentPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "postKey" to postId,
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val rows = queryList(
+            """
+            FOR c IN $COMMENTS
+              FILTER c.postKey == @postKey
+              FILTER @hasCursor == false OR c.createdAt < @cursorAt OR (c.createdAt == @cursorAt AND c._key < @cursorKey)
+              SORT c.createdAt DESC, c._key DESC
+              LIMIT @limit
+              LET commenter = DOCUMENT("$USERS", c.userKey)
+              LET parent = (c.replyToKey == null || c.replyToKey == "") ? null : DOCUMENT("$COMMENTS", c.replyToKey)
+              LET parentAuthor = parent == null ? null : DOCUMENT("$USERS", parent.userKey)
+              RETURN {
+                id: c._key,
+                postId: c.postKey,
+                userId: c.userKey,
+                authorName: commenter.name,
+                authorPhotoPath: commenter.profilePhotoPath,
+                authorLocation: commenter.location,
+                authorIntro: commenter.intro,
+                text: c.text,
+                createdAt: c.createdAt,
+                replyToId: parent == null ? null : parent._key,
+                replyToAuthorName: parentAuthor == null ? null : parentAuthor.name,
+                replyToText: parent == null ? null : parent.text
+              }
+            """.trimIndent(),
+            bind,
+        )
+        val items = rows.take(limit).mapNotNull(::commentFromAny)
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        val total = findPost(postId)?.commentCount ?: items.size.toLong()
+        return CommentPage(items, next, total)
+    }
+
+    override fun latestComments(postId: String, limit: Int): List<CommentItem> =
+        queryList(
+            """
+            FOR c IN $COMMENTS
+              FILTER c.postKey == @postKey
+              SORT c.createdAt DESC, c._key DESC
+              LIMIT @limit
+              LET commenter = DOCUMENT("$USERS", c.userKey)
+              LET parent = (c.replyToKey == null || c.replyToKey == "") ? null : DOCUMENT("$COMMENTS", c.replyToKey)
+              LET parentAuthor = parent == null ? null : DOCUMENT("$USERS", parent.userKey)
+              RETURN {
+                id: c._key,
+                postId: c.postKey,
+                userId: c.userKey,
+                authorName: commenter.name,
+                authorPhotoPath: commenter.profilePhotoPath,
+                authorLocation: commenter.location,
+                authorIntro: commenter.intro,
+                text: c.text,
+                createdAt: c.createdAt,
+                replyToId: parent == null ? null : parent._key,
+                replyToAuthorName: parentAuthor == null ? null : parentAuthor.name,
+                replyToText: parent == null ? null : parent.text
+              }
+            """.trimIndent(),
+            mapOf("postKey" to postId, "limit" to limit),
+        ).mapNotNull(::commentFromAny)
+
+    override fun armCommentWatch(postId: String, userId: String) {
+        exec(
+            """
+            UPSERT { postKey: @postKey, userKey: @userKey }
+            INSERT { postKey: @postKey, userKey: @userKey, armed: true }
+            UPDATE { armed: true }
+            IN $COMMENT_WATCHES
+            RETURN NEW
+            """.trimIndent(),
+            mapOf("postKey" to postId, "userKey" to userId),
+        )
+    }
+
+    override fun disarmCommentWatch(postId: String, userId: String) {
+        exec(
+            """
+            FOR w IN $COMMENT_WATCHES
+              FILTER w.postKey == @postKey AND w.userKey == @userKey
+              UPDATE w WITH { armed: false } IN $COMMENT_WATCHES
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("postKey" to postId, "userKey" to userId),
+        )
+    }
+
+    override fun armedWatchers(postId: String): List<String> =
+        queryList(
+            """
+            FOR w IN $COMMENT_WATCHES
+              FILTER w.postKey == @postKey AND w.armed == true
+              RETURN w
+            """.trimIndent(),
+            mapOf("postKey" to postId),
+        ).map { string(it, "userKey") }.filter { it.isNotBlank() }
+
+    override fun insertNotification(notification: NotificationRecord): NotificationRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("userKey", notification.userId)
+        doc.addAttribute("type", notification.type)
+        doc.addAttribute("postKey", notification.postId)
+        doc.addAttribute("commentKey", notification.commentId)
+        doc.addAttribute("actorKey", notification.actorId)
+        doc.addAttribute("actorName", notification.actorName)
+        doc.addAttribute("preview", notification.preview)
+        doc.addAttribute("createdAt", notification.createdAt)
+        doc.addAttribute("readAt", notification.readAt)
+        val key = db.collection(NOTIFICATIONS).insertDocument(doc).key
+        return notification.copy(id = key)
+    }
+
+    override fun notificationsFor(userId: String, cursor: String?, limit: Int): NotificationPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "userKey" to userId,
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val rows = queryList(
+            """
+            FOR n IN $NOTIFICATIONS
+              FILTER n.userKey == @userKey
+              FILTER @hasCursor == false OR n.createdAt < @cursorAt OR (n.createdAt == @cursorAt AND n._key < @cursorKey)
+              SORT n.createdAt DESC, n._key DESC
+              LIMIT @limit
+              RETURN n
+            """.trimIndent(),
+            bind,
+        )
+        val items = rows.take(limit).map(::notificationFrom)
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return NotificationPage(items, next, unreadNotificationCount(userId))
+    }
+
+    override fun findNotification(id: String): NotificationRecord? =
+        db.collection(NOTIFICATIONS).getDocument(id, BaseDocument::class.java)?.let(::notificationFrom)
+
+    override fun markAllNotificationsRead(userId: String, readAt: Long): Long {
+        exec(
+            """
+            FOR n IN $NOTIFICATIONS
+              FILTER n.userKey == @userKey AND n.readAt == null
+              UPDATE n WITH { readAt: @readAt } IN $NOTIFICATIONS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("userKey" to userId, "readAt" to readAt),
+        )
+        return unreadNotificationCount(userId)
+    }
+
+    override fun markNotificationRead(id: String, readAt: Long): NotificationRecord? {
+        val current = findNotification(id) ?: return null
+        if (current.readAt != null) return current
+        val updated = current.copy(readAt = readAt)
+        val doc = BaseDocument(id)
+        doc.addAttribute("userKey", updated.userId)
+        doc.addAttribute("type", updated.type)
+        doc.addAttribute("postKey", updated.postId)
+        doc.addAttribute("commentKey", updated.commentId)
+        doc.addAttribute("actorKey", updated.actorId)
+        doc.addAttribute("actorName", updated.actorName)
+        doc.addAttribute("preview", updated.preview)
+        doc.addAttribute("createdAt", updated.createdAt)
+        doc.addAttribute("readAt", updated.readAt)
+        db.collection(NOTIFICATIONS).replaceDocument(id, doc)
+        return updated
+    }
+
+    override fun unreadNotificationCount(userId: String): Long {
+        val row = first(
+            """
+            FOR n IN $NOTIFICATIONS
+              FILTER n.userKey == @userKey AND n.readAt == null
+              COLLECT WITH COUNT INTO total
+              RETURN { total }
+            """.trimIndent(),
+            mapOf("userKey" to userId),
+        )
+        return long(row, "total")
     }
 
     override fun recordVisit(userId: String?, at: Long) {
@@ -571,6 +964,66 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         createdAt = long(doc, "createdAt"),
     )
 
+    private fun notificationFrom(doc: BaseDocument) = NotificationRecord(
+        id = doc.key,
+        userId = string(doc, "userKey"),
+        type = string(doc, "type"),
+        postId = string(doc, "postKey"),
+        commentId = string(doc, "commentKey"),
+        actorId = string(doc, "actorKey"),
+        actorName = string(doc, "actorName"),
+        preview = string(doc, "preview"),
+        createdAt = long(doc, "createdAt"),
+        readAt = doc.getAttribute("readAt")?.let { value -> (value as? Number)?.toLong() },
+    )
+
+    private fun stringList(doc: BaseDocument, name: String): List<String> {
+        val raw = doc.getAttribute(name) ?: return emptyList()
+        return when (raw) {
+            is Collection<*> -> raw.mapNotNull { it?.toString()?.takeIf { value -> value.isNotBlank() && value != "null" } }
+            is Array<*> -> raw.mapNotNull { it?.toString()?.takeIf { value -> value.isNotBlank() && value != "null" } }
+            else -> emptyList()
+        }
+    }
+
+    private fun commentList(doc: BaseDocument, name: String): List<CommentItem> {
+        val raw = doc.getAttribute(name) ?: return emptyList()
+        val rows = when (raw) {
+            is Collection<*> -> raw
+            is Array<*> -> raw.toList()
+            else -> return emptyList()
+        }
+        return rows.mapNotNull(::commentFromAny)
+    }
+
+    private fun commentFromAny(row: Any?): CommentItem? {
+        if (row == null) return null
+        fun read(name: String): Any? = when (row) {
+            is BaseDocument -> row.getAttribute(name)
+            is Map<*, *> -> row[name]
+            else -> null
+        }
+        fun str(name: String) = read(name)?.toString()?.takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+        fun strOrNull(name: String) = read(name)?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+        fun lng(name: String) = (read(name) as? Number)?.toLong() ?: 0L
+        val id = str("id")
+        if (id.isBlank()) return null
+        return CommentItem(
+            id = id,
+            postId = str("postId"),
+            userId = str("userId"),
+            authorName = str("authorName"),
+            authorPhotoPath = strOrNull("authorPhotoPath"),
+            authorLocation = str("authorLocation"),
+            authorIntro = str("authorIntro"),
+            text = str("text"),
+            createdAt = lng("createdAt"),
+            replyToId = strOrNull("replyToId"),
+            replyToAuthorName = strOrNull("replyToAuthorName"),
+            replyToText = strOrNull("replyToText"),
+        )
+    }
+
     private fun string(doc: BaseDocument, name: String): String = doc.getAttribute(name)?.toString().orEmpty()
 
     private fun long(doc: BaseDocument?, name: String): Long =
@@ -582,6 +1035,9 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val AVATARS = "avatars"
         private const val MUSIC = "music"
         private const val POSTS = "posts"
+        private const val COMMENTS = "comments"
+        private const val COMMENT_WATCHES = "commentWatches"
+        private const val NOTIFICATIONS = "notifications"
         private const val DAY_STATS = "dayStats"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 

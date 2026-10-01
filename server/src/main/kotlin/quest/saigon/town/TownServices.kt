@@ -5,6 +5,7 @@ import quest.saigon.AppConfig
 import quest.saigon.ai.AvatarPipeline
 import quest.saigon.ai.AvatarRenderer
 import quest.saigon.ai.MusicPipeline
+import quest.saigon.ai.QuickReplyPipeline
 import quest.saigon.ai.QwenClient
 import quest.saigon.auth.RateLimiter
 import quest.saigon.auth.SessionTokens
@@ -25,7 +26,11 @@ class TownServices(
     val viewLimiter: RateLimiter = RateLimiter(1, 30_000, clock),
     val visitLimiter: RateLimiter = RateLimiter(60, 60_000, clock),
     val images: ImageOps = ImageOps(),
+    val hub: NotificationHub = NotificationHub(),
+    val replies: QuickReplyService = QuickReplyService(repo),
 ) {
+    val comments: CommentService = CommentService(repo, hub, clock)
+
     companion object {
         fun open(config: AppConfig): TownServices {
             val repo = ArangoTownRepository.open(config)
@@ -37,6 +42,7 @@ class TownServices(
                 avatars = AvatarService(repo, uploads, AvatarPipeline(qwen), config.qwenConfigured),
                 music = MusicService(repo, uploads, MusicPipeline(qwen), config.qwenConfigured),
                 config = config,
+                replies = QuickReplyService(repo, QuickReplyPipeline(qwen), config.qwenConfigured),
             )
         }
     }

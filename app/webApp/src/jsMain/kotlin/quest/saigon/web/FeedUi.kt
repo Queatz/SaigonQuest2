@@ -19,9 +19,10 @@ internal fun clearFeedKeys() {
     feedResizeHandler = null
     stopSwipeHint()
     stopFeedAudio()
+    clearChatTimers()
 }
 
-internal fun feedScreen(router: HistoryRouter): HTMLElement {
+internal fun feedScreen(router: HistoryRouter, focusPostId: String? = null): HTMLElement {
     val shell = el("section", "shell feed-shell")
     shell.asDynamic().style.setProperty("--avatar-enter", "${Limits.AVATAR_ENTER_PX}px")
     val stage = el("div", "stage")
@@ -32,7 +33,10 @@ internal fun feedScreen(router: HistoryRouter): HTMLElement {
     brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
     val top = el("div", "topbar")
     top.appendChild(brand)
-    top.appendChild(viewerButton(router, toComposer = true))
+    val actions = el("div", "top-actions")
+    if (Town.me != null) actions.appendChild(notificationButton(router, shell))
+    actions.appendChild(viewerButton(router, toComposer = true))
+    top.appendChild(actions)
     shell.appendChild(stage)
     shell.appendChild(top)
     http("GET", "/api/posts?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
@@ -45,11 +49,24 @@ internal fun feedScreen(router: HistoryRouter): HTMLElement {
         val pending = Town.pending
         if (pending != null && posts.none { it.id == pending.id }) posts.add(0, pending)
         Town.pending = null
-        if (posts.isEmpty()) {
-            stage.appendChild(emptyState(Town.t("emptyFeed"), Town.t("emptyFeedHint")))
-            return@http
+        fun start(cursor: String?) {
+            if (posts.isEmpty()) {
+                stage.appendChild(emptyState(Town.t("emptyFeed"), Town.t("emptyFeedHint")))
+                return
+            }
+            mountPager(stage, location, shell, router, posts, cursor, focusPostId)
         }
-        mountPager(stage, location, shell, posts, parsed.nextCursor as? String)
+        if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
+            http("GET", "/api/posts/${encodeQuery(focusPostId)}") { postStatus, postBody ->
+                if (postStatus == 200) {
+                    val focused = postFrom(parseJson(postBody))
+                    if (posts.none { it.id == focused.id }) posts.add(0, focused)
+                }
+                start(parsed.nextCursor as? String)
+            }
+        } else {
+            start(parsed.nextCursor as? String)
+        }
     }
     return shell
 }
@@ -58,10 +75,13 @@ private fun mountPager(
     stage: HTMLElement,
     location: HTMLElement,
     host: HTMLElement,
+    router: HistoryRouter,
     posts: MutableList<PostCard>,
     initialCursor: String?,
+    focusPostId: String? = null,
 ) {
-    var index = 0
+    var index = focusPostId?.let { id -> posts.indexOfFirst { it.id == id }.takeIf { it >= 0 } } ?: 0
+    var openedFocus = false
     var cursor = initialCursor
     var loading = false
     var drag = 0.0
@@ -121,7 +141,7 @@ private fun mountPager(
 
     fun ensureSlide(i: Int) {
         if (i !in posts.indices || slides.containsKey(i)) return
-        val slide = buildSlide(posts[i], host) { playCurrent() }
+        val slide = buildSlide(posts[i], host, router, { next -> posts[i] = next }) { playCurrent() }
         stage.appendChild(slide)
         slides[i] = slide
     }
@@ -135,6 +155,14 @@ private fun mountPager(
         ensureSlide(index)
         ensureSlide(index + 1)
         revealAvatar()
+        if (!openedFocus && !focusPostId.isNullOrBlank() && posts.getOrNull(index)?.id == focusPostId) {
+            openedFocus = true
+            window.asDynamic().setTimeout({
+                openCommentsSheet(posts[index], host, router, focusInput = false) { next ->
+                    posts[index] = next
+                }
+            }, 280)
+        }
     }
 
     fun loadMore(then: () -> Unit = {}) {
@@ -277,7 +305,13 @@ private fun mountPager(
     startSwipeHint(host) { index < 1 }
 }
 
-private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): HTMLElement {
+private fun buildSlide(
+    post: PostCard,
+    host: HTMLElement,
+    router: HistoryRouter,
+    onUpdate: (PostCard) -> Unit,
+    @Suppress("UNUSED_PARAMETER") replay: () -> Unit,
+): HTMLElement {
     val slide = el("article", "slide")
     val photo = el("div", "photo")
     photo.asDynamic().style.backgroundImage = "url(\"${post.photoUrl}\")"
@@ -301,17 +335,11 @@ private fun buildSlide(post: PostCard, host: HTMLElement, replay: () -> Unit): H
         name.appendChild(face)
     }
     name.appendChild(el("span", text = post.authorName))
-    name.onClick { openMiniProfile(post, host) }
+    name.onClick { openMiniProfile(host, post.authorName, post.authorPhotoUrl, post.authorLocation, post.authorIntro) }
     card.appendChild(name)
     val message = el("p", "message")
     card.appendChild(message)
-    val actions = el("div", "card-actions")
-    actions.appendChild(el("button", "reply", text = Town.t("replyTo", mapOf("name" to post.authorName))) { button ->
-        button.setAttribute("type", "button")
-        button.onClick { openZalo(post.id, host, button) }
-    })
-    actions.appendChild(shareButton(post, host))
-    card.appendChild(actions)
+    card.appendChild(collapsedChat(post, host, router, onUpdate))
     stack.appendChild(card)
     slide.appendChild(stack)
     return slide
@@ -342,24 +370,30 @@ internal fun showVisitorWelcome(host: HTMLElement) {
     host.appendChild(backdrop)
 }
 
-private fun openMiniProfile(post: PostCard, host: HTMLElement) {
-    if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
-    val backdrop = el("div", "dialog-backdrop")
+internal fun openMiniProfile(
+    host: HTMLElement,
+    name: String,
+    photoUrl: String?,
+    location: String = "",
+    intro: String = "",
+) {
+    if (host.asDynamic().querySelector(".dialog.mini-profile") != null) return
+    val backdrop = el("div", "dialog-backdrop stacked")
     val card = el("div", "dialog mini-profile")
-    if (!post.authorPhotoUrl.isNullOrBlank()) {
+    if (!photoUrl.isNullOrBlank()) {
         val face = el("img", "face large")
         face.setAttribute("alt", "")
-        face.setAttribute("src", post.authorPhotoUrl)
+        face.setAttribute("src", photoUrl)
         card.appendChild(face)
     } else {
-        card.appendChild(el("span", "face large initial", text = post.authorName.take(1).uppercase()))
+        card.appendChild(el("span", "face large initial", text = name.take(1).uppercase()))
     }
-    card.appendChild(el("h2", text = post.authorName))
-    if (post.authorLocation.isNotBlank()) {
-        card.appendChild(el("p", "mini-profile-location", text = post.authorLocation))
+    card.appendChild(el("h2", text = name))
+    if (location.isNotBlank()) {
+        card.appendChild(el("p", "mini-profile-location", text = location))
     }
-    if (post.authorIntro.isNotBlank()) {
-        card.appendChild(el("p", "mini-profile-intro", text = post.authorIntro))
+    if (intro.isNotBlank()) {
+        card.appendChild(el("p", "mini-profile-intro", text = intro))
     }
     card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
         button.setAttribute("type", "button")
@@ -368,22 +402,6 @@ private fun openMiniProfile(post: PostCard, host: HTMLElement) {
     backdrop.appendChild(card)
     backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
-}
-
-private fun openZalo(postId: String, host: HTMLElement, button: HTMLElement) {
-    val popup = window.asDynamic().open("about:blank", "_blank")
-    button.setAttribute("disabled", "disabled")
-    http("POST", "/api/posts/$postId/contact", "{}") { status, body ->
-        button.removeAttribute("disabled")
-        if (status == 200) {
-            val url = parseJson(body).zaloUrl as String
-            if (popup != null && popup.closed != true) popup.location.href = url
-            else window.asDynamic().location.assign(url)
-        } else {
-            if (popup != null) popup.close()
-            toast(host, errorText(body, status))
-        }
-    }
 }
 
 private fun typewrite(node: dynamic, text: String): () -> Unit {

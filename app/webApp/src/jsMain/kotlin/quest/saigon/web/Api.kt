@@ -83,6 +83,7 @@ internal fun errorText(body: String, status: Int): String {
         "rate_limited" -> "rateLimited"
         "unavailable" -> "unavailable"
         "unauthorized" -> "needSignInToPost"
+        "invalid_comment" -> "invalidComment"
         else -> if (status == 0) "unavailable" else "errorGeneric"
     }
     return Town.t(key)

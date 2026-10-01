@@ -79,7 +79,7 @@ cat > "$stage/sq-config.js" <<EOF
 window.SAIGON_SERVER_ORIGIN = $(json_quote "$origin");
 window.SAIGON_SERVER_DOMAIN = $(json_quote "$SERVER_DOMAIN");
 EOF
-[[ -f "$stage/index.html" && -f "$stage/webApp.js" && -f "$stage/styles.css" ]] || die "web stage is incomplete"
+[[ -f "$stage/index.html" && -f "$stage/webApp.js" && -f "$stage/styles.css" && -f "$stage/manifest.json" && -f "$stage/sw.js" ]] || die "web stage is incomplete"
 grep -q 'sq-config.js' "$stage/index.html" || die "index.html does not load sq-config.js"
 
 if [[ "$SKIP_INIT" -eq 0 ]]; then

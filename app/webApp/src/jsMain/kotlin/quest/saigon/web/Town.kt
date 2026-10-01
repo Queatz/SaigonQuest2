@@ -17,8 +17,22 @@ internal data class Me(
     val photoUrl: String?,
 )
 
+internal data class CommentCard(
+    val id: String,
+    val userId: String = "",
+    val authorName: String,
+    val authorPhotoUrl: String?,
+    val authorLocation: String = "",
+    val authorIntro: String = "",
+    val text: String,
+    val createdAt: Long,
+    val replyToAuthorName: String?,
+    val replyToText: String?,
+)
+
 internal data class PostCard(
     val id: String,
+    val authorId: String = "",
     val authorName: String,
     val authorPhotoUrl: String?,
     val authorLocation: String,
@@ -29,6 +43,9 @@ internal data class PostCard(
     val avatarUrl: String?,
     val musicName: String?,
     val musicUrl: String?,
+    val quickReplies: List<String> = emptyList(),
+    val commentCount: Int = 0,
+    val previewComments: List<CommentCard> = emptyList(),
 )
 
 internal object Town {
@@ -65,6 +82,7 @@ internal fun meFrom(node: dynamic): Me = Me(
 
 internal fun postFrom(node: dynamic): PostCard = PostCard(
     id = node.id as String,
+    authorId = (node.authorId as? String).orEmpty(),
     authorName = (node.authorName as? String).orEmpty(),
     authorPhotoUrl = (node.authorPhotoUrl as? String)?.let(::prefixServerOrigin),
     authorLocation = (node.authorLocation as? String).orEmpty(),
@@ -75,7 +93,42 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     avatarUrl = (node.avatarUrl as? String)?.let(::prefixServerOrigin),
     musicName = (node.musicName as? String)?.takeIf { it.isNotBlank() },
     musicUrl = (node.musicUrl as? String)?.let(::prefixServerOrigin),
+    quickReplies = readStringList(node.quickReplies),
+    commentCount = num(node.commentCount).toInt(),
+    previewComments = readComments(node.comments),
 )
+
+internal fun commentFrom(node: dynamic): CommentCard = CommentCard(
+    id = (node.id as? String).orEmpty(),
+    userId = (node.userId as? String).orEmpty(),
+    authorName = (node.authorName as? String).orEmpty(),
+    authorPhotoUrl = (node.authorPhotoUrl as? String)?.let(::prefixServerOrigin),
+    authorLocation = (node.authorLocation as? String).orEmpty(),
+    authorIntro = (node.authorIntro as? String).orEmpty(),
+    text = (node.text as? String).orEmpty(),
+    createdAt = num(node.createdAt).toLong(),
+    replyToAuthorName = (node.replyToAuthorName as? String)?.takeIf { it.isNotBlank() },
+    replyToText = (node.replyToText as? String)?.takeIf { it.isNotBlank() },
+)
+
+internal fun readComments(node: dynamic): List<CommentCard> {
+    val comments = mutableListOf<CommentCard>()
+    if (node == null || node == undefined) return comments
+    val length = node.length as? Int ?: return comments
+    for (i in 0 until length) comments += commentFrom(node[i])
+    return comments
+}
+
+internal fun readStringList(node: dynamic): List<String> {
+    val values = mutableListOf<String>()
+    if (node == null || node == undefined) return values
+    val length = node.length as? Int ?: return values
+    for (i in 0 until length) {
+        val value = node[i] as? String
+        if (!value.isNullOrBlank()) values += value
+    }
+    return values
+}
 
 internal fun go(router: HistoryRouter, path: String) {
     Town.returnTo = router.currentPath()

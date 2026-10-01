@@ -82,6 +82,16 @@ class TownRulesTest {
         assertEquals("Vuốt xuống", Copy.text(Language.VI, "swipeDown"))
         assertEquals("Select music", Copy.text(Language.EN, "selectMusic"))
         assertEquals("Chọn nhạc", Copy.text(Language.VI, "selectMusic"))
+        assertEquals(
+            "Be the first to give Linh a comment.",
+            Copy.text(Language.EN, "beFirstComment", mapOf("name" to "Linh")),
+        )
+        assertEquals("Comments", Copy.text(Language.EN, "comments"))
+        assertEquals("Bình luận", Copy.text(Language.VI, "comments"))
+        assertEquals("Nice ✨", Copy.quickReplies(Language.EN).first())
+        assertEquals("Hay quá ✨", Copy.quickReplies(Language.VI).first())
+        assertEquals(5, Copy.quickReplies(Language.EN).distinct().size)
+        assertEquals(5, Copy.quickReplies(Language.VI).distinct().size)
     }
 
     @Test

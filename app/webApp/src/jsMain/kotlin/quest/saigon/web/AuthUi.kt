@@ -4,8 +4,8 @@ import web.html.HTMLElement
 import web.window.window
 
 internal fun showAuthDialog(host: HTMLElement, onSuccess: () -> Unit, onClose: () -> Unit = {}) {
-    if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
-    val backdrop = el("div", "dialog-backdrop")
+    if (host.asDynamic().querySelector(".auth-dialog") != null) return
+    val backdrop = el("div", "dialog-backdrop auth-dialog")
     fun dismiss() {
         backdrop.asDynamic().remove()
         onClose()
@@ -80,6 +80,7 @@ private fun authDialog(onSuccess: () -> Unit, onClose: () -> Unit): HTMLElement 
                     Town.rememberLanguage(Town.me?.language ?: "system")
                     Town.applyLanguage()
                     recordUserVisit()
+                    NotifyInbox.connect()
                     onSuccess()
                 } else {
                     error.textContent = errorText(body, status)

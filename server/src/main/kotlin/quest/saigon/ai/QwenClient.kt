@@ -54,6 +54,28 @@ class QwenClient(
         return QwenResponses.chatText(QwenResponses.parse(response.body))
     }
 
+    fun chat(system: String, user: String, temperature: Double = 0.8, timeoutSeconds: Long = 60): String? {
+        val body = mapper.writeValueAsString(
+            mapOf(
+                "model" to textModel,
+                "messages" to listOf(
+                    mapOf("role" to "system", "content" to system.trim()),
+                    mapOf("role" to "user", "content" to user),
+                ),
+                "temperature" to temperature,
+                "enable_thinking" to false,
+            ),
+        )
+        val response = postJson(
+            "${root(baseUrl)}/compatible-mode/v1/chat/completions",
+            body,
+            async = false,
+            timeoutSeconds = timeoutSeconds,
+        )
+        if (response.status !in 200..299) return null
+        return QwenResponses.chatText(QwenResponses.parse(response.body))
+    }
+
     fun editImage(source: ByteArray, instruction: String, mime: String): ByteArray {
         val prepared = images.shrinkForUpload(source)
         val dataUrl = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(prepared)

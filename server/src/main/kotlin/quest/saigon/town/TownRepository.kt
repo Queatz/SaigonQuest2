@@ -40,11 +40,28 @@ interface TownRepository {
     fun insertPost(post: PostRecord): PostRecord
     fun feed(cursor: String?, limit: Int): FeedPage
     fun findPost(id: String): PostRecord?
+    fun feedItem(id: String): FeedItem?
     fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage
     fun recordView(id: String)
     fun recordReplyClick(id: String)
     fun recordShareClick(id: String)
+    fun updateQuickReplies(id: String, replies: List<String>)
     fun deletePost(id: String)
+    fun insertComment(comment: CommentRecord): CommentRecord
+    fun findComment(id: String): CommentRecord?
+    fun deleteComment(id: String)
+    fun commentItem(id: String): CommentItem?
+    fun commentsForPost(postId: String, cursor: String?, limit: Int): CommentPage
+    fun latestComments(postId: String, limit: Int): List<CommentItem>
+    fun armCommentWatch(postId: String, userId: String)
+    fun disarmCommentWatch(postId: String, userId: String)
+    fun armedWatchers(postId: String): List<String>
+    fun insertNotification(notification: NotificationRecord): NotificationRecord
+    fun notificationsFor(userId: String, cursor: String?, limit: Int): NotificationPage
+    fun findNotification(id: String): NotificationRecord?
+    fun markNotificationRead(id: String, readAt: Long): NotificationRecord?
+    fun markAllNotificationsRead(userId: String, readAt: Long): Long
+    fun unreadNotificationCount(userId: String): Long
     fun recordVisit(userId: String?, at: Long)
     fun recordDailyEvent(field: String, at: Long)
     fun statsByDay(now: Long): List<DayStats>

@@ -13,7 +13,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts
         )
     val page = when {
-        loggedOutGate || route == AppRoute.Home -> feedScreen(router)
+        loggedOutGate || route == AppRoute.Home || route is AppRoute.Post ->
+            feedScreen(router, (route as? AppRoute.Post)?.id)
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
         route == AppRoute.MyPosts -> myPostsScreen(router)

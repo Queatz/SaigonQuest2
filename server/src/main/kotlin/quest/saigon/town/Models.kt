@@ -59,10 +59,13 @@ data class PostRecord(
     val replyClicks: Long = 0,
     val shareClicks: Long = 0,
     val musicId: String? = null,
+    val quickReplies: List<String> = emptyList(),
+    val commentCount: Long = 0,
 )
 
 data class FeedItem(
     val id: String,
+    val authorId: String = "",
     val authorName: String,
     val authorPhotoPath: String?,
     val message: String,
@@ -74,6 +77,9 @@ data class FeedItem(
     val authorIntro: String = "",
     val musicName: String? = null,
     val musicPath: String? = null,
+    val quickReplies: List<String> = emptyList(),
+    val commentCount: Long = 0,
+    val previewComments: List<CommentItem> = emptyList(),
 )
 
 data class FeedPage(
@@ -128,4 +134,58 @@ object MusicStatus {
     const val READY = "ready"
     const val FAILED = "failed"
     const val REMOVED = "removed"
+}
+
+data class CommentRecord(
+    val id: String,
+    val postId: String,
+    val userId: String,
+    val text: String,
+    val replyToId: String?,
+    val createdAt: Long,
+)
+
+data class CommentItem(
+    val id: String,
+    val postId: String,
+    val userId: String,
+    val authorName: String,
+    val authorPhotoPath: String?,
+    val authorLocation: String = "",
+    val authorIntro: String = "",
+    val text: String,
+    val createdAt: Long,
+    val replyToId: String? = null,
+    val replyToAuthorName: String? = null,
+    val replyToText: String? = null,
+)
+
+data class CommentPage(
+    val items: List<CommentItem>,
+    val nextCursor: String?,
+    val total: Long,
+)
+
+data class NotificationRecord(
+    val id: String,
+    val userId: String,
+    val type: String,
+    val postId: String,
+    val commentId: String,
+    val actorId: String,
+    val actorName: String,
+    val preview: String,
+    val createdAt: Long,
+    val readAt: Long? = null,
+)
+
+data class NotificationPage(
+    val items: List<NotificationRecord>,
+    val nextCursor: String?,
+    val unreadCount: Long,
+)
+
+object NotificationType {
+    const val POST_COMMENT = "post_comment"
+    const val THREAD_COMMENT = "thread_comment"
 }

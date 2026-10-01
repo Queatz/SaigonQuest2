@@ -1,5 +1,6 @@
 package quest.saigon.town
 
+import quest.saigon.Limits
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -10,6 +11,9 @@ class InMemoryTownRepository : TownRepository {
     private val avatars = ConcurrentHashMap<String, AvatarRecord>()
     private val music = ConcurrentHashMap<String, MusicRecord>()
     private val posts = ConcurrentHashMap<String, PostRecord>()
+    private val comments = ConcurrentHashMap<String, CommentRecord>()
+    private val watches = ConcurrentHashMap<String, Boolean>()
+    private val notifications = ConcurrentHashMap<String, NotificationRecord>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -161,30 +165,14 @@ class InMemoryTownRepository : TownRepository {
             sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
         }
         val page = filtered.take(limit + 1)
-        val items = page.take(limit).map { post ->
-            val author = users[post.userId]
-            val avatar = avatars[post.avatarId]
-            val track = post.musicId?.let { music[it] }
-            FeedItem(
-                id = post.id,
-                authorName = author?.name ?: "",
-                authorPhotoPath = author?.profilePhotoPath,
-                message = post.message,
-                location = post.location,
-                photoPath = post.photoPath,
-                avatarPath = avatar?.imagePath,
-                authorLocation = author?.location.orEmpty(),
-                authorIntro = author?.intro.orEmpty(),
-                createdAt = post.createdAt,
-                musicName = track?.name,
-                musicPath = track?.audioPath,
-            )
-        }
+        val items = page.take(limit).map(::toFeedItem)
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
         return FeedPage(items, next)
     }
 
     override fun findPost(id: String): PostRecord? = posts[id]
+
+    override fun feedItem(id: String): FeedItem? = posts[id]?.let(::toFeedItem)
 
     override fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage {
         val parsed = Cursors.parse(cursor)
@@ -231,8 +219,158 @@ class InMemoryTownRepository : TownRepository {
         posts[id] = post.copy(shareClicks = post.shareClicks + 1)
     }
 
+    override fun updateQuickReplies(id: String, replies: List<String>) {
+        val post = posts[id] ?: return
+        posts[id] = post.copy(quickReplies = replies.take(Limits.QUICK_REPLY_COUNT))
+    }
+
     override fun deletePost(id: String) {
         posts.remove(id)
+        comments.values.filter { it.postId == id }.forEach { comments.remove(it.id) }
+        watches.keys.filter { it.startsWith("$id:") }.forEach { watches.remove(it) }
+    }
+
+    override fun insertComment(comment: CommentRecord): CommentRecord {
+        val stored = if (comment.id.isBlank()) comment.copy(id = newId()) else comment
+        comments[stored.id] = stored
+        val post = posts[stored.postId]
+        if (post != null) posts[stored.postId] = post.copy(commentCount = post.commentCount + 1)
+        return stored
+    }
+
+    override fun findComment(id: String): CommentRecord? = comments[id]
+
+    override fun deleteComment(id: String) {
+        val comment = comments.remove(id) ?: return
+        val post = posts[comment.postId] ?: return
+        posts[comment.postId] = post.copy(commentCount = (post.commentCount - 1).coerceAtLeast(0))
+    }
+
+    override fun commentItem(id: String): CommentItem? = comments[id]?.let(::toCommentItem)
+
+    override fun commentsForPost(postId: String, cursor: String?, limit: Int): CommentPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = comments.values
+            .filter { it.postId == postId }
+            .sortedWith(compareByDescending<CommentRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).map(::toCommentItem)
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        val total = posts[postId]?.commentCount ?: comments.values.count { it.postId == postId }.toLong()
+        return CommentPage(items, next, total)
+    }
+
+    override fun latestComments(postId: String, limit: Int): List<CommentItem> =
+        comments.values
+            .filter { it.postId == postId }
+            .sortedWith(compareByDescending<CommentRecord> { it.createdAt }.thenByDescending { it.id })
+            .take(limit)
+            .map(::toCommentItem)
+
+    override fun armCommentWatch(postId: String, userId: String) {
+        watches["$postId:$userId"] = true
+    }
+
+    override fun disarmCommentWatch(postId: String, userId: String) {
+        watches["$postId:$userId"] = false
+    }
+
+    override fun armedWatchers(postId: String): List<String> =
+        watches.entries
+            .filter { it.value && it.key.startsWith("$postId:") }
+            .map { it.key.substringAfter(':') }
+
+    override fun insertNotification(notification: NotificationRecord): NotificationRecord {
+        val stored = if (notification.id.isBlank()) notification.copy(id = newId()) else notification
+        notifications[stored.id] = stored
+        return stored
+    }
+
+    override fun notificationsFor(userId: String, cursor: String?, limit: Int): NotificationPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = notifications.values
+            .filter { it.userId == userId }
+            .sortedWith(compareByDescending<NotificationRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit)
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return NotificationPage(items, next, unreadNotificationCount(userId))
+    }
+
+    override fun findNotification(id: String): NotificationRecord? = notifications[id]
+
+    override fun markAllNotificationsRead(userId: String, readAt: Long): Long {
+        notifications.entries.forEach { (id, item) ->
+            if (item.userId == userId && item.readAt == null) notifications[id] = item.copy(readAt = readAt)
+        }
+        return unreadNotificationCount(userId)
+    }
+
+    override fun markNotificationRead(id: String, readAt: Long): NotificationRecord? {
+        val current = notifications[id] ?: return null
+        if (current.readAt != null) return current
+        val updated = current.copy(readAt = readAt)
+        notifications[id] = updated
+        return updated
+    }
+
+    override fun unreadNotificationCount(userId: String): Long =
+        notifications.values.count { it.userId == userId && it.readAt == null }.toLong()
+
+    private fun toFeedItem(post: PostRecord): FeedItem {
+        val author = users[post.userId]
+        val avatar = avatars[post.avatarId]
+        val track = post.musicId?.let { music[it] }
+        return FeedItem(
+            id = post.id,
+            authorId = post.userId,
+            authorName = author?.name ?: "",
+            authorPhotoPath = author?.profilePhotoPath,
+            message = post.message,
+            location = post.location,
+            photoPath = post.photoPath,
+            avatarPath = avatar?.imagePath,
+            authorLocation = author?.location.orEmpty(),
+            authorIntro = author?.intro.orEmpty(),
+            createdAt = post.createdAt,
+            musicName = track?.name,
+            musicPath = track?.audioPath,
+            quickReplies = post.quickReplies,
+            commentCount = post.commentCount,
+            previewComments = latestComments(post.id, Limits.COMMENT_PREVIEW),
+        )
+    }
+
+    private fun toCommentItem(comment: CommentRecord): CommentItem {
+        val author = users[comment.userId]
+        val parent = comment.replyToId?.let { comments[it] }
+        val parentAuthor = parent?.userId?.let { users[it] }
+        return CommentItem(
+            id = comment.id,
+            postId = comment.postId,
+            userId = comment.userId,
+            authorName = author?.name ?: "",
+            authorPhotoPath = author?.profilePhotoPath,
+            authorLocation = author?.location.orEmpty(),
+            authorIntro = author?.intro.orEmpty(),
+            text = comment.text,
+            createdAt = comment.createdAt,
+            replyToId = parent?.id,
+            replyToAuthorName = parentAuthor?.name,
+            replyToText = parent?.text,
+        )
     }
 
     override fun recordVisit(userId: String?, at: Long) {

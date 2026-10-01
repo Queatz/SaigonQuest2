@@ -129,6 +129,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
             http("POST", "/api/auth/logout") { _, _ ->
                 Town.me = null
                 Town.applyLanguage()
+                NotifyInbox.disconnect()
                 router.navigate("/")
             }
         }
@@ -230,8 +231,8 @@ private fun confirmDelete(host: HTMLElement, onYes: () -> Unit) {
 }
 
 internal fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes: () -> Unit) {
-    if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
-    val backdrop = el("div", "dialog-backdrop")
+    if (host.asDynamic().querySelector(".confirm-backdrop") != null) return
+    val backdrop = el("div", "dialog-backdrop confirm-backdrop")
     val card = el("div", "dialog")
     card.appendChild(el("h2", text = title))
     card.appendChild(el("p", "hint", text = hint))

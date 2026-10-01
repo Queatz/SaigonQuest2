@@ -18,4 +18,9 @@ object Limits {
     const val AVATAR_ENTER_PX = 50
     const val CARD_SPEED = 1.1
     const val FEED_PAGE_SIZE = 8
+    const val COMMENT_MAX = 280
+    const val COMMENT_PAGE_SIZE = 50
+    const val COMMENT_PREVIEW = 12
+    const val COMMENT_CYCLE_MILLIS = 2000
+    const val QUICK_REPLY_COUNT = 5
 }

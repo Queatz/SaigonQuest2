@@ -6,6 +6,7 @@ sealed class AppRoute {
     data object Profile : AppRoute()
     data object MyPosts : AppRoute()
     data object Stats : AppRoute()
+    data class Post(val id: String) : AppRoute()
     data class NotFound(val path: String) : AppRoute()
 }
 
@@ -13,12 +14,16 @@ fun matchAppRoute(path: String): AppRoute {
     val normalized = path.trim().ifEmpty { "/" }.let { value ->
         if (value != "/" && value.endsWith("/")) value.dropLast(1) else value
     }
-    return when (normalized) {
-        "/", "" -> AppRoute.Home
-        "/new" -> AppRoute.NewPost
-        "/profile" -> AppRoute.Profile
-        "/profile/posts" -> AppRoute.MyPosts
-        "/stats" -> AppRoute.Stats
+    val post = POST_PATH.matchEntire(normalized)
+    return when {
+        normalized == "/" || normalized.isEmpty() -> AppRoute.Home
+        normalized == "/new" -> AppRoute.NewPost
+        normalized == "/profile" -> AppRoute.Profile
+        normalized == "/profile/posts" -> AppRoute.MyPosts
+        normalized == "/stats" -> AppRoute.Stats
+        post != null -> AppRoute.Post(post.groupValues[1])
         else -> AppRoute.NotFound(path)
     }
 }
+
+private val POST_PATH = Regex("^/p/([A-Za-z0-9_-]+)$")

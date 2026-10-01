@@ -159,6 +159,30 @@ object Copy {
         "musicNotFailed" to "Only failed music can be retried.",
         "musicMissing" to "Music creation needs a Qwen API key on the server.",
         "invalidMusic" to "That music isn't available.",
+        "comments" to "Comments",
+        "beFirstComment" to "Be the first to give {name} a comment.",
+        "reply" to "Reply",
+        "notifications" to "Notifications",
+        "openNotifications" to "Notifications",
+        "noNotifications" to "You're all caught up.",
+        "notificationPostComment" to "{name} commented on your post",
+        "notificationThreadComment" to "{name} also commented",
+        "sendComment" to "Send",
+        "invalidComment" to "Write a short comment.",
+        "zaloReply" to "Message on Zalo",
+        "justNow" to "just now",
+        "minutesAgo" to "{count}m",
+        "hoursAgo" to "{count}h",
+        "daysAgo" to "{count}d",
+        "deleteCommentAsk" to "Delete this comment?",
+        "deleteCommentHint" to "It's gone for everyone.",
+        "markAllRead" to "Mark all as read",
+        "replyingTo" to "Replying to {name}",
+        "quickReply1" to "Nice ✨",
+        "quickReply2" to "Love this 💛",
+        "quickReply3" to "Looks fun 😄",
+        "quickReply4" to "Tell me more",
+        "quickReply5" to "I'm in 🙌",
     )
 
     private val vi = mapOf(
@@ -319,6 +343,30 @@ object Copy {
         "musicNotFailed" to "Chỉ thử lại nhạc đã thất bại.",
         "musicMissing" to "Tạo nhạc cần khóa Qwen trên máy chủ.",
         "invalidMusic" to "Nhạc này không dùng được.",
+        "comments" to "Bình luận",
+        "beFirstComment" to "Hãy là người đầu tiên bình luận cho {name}.",
+        "reply" to "Trả lời",
+        "notifications" to "Thông báo",
+        "openNotifications" to "Thông báo",
+        "noNotifications" to "Chưa có thông báo.",
+        "notificationPostComment" to "{name} đã bình luận bài của bạn",
+        "notificationThreadComment" to "{name} cũng bình luận",
+        "sendComment" to "Gửi",
+        "invalidComment" to "Viết một bình luận ngắn.",
+        "zaloReply" to "Nhắn Zalo",
+        "justNow" to "vừa xong",
+        "minutesAgo" to "{count}p",
+        "hoursAgo" to "{count}g",
+        "daysAgo" to "{count}n",
+        "deleteCommentAsk" to "Xóa bình luận này?",
+        "deleteCommentHint" to "Mọi người sẽ không còn thấy.",
+        "markAllRead" to "Đánh dấu đã đọc hết",
+        "replyingTo" to "Đang trả lời {name}",
+        "quickReply1" to "Hay quá ✨",
+        "quickReply2" to "Thích ghê 💛",
+        "quickReply3" to "Trông vui 😄",
+        "quickReply4" to "Kể thêm đi",
+        "quickReply5" to "Tui in 🙌",
     )
 
     fun text(language: Language, key: String, values: Map<String, String> = emptyMap()): String {
@@ -333,4 +381,7 @@ object Copy {
 
     fun uploadPrompts(language: Language): List<String> =
         (1..10).map { text(language, "uploadPrompt$it") }
+
+    fun quickReplies(language: Language): List<String> =
+        (1..5).map { text(language, "quickReply$it") }
 }

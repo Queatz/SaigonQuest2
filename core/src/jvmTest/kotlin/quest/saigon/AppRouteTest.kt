@@ -24,6 +24,12 @@ class AppRouteTest {
     }
 
     @Test
+    fun postPathRevealsAFeedItem() {
+        assertEquals(AppRoute.Post("abc123"), matchAppRoute("/p/abc123"))
+        assertEquals(AppRoute.Post("abc123"), matchAppRoute("/p/abc123/"))
+    }
+
+    @Test
     fun unknownPathIsNotFound() {
         val route = matchAppRoute("/about")
         assertIs<AppRoute.NotFound>(route)

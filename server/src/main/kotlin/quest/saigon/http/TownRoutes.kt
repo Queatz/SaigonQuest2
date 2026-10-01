@@ -1,14 +1,18 @@
 package quest.saigon.http
 
+import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.CookieEncoding
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.PartData
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveMultipart
 import io.ktor.server.request.receiveText
+import io.ktor.server.response.cacheControl
 import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
@@ -17,6 +21,8 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.utils.io.jvm.javaio.toInputStream
+import io.ktor.utils.io.writeStringUtf8
+import kotlinx.coroutines.delay
 import quest.saigon.AppConfig
 import quest.saigon.Limits
 import quest.saigon.MusicNames
@@ -25,6 +31,8 @@ import quest.saigon.languagePreference
 import quest.saigon.media.ImageOps
 import quest.saigon.town.AvatarRecord
 import quest.saigon.town.AvatarStatus
+import quest.saigon.town.CommentItem
+import quest.saigon.town.CommentService
 import quest.saigon.town.FeedItem
 import quest.saigon.town.MusicRecord
 import quest.saigon.town.MusicStatus
@@ -343,10 +351,12 @@ fun Route.townApi(services: TownServices) {
                 musicId = music?.id,
             ),
         )
+        services.replies.enqueue(post.id, message)
         call.respondJson(
             postPayload(
-                FeedItem(
+                services.repo.feedItem(post.id) ?: FeedItem(
                     id = post.id,
+                    authorId = user.id,
                     authorName = user.name,
                     authorPhotoPath = user.profilePhotoPath,
                     message = post.message,
@@ -362,6 +372,122 @@ fun Route.townApi(services: TownServices) {
             ),
             HttpStatusCode.Created,
         )
+    }
+
+    get("/posts/{id}") {
+        val item = services.repo.feedItem(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        call.respondJson(postPayload(item))
+    }
+
+    get("/posts/{id}/comments") {
+        val postId = call.parameters["id"].orEmpty()
+        services.repo.findPost(postId) ?: return@get call.fail("not_found")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, Limits.COMMENT_PAGE_SIZE)
+            ?: Limits.COMMENT_PAGE_SIZE
+        val page = services.repo.commentsForPost(postId, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "comments" to page.items.map(::commentPayload),
+                "nextCursor" to page.nextCursor,
+                "total" to page.total,
+            ),
+        )
+    }
+
+    post("/posts/{id}/comments") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val item = try {
+            services.comments.add(
+                user,
+                call.parameters["id"].orEmpty(),
+                Jsons.text(body, "text"),
+                Jsons.text(body, "replyToId").ifBlank { null },
+            )
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(commentPayload(item), HttpStatusCode.Created)
+    }
+
+    delete("/posts/{id}/comments/{commentId}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        try {
+            services.comments.remove(user, call.parameters["id"].orEmpty(), call.parameters["commentId"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    get("/users/{id}/photo") {
+        val user = services.repo.findUser(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val path = user.profilePhotoPath ?: return@get call.fail("not_found")
+        val file = services.uploads.resolve(path) ?: return@get call.fail("not_found")
+        call.response.headers.append("Cache-Control", "public, max-age=300")
+        call.respondBytes(file.readBytes(), ContentType.Image.JPEG)
+    }
+
+    get("/notifications") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50
+        val page = services.repo.notificationsFor(user.id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "notifications" to page.items.map(CommentService::notificationPayload),
+                "nextCursor" to page.nextCursor,
+                "unreadCount" to page.unreadCount,
+            ),
+        )
+    }
+
+    post("/notifications/read-all") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val unread = services.repo.markAllNotificationsRead(user.id, services.clock())
+        call.respondJson(mapOf("ok" to true, "unreadCount" to unread))
+    }
+
+    post("/notifications/{id}/read") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val notification = services.repo.findNotification(call.parameters["id"].orEmpty())
+            ?: return@post call.fail("not_found")
+        if (notification.userId != user.id) return@post call.fail("not_found")
+        val updated = services.repo.markNotificationRead(notification.id, services.clock()) ?: notification
+        call.respondJson(CommentService.notificationPayload(updated))
+    }
+
+    get("/notifications/stream") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        call.response.cacheControl(CacheControl.NoCache(null))
+        call.response.headers.append(HttpHeaders.Connection, "keep-alive")
+        call.response.headers.append("X-Accel-Buffering", "no")
+        val queue = java.util.concurrent.LinkedBlockingQueue<String>()
+        val cancel = services.hub.subscribe(user.id) { json -> queue.offer(json) }
+        try {
+            call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                writeStringUtf8("event: ready\ndata: {}\n\n")
+                flush()
+                var idle = 0
+                while (!isClosedForWrite) {
+                    val event = queue.poll()
+                    if (event != null) {
+                        idle = 0
+                        writeStringUtf8("data: $event\n\n")
+                        flush()
+                    } else {
+                        delay(400)
+                        idle += 400
+                        if (idle >= 15_000) {
+                            writeStringUtf8(": ping\n\n")
+                            flush()
+                            idle = 0
+                        }
+                    }
+                }
+            }
+        } finally {
+            cancel()
+        }
     }
 
     get("/posts/{id}/author-photo") {
@@ -536,6 +662,7 @@ private fun musicPayload(music: MusicRecord) = mapOf(
 
 private fun postPayload(item: FeedItem) = mapOf(
     "id" to item.id,
+    "authorId" to item.authorId,
     "authorName" to item.authorName,
     "authorPhotoUrl" to if (item.authorPhotoPath != null) "/api/posts/${item.id}/author-photo" else null,
     "authorLocation" to item.authorLocation,
@@ -547,6 +674,22 @@ private fun postPayload(item: FeedItem) = mapOf(
     "createdAt" to item.createdAt,
     "musicName" to item.musicName,
     "musicUrl" to item.musicPath?.let { "/media/$it" },
+    "quickReplies" to item.quickReplies,
+    "commentCount" to item.commentCount,
+    "comments" to item.previewComments.map(::commentPayload),
+)
+
+private fun commentPayload(item: CommentItem) = mapOf(
+    "id" to item.id,
+    "userId" to item.userId,
+    "authorName" to item.authorName,
+    "authorPhotoUrl" to item.authorPhotoPath?.let { "/api/users/${item.userId}/photo" },
+    "authorLocation" to item.authorLocation,
+    "authorIntro" to item.authorIntro,
+    "text" to item.text,
+    "createdAt" to item.createdAt,
+    "replyToAuthorName" to item.replyToAuthorName,
+    "replyToText" to item.replyToText,
 )
 
 private fun ownedPostPayload(item: OwnedPost) = mapOf(
