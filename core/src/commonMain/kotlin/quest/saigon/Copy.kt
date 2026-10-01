@@ -181,7 +181,7 @@ object Copy {
         "quickReply1" to "Nice ✨",
         "quickReply2" to "Love this 💛",
         "quickReply3" to "Looks fun 😄",
-        "quickReply4" to "Tell me more",
+        "quickReply4" to "Tell me more 🙏",
         "quickReply5" to "I'm in 🙌",
     )
 
@@ -365,7 +365,7 @@ object Copy {
         "quickReply1" to "Hay quá ✨",
         "quickReply2" to "Thích ghê 💛",
         "quickReply3" to "Trông vui 😄",
-        "quickReply4" to "Kể thêm đi",
+        "quickReply4" to "Kể thêm đi 🙏",
         "quickReply5" to "Tui in 🙌",
     )
 

@@ -476,14 +476,13 @@ button { cursor: pointer; }
 
 .share-btn {
     flex: 0 0 auto;
-    width: 52px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: #fff;
     color: var(--accent);
     display: grid;
     place-items: center;
-    padding: 0;
+    padding: 0 10px;
 }
 
 .share-btn svg {
@@ -1557,6 +1556,7 @@ button.busy .avatar-spinner {
 .collapsed-chat {
     display: grid;
     gap: 8px;
+    overflow-x: auto;
 }
 
 .collapsed-preview {
@@ -1660,14 +1660,13 @@ button.busy .avatar-spinner {
 
 .zalo-btn {
     flex: 0 0 auto;
-    width: 52px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: #fff;
     color: var(--accent);
     display: grid;
     place-items: center;
-    padding: 0;
+    padding: 0 10px;
 }
 
 .zalo-btn svg,
