@@ -1299,6 +1299,7 @@ button.busy .avatar-spinner {
     text-overflow: ellipsis;
     white-space: nowrap;
     padding: 0 10px;
+    flex-shrink: 0;
 }
 
 .music-choice-wrap .music-choice {
