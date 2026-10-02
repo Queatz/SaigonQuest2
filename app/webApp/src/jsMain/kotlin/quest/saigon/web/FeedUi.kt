@@ -183,6 +183,17 @@ private fun mountPager(
         }
     }
 
+    fun applyNewer(latest: List<PostCard>): Boolean {
+        val known = posts.map { it.id }.toHashSet()
+        val newcomers = latest.filter { it.id !in known }
+        if (newcomers.isEmpty()) return false
+        posts.addAll(0, newcomers)
+        slides.values.forEach { it.asDynamic().remove() }
+        slides.clear()
+        index = 0
+        return true
+    }
+
     fun finish(delta: Int) {
         index = (index + delta).coerceIn(0, posts.lastIndex)
         drag = 0.0
@@ -214,11 +225,31 @@ private fun mountPager(
         frame()
     }
 
+    fun reloadNewer() {
+        if (loading) {
+            animate(0.0, 0)
+            return
+        }
+        loading = true
+        animating = true
+        http("GET", "/api/posts?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+            loading = false
+            animating = false
+            val changed = status == 200 && applyNewer(readPosts(parseJson(body).posts))
+            if (changed) {
+                drag = 0.0
+                rebuild()
+            } else {
+                animate(0.0, 0)
+            }
+        }
+    }
+
     fun commit(direction: Int) {
         if (animating) return
         val height = stageHeight()
         if (direction < 0 && index == 0) {
-            animate(0.0, 0)
+            reloadNewer()
             return
         }
         if (direction > 0 && index >= posts.lastIndex) {

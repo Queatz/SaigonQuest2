@@ -1575,6 +1575,10 @@ button.busy .avatar-spinner {
     font-size: 13px;
     font-weight: 700;
     min-height: 20px;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .collapsed-face {
@@ -1654,7 +1658,7 @@ button.busy .avatar-spinner {
 .comment-input {
     flex: 1 1 auto;
     min-width: 0;
-    width: auto;
+    width: 0;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: #fff;
