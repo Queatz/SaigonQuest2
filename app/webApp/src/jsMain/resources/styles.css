@@ -1760,6 +1760,16 @@ button.busy .avatar-spinner {
     gap: 10px;
 }
 
+.comment-empty {
+    min-height: 140px;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    text-align: center;
+    color: var(--muted);
+    font-weight: 400;
+}
+
 .comment-item {
     display: grid;
     grid-template-columns: 36px 1fr auto;

@@ -287,6 +287,17 @@ internal fun openCommentsSheet(
         })
     }
 
+    fun paintEmpty() {
+        val existing = list.asDynamic().querySelector(".comment-empty")
+        if (comments.isEmpty()) {
+            if (existing == null) {
+                list.appendChild(el("p", "comment-empty", text = Town.t("emptyComments")))
+            }
+        } else {
+            existing?.remove()
+        }
+    }
+
     fun canDelete(comment: CommentCard): Boolean {
         val me = Town.me ?: return false
         return me.id == comment.userId || me.id == current.authorId
@@ -300,6 +311,7 @@ internal fun openCommentsSheet(
         )
         onUpdate(current)
         list.asDynamic().querySelector("[data-comment='$commentId']")?.remove()
+        paintEmpty()
         if (replyTo?.id == commentId) {
             replyTo = null
             paintReplyTarget()
@@ -375,6 +387,7 @@ internal fun openCommentsSheet(
                 list.appendChild(node)
             }
         }
+        paintEmpty()
     }
 
     fun remember(comment: CommentCard) {
@@ -407,6 +420,7 @@ internal fun openCommentsSheet(
                 node.setAttribute("data-comment", comment.id)
                 if (list.firstChild != null) list.insertBefore(node, list.firstChild)
                 else list.appendChild(node)
+                paintEmpty()
                 field.asDynamic().value = ""
                 draft = ""
                 replyTo = null
