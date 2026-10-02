@@ -21,10 +21,11 @@ fun main() {
                 Town.me = meFrom(parseJson(body))
                 Town.applyLanguage()
                 NotifyInbox.connect()
-                refresh(router)
             } catch (_: Throwable) {
             }
         }
+        Town.meKnown = true
+        refresh(router)
         recordAppVisit()
     }
 }

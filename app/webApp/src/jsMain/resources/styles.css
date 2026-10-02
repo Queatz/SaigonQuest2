@@ -1473,7 +1473,10 @@ button.busy .avatar-spinner {
     place-items: center;
     position: relative;
     padding: 0;
-    box-shadow: 0 0 0 2px #fff;
+}
+
+.notify-btn:hover {
+    background: rgba(255, 255, 255, .24);
 }
 
 .notify-btn svg {
@@ -1572,8 +1575,6 @@ button.busy .avatar-spinner {
     font-size: 13px;
     font-weight: 700;
     min-height: 20px;
-    opacity: 1;
-    transition: opacity .18s ease;
 }
 
 .collapsed-face {
@@ -1588,6 +1589,8 @@ button.busy .avatar-spinner {
     display: grid;
     place-items: center;
     flex: 0 0 auto;
+    opacity: 1;
+    transition: opacity .18s ease;
 }
 
 .collapsed-face img {
@@ -1603,6 +1606,12 @@ button.busy .avatar-spinner {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    opacity: 1;
+    transition: opacity .18s ease;
+}
+
+.collapsed-preview-text span {
+    font-weight: 400;
 }
 
 .comment-count {
@@ -1779,7 +1788,7 @@ button.busy .avatar-spinner {
     padding: 6px 8px;
     border-left: 3px solid var(--accent);
     background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-    border-radius: 0 8px 8px 0;
+    border-radius: 3px 8px 8px 3px;
     font-size: 12px;
     color: var(--muted);
 }

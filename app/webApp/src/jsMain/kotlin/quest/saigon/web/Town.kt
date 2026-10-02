@@ -50,9 +50,12 @@ internal data class PostCard(
 
 internal object Town {
     var me: Me? = null
+    var meKnown = false
     var language: Language = Language.EN
     var returnTo: String = "/"
     var pending: PostCard? = null
+
+    val signedOut: Boolean get() = meKnown && me == null
 
     fun t(key: String, values: Map<String, String> = emptyMap()): String =
         Copy.text(language, key, values)

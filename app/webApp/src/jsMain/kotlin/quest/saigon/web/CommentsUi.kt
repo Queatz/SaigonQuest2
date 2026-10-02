@@ -68,21 +68,24 @@ internal fun collapsedChat(
         val comments = current.previewComments
         count.textContent = if (current.commentCount > 0) current.commentCount.toString() else ""
         val comment = comments.getOrNull(if (comments.isEmpty()) -1 else index % comments.size)
-        val text = if (comment == null) {
-            Town.t("beFirstComment", mapOf("name" to current.authorName))
-        } else {
-            "${comment.authorName}: ${comment.text}"
-        }
         fun apply() {
             paintFace(comment)
-            previewText.textContent = text
-            preview.asDynamic().style.opacity = "1"
+            previewText.clear()
+            if (comment == null) {
+                previewText.textContent = Town.t("beFirstComment", mapOf("name" to current.authorName))
+            } else {
+                previewText.appendChild(el("strong", text = comment.authorName))
+                previewText.appendChild(el("span", text = " ${comment.text}"))
+            }
+            face.asDynamic().style.opacity = "1"
+            previewText.asDynamic().style.opacity = "1"
         }
         if (!fade) {
             apply()
             return
         }
-        preview.asDynamic().style.opacity = "0"
+        face.asDynamic().style.opacity = "0"
+        previewText.asDynamic().style.opacity = "0"
         window.asDynamic().setTimeout({ apply() }, 160)
     }
 

@@ -9,7 +9,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     clearStatsPoll()
     root.clear()
     Town.applyLanguage()
-    val loggedOutGate = Town.me == null && (
+    val loggedOutGate = Town.signedOut && (
         route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts
         )
     val page = when {
@@ -29,7 +29,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             else -> "/new"
         }
         showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })
-    } else if (route == AppRoute.Home && Town.me == null) {
+    } else if (route == AppRoute.Home && Town.signedOut) {
         showVisitorWelcome(page)
     }
 }
@@ -48,12 +48,12 @@ internal fun pageHead(router: HistoryRouter, title: String, showProfile: Boolean
 
 internal fun viewerButton(router: HistoryRouter, toComposer: Boolean, editBadge: Boolean = false): HTMLElement {
     val me = Town.me
-    val button = el("button", if (toComposer && me == null) "profile-btn sparkle" else "profile-btn")
+    val button = el("button", if (toComposer && Town.signedOut) "profile-btn sparkle" else "profile-btn")
     button.setAttribute("type", "button")
     button.setAttribute("aria-label", Town.t(if (toComposer) "createPost" else "openProfile"))
     if (me == null) {
         button.appendChild(el("span", "plus-mark", text = "+"))
-        if (toComposer) {
+        if (toComposer && Town.signedOut) {
             button.appendChild(sparkles())
             button.appendChild(firstPostBubble())
         }

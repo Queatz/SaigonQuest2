@@ -514,7 +514,7 @@ private fun feedDialogOpen(): Boolean {
 }
 
 private fun startSwipeHint(host: HTMLElement, onFirstItem: () -> Boolean) {
-    if (Town.me != null || swipeHintDone) return
+    if (!Town.signedOut || swipeHintDone) return
     stopSwipeHint()
     swipeHintTimer = window.asDynamic().setInterval({
         if (swipeHintDone || !onFirstItem() || feedDialogOpen()) return@setInterval
