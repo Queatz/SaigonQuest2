@@ -111,9 +111,26 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
         }
     }
 
-    val post = el("button", "primary", text = Town.t("postNow"))
+    val post = el("button", "primary", text = Town.t(if (me.paused) "accountPaused" else "postNow"))
     post.setAttribute("type", "button")
+    if (me.paused) post.setAttribute("disabled", "disabled")
+    fun applyPaused(paused: Boolean) {
+        if (paused) {
+            post.setAttribute("disabled", "disabled")
+            post.textContent = Town.t("accountPaused")
+        }
+    }
+    http("GET", "/api/me") { status, text ->
+        if (status != 200) return@http
+        val latest = meFrom(parseJson(text))
+        Town.me = latest
+        applyPaused(latest.paused)
+    }
     post.onClick {
+        if (Town.me?.paused == true) {
+            applyPaused(true)
+            return@onClick
+        }
         error.asDynamic().hidden = true
         val text = (message.asDynamic().value as String).trim()
         val place = location.value().trim().ifBlank { me.location.trim() }
@@ -133,12 +150,15 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 val musicId = selectedMusicId
                 if (!musicId.isNullOrBlank()) form.append("musicId", musicId)
                 http("POST", "/api/posts", form = form) { status, body ->
-                    post.removeAttribute("disabled")
-                    post.textContent = Town.t("postNow")
                     if (status == 201) {
                         Town.pending = postFrom(parseJson(body))
                         router.navigate("/")
+                    } else if (status == 403) {
+                        applyPaused(true)
+                        show(error, errorText(body, status))
                     } else {
+                        post.removeAttribute("disabled")
+                        post.textContent = Town.t("postNow")
                         show(error, errorText(body, status))
                     }
                 }

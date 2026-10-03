@@ -9,6 +9,10 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     clearStatsPoll()
     root.clear()
     Town.applyLanguage()
+    if (route == AppRoute.Admin && Town.signedOut) {
+        router.navigate("/", replace = true)
+        return
+    }
     val loggedOutGate = Town.signedOut && (
         route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts
         )
@@ -19,6 +23,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.Profile -> profileScreen(router)
         route == AppRoute.MyPosts -> myPostsScreen(router)
         route == AppRoute.Stats -> statsScreen(router)
+        route == AppRoute.Admin -> adminScreen(router)
         else -> missingScreen(router)
     }
     root.appendChild(page)

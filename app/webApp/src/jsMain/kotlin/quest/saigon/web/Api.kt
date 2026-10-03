@@ -84,6 +84,7 @@ internal fun errorText(body: String, status: Int): String {
         "unavailable" -> "unavailable"
         "unauthorized" -> "needSignInToPost"
         "invalid_comment" -> "invalidComment"
+        "account_paused" -> "accountPaused"
         else -> if (status == 0) "unavailable" else "errorGeneric"
     }
     return Town.t(key)

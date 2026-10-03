@@ -552,6 +552,11 @@ small, .hint { color: var(--muted); font-size: 13px; }
     font-weight: 800;
 }
 
+.primary:disabled {
+    opacity: .45;
+    cursor: default;
+}
+
 .primary, .secondary {
     background: var(--accent);
     color: #fff;
@@ -1889,4 +1894,66 @@ button.busy .avatar-spinner {
     color: #fff;
     font-weight: 800;
     padding: 0 14px;
+}
+
+.admin-users {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-user {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 10px;
+}
+
+.admin-user-copy {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.admin-user-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.admin-user-bio,
+.admin-user-count {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.admin-user-bio {
+    white-space: pre-wrap;
+}
+
+.admin-paused {
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 2px 8px;
+}
+
+.admin-post-author {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.admin-post-author .face {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
 }

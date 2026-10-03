@@ -13,11 +13,12 @@ import java.time.LocalDate
 
 class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
-        listOf(USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES, NOTIFICATIONS, DAY_STATS).forEach { name ->
+        listOf(USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES, NOTIFICATIONS, ADMINS, DAY_STATS).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
         }
         db.collection(USERS).ensurePersistentIndex(listOf("phone"), PersistentIndexOptions().unique(true))
+        db.collection(USERS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
@@ -37,6 +38,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("intro", "")
         doc.addAttribute("profilePhotoPath", null)
         doc.addAttribute("language", "system")
+        doc.addAttribute("paused", false)
         doc.addAttribute("createdAt", createdAt)
         val key = try {
             db.collection(USERS).insertDocument(doc).key
@@ -64,6 +66,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("intro", user.intro)
         doc.addAttribute("profilePhotoPath", user.profilePhotoPath)
         doc.addAttribute("language", user.language)
+        doc.addAttribute("paused", user.paused)
         doc.addAttribute("createdAt", user.createdAt)
         try {
             db.collection(USERS).replaceDocument(user.id, doc)
@@ -834,6 +837,127 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         totalPosts = db.collection(POSTS).count().count,
     )
 
+    override fun findAdmin(userId: String): AdminRecord? =
+        db.collection(ADMINS).getDocument(userId, BaseDocument::class.java)?.let { doc ->
+            AdminRecord(userId = doc.key, createdAt = long(doc, "createdAt"))
+        }
+
+    override fun claimFirstAdmin(userId: String, createdAt: Long): Boolean {
+        if (findAdmin(userId) != null) return true
+        if (db.collection(ADMINS).count().count > 0) return false
+        val doc = BaseDocument(userId)
+        doc.addAttribute("createdAt", createdAt)
+        return try {
+            db.collection(ADMINS).insertDocument(doc)
+            true
+        } catch (_: ArangoDBException) {
+            findAdmin(userId) != null
+        }
+    }
+
+    override fun usersPage(cursor: String?, limit: Int): AdminUserPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val query = """
+            FOR u IN $USERS
+              FILTER @hasCursor == false OR u.createdAt < @cursorAt OR (u.createdAt == @cursorAt AND u._key < @cursorKey)
+              SORT u.createdAt DESC, u._key DESC
+              LIMIT @limit
+              LET postCount = LENGTH(FOR p IN $POSTS FILTER p.userKey == u._key RETURN 1)
+              RETURN {
+                id: u._key,
+                name: u.name,
+                intro: u.intro,
+                profilePhotoPath: u.profilePhotoPath,
+                createdAt: u.createdAt,
+                postCount: postCount,
+                paused: u.paused == true
+              }
+        """.trimIndent()
+        val rows = queryList(query, bind)
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            AdminUser(
+                id = string(row, "id"),
+                name = string(row, "name"),
+                intro = string(row, "intro"),
+                profilePhotoPath = row.getAttribute("profilePhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                createdAt = long(row, "createdAt"),
+                postCount = long(row, "postCount"),
+                paused = boolean(row, "paused"),
+            )
+        }
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return AdminUserPage(items, next)
+    }
+
+    override fun setUserPaused(userId: String, paused: Boolean): UserRecord? {
+        val user = findUser(userId) ?: return null
+        val next = user.copy(paused = paused)
+        updateUser(next)
+        return findUser(userId) ?: next
+    }
+
+    override fun adminPosts(cursor: String?, limit: Int): AdminPostPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val query = """
+            FOR p IN $POSTS
+              FILTER @hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey)
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT @limit
+              LET author = DOCUMENT("$USERS", p.userKey)
+              LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
+              LET track = DOCUMENT("$MUSIC", p.musicKey)
+              RETURN {
+                id: p._key,
+                authorId: p.userKey,
+                authorName: author.name,
+                authorPhotoPath: author.profilePhotoPath,
+                message: p.message,
+                location: p.location,
+                photoPath: p.photoPath,
+                avatarPath: avatar.imagePath,
+                createdAt: p.createdAt,
+                views: p.views == null ? 0 : p.views,
+                replyClicks: p.replyClicks == null ? 0 : p.replyClicks,
+                shareClicks: p.shareClicks == null ? 0 : p.shareClicks,
+                musicName: track.name
+              }
+        """.trimIndent()
+        val rows = queryList(query, bind)
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            AdminPost(
+                id = string(row, "id"),
+                authorId = string(row, "authorId"),
+                authorName = string(row, "authorName"),
+                authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                message = string(row, "message"),
+                location = string(row, "location"),
+                photoPath = string(row, "photoPath"),
+                avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                createdAt = long(row, "createdAt"),
+                views = long(row, "views"),
+                replyClicks = long(row, "replyClicks"),
+                shareClicks = long(row, "shareClicks"),
+                musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            )
+        }
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return AdminPostPage(items, next)
+    }
+
     private fun bumpDaily(day: String, field: String) {
         val fieldName = DAILY_FIELDS.find { it == field } ?: return
         val visitor = if (fieldName == "visitorVisits") 1 else 0
@@ -932,6 +1056,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         language = string(doc, "language").ifBlank { "system" },
         createdAt = long(doc, "createdAt"),
         intro = string(doc, "intro"),
+        paused = boolean(doc, "paused"),
     )
 
     private fun musicFrom(doc: BaseDocument) = MusicRecord(
@@ -1029,6 +1154,13 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     private fun long(doc: BaseDocument?, name: String): Long =
         (doc?.getAttribute(name) as? Number)?.toLong() ?: 0L
 
+    private fun boolean(doc: BaseDocument, name: String): Boolean = when (val raw = doc.getAttribute(name)) {
+        is Boolean -> raw
+        is Number -> raw.toInt() != 0
+        is String -> raw.equals("true", ignoreCase = true)
+        else -> false
+    }
+
     companion object {
         private const val USERS = "users"
         private const val SESSIONS = "sessions"
@@ -1038,6 +1170,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val COMMENTS = "comments"
         private const val COMMENT_WATCHES = "commentWatches"
         private const val NOTIFICATIONS = "notifications"
+        private const val ADMINS = "admins"
         private const val DAY_STATS = "dayStats"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 

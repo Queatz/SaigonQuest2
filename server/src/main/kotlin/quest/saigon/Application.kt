@@ -122,6 +122,7 @@ fun Application.module(
 
 private fun statusFor(code: String): HttpStatusCode = when (code) {
     "unauthorized", "bad_credentials" -> HttpStatusCode.Unauthorized
+    "forbidden", "account_paused" -> HttpStatusCode.Forbidden
     "not_found" -> HttpStatusCode.NotFound
     "unavailable", "qwen_not_configured" -> HttpStatusCode.ServiceUnavailable
     "rate_limited" -> HttpStatusCode.TooManyRequests

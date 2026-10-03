@@ -29,6 +29,8 @@ import quest.saigon.MusicNames
 import quest.saigon.PhoneNumbers
 import quest.saigon.languagePreference
 import quest.saigon.media.ImageOps
+import quest.saigon.town.AdminPost
+import quest.saigon.town.AdminUser
 import quest.saigon.town.AvatarRecord
 import quest.saigon.town.AvatarStatus
 import quest.saigon.town.CommentItem
@@ -318,6 +320,7 @@ fun Route.townApi(services: TownServices) {
 
     post("/posts") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (user.paused) return@post call.fail("account_paused")
         val form = call.formParts()
         val message = form.text("message").trim()
         if (message.length !in 1..Limits.MESSAGE_MAX) return@post call.fail("invalid_message")
@@ -543,6 +546,59 @@ fun Route.townApi(services: TownServices) {
         services.uploads.delete(post.photoPath)
         call.respondJson(mapOf("ok" to true))
     }
+
+    get("/admin/me") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        if (services.repo.findAdmin(user.id) != null || services.repo.claimFirstAdmin(user.id, services.clock())) {
+            call.respondJson(mapOf("admin" to true))
+        } else {
+            call.fail("forbidden")
+        }
+    }
+
+    get("/admin/users") {
+        call.requireAdmin(services) ?: return@get
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.repo.usersPage(call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "users" to page.items.map(::adminUserPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    post("/admin/users/{id}/pause") {
+        call.requireAdmin(services) ?: return@post
+        val user = services.repo.setUserPaused(call.parameters["id"].orEmpty(), true) ?: return@post call.fail("not_found")
+        call.respondJson(mapOf("id" to user.id, "paused" to user.paused))
+    }
+
+    post("/admin/users/{id}/unpause") {
+        call.requireAdmin(services) ?: return@post
+        val user = services.repo.setUserPaused(call.parameters["id"].orEmpty(), false) ?: return@post call.fail("not_found")
+        call.respondJson(mapOf("id" to user.id, "paused" to user.paused))
+    }
+
+    get("/admin/posts") {
+        call.requireAdmin(services) ?: return@get
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.repo.adminPosts(call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "posts" to page.items.map(::adminPostPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    delete("/admin/posts/{id}") {
+        call.requireAdmin(services) ?: return@delete
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")
+        services.repo.deletePost(post.id)
+        services.uploads.delete(post.photoPath)
+        call.respondJson(mapOf("ok" to true))
+    }
 }
 
 fun Route.mediaRoutes(services: TownServices) {
@@ -586,11 +642,24 @@ private suspend fun ApplicationCall.respondJson(value: Any?, status: HttpStatusC
 
 private fun statusFor(code: String): HttpStatusCode = when (code) {
     "unauthorized", "bad_credentials" -> HttpStatusCode.Unauthorized
+    "forbidden", "account_paused" -> HttpStatusCode.Forbidden
     "not_found" -> HttpStatusCode.NotFound
     "unavailable", "qwen_not_configured" -> HttpStatusCode.ServiceUnavailable
     "rate_limited" -> HttpStatusCode.TooManyRequests
     "phone_taken", "avatar_busy", "avatar_not_failed", "music_busy", "music_not_failed" -> HttpStatusCode.Conflict
     else -> HttpStatusCode.BadRequest
+}
+
+private suspend fun ApplicationCall.requireAdmin(services: TownServices): UserRecord? {
+    val user = user(services) ?: run {
+        fail("unauthorized")
+        return null
+    }
+    if (services.repo.findAdmin(user.id) == null) {
+        fail("forbidden")
+        return null
+    }
+    return user
 }
 
 private fun ApplicationCall.user(services: TownServices): UserRecord? {
@@ -636,6 +705,7 @@ private fun mePayload(user: UserRecord) = mapOf(
     "language" to user.language,
     "hasProfilePhoto" to (user.profilePhotoPath != null),
     "photoUrl" to if (user.profilePhotoPath != null) "/api/me/photo" else null,
+    "paused" to user.paused,
 )
 
 private fun avatarPayload(avatar: AvatarRecord) = mapOf(
@@ -690,6 +760,32 @@ private fun commentPayload(item: CommentItem) = mapOf(
     "createdAt" to item.createdAt,
     "replyToAuthorName" to item.replyToAuthorName,
     "replyToText" to item.replyToText,
+)
+
+private fun adminUserPayload(item: AdminUser) = mapOf(
+    "id" to item.id,
+    "name" to item.name,
+    "intro" to item.intro,
+    "photoUrl" to item.profilePhotoPath?.let { "/api/users/${item.id}/photo" },
+    "createdAt" to item.createdAt,
+    "postCount" to item.postCount,
+    "paused" to item.paused,
+)
+
+private fun adminPostPayload(item: AdminPost) = mapOf(
+    "id" to item.id,
+    "authorId" to item.authorId,
+    "authorName" to item.authorName,
+    "authorPhotoUrl" to item.authorPhotoPath?.let { "/api/users/${item.authorId}/photo" },
+    "message" to item.message,
+    "location" to item.location,
+    "photoUrl" to "/media/${item.photoPath}",
+    "avatarUrl" to item.avatarPath?.let { "/media/$it" },
+    "createdAt" to item.createdAt,
+    "views" to item.views,
+    "replyClicks" to item.replyClicks,
+    "shareClicks" to item.shareClicks,
+    "musicName" to item.musicName,
 )
 
 private fun ownedPostPayload(item: OwnedPost) = mapOf(

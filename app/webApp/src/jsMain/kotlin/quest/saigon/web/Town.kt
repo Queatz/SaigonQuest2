@@ -15,6 +15,7 @@ internal data class Me(
     val language: String,
     val hasProfilePhoto: Boolean,
     val photoUrl: String?,
+    val paused: Boolean = false,
 )
 
 internal data class CommentCard(
@@ -81,6 +82,7 @@ internal fun meFrom(node: dynamic): Me = Me(
     language = (node.language as? String) ?: "system",
     hasProfilePhoto = node.hasProfilePhoto == true,
     photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
+    paused = node.paused == true,
 )
 
 internal fun postFrom(node: dynamic): PostCard = PostCard(

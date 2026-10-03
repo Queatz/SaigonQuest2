@@ -66,4 +66,9 @@ interface TownRepository {
     fun recordDailyEvent(field: String, at: Long)
     fun statsByDay(now: Long): List<DayStats>
     fun allTimeStats(): AllTimeStats
+    fun findAdmin(userId: String): AdminRecord?
+    fun claimFirstAdmin(userId: String, createdAt: Long): Boolean
+    fun usersPage(cursor: String?, limit: Int): AdminUserPage
+    fun setUserPaused(userId: String, paused: Boolean): UserRecord?
+    fun adminPosts(cursor: String?, limit: Int): AdminPostPage
 }

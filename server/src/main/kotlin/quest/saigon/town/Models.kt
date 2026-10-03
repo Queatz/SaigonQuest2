@@ -10,6 +10,48 @@ data class UserRecord(
     val language: String,
     val createdAt: Long,
     val intro: String = "",
+    val paused: Boolean = false,
+)
+
+data class AdminRecord(
+    val userId: String,
+    val createdAt: Long,
+)
+
+data class AdminUser(
+    val id: String,
+    val name: String,
+    val intro: String,
+    val profilePhotoPath: String?,
+    val createdAt: Long,
+    val postCount: Long,
+    val paused: Boolean,
+)
+
+data class AdminUserPage(
+    val items: List<AdminUser>,
+    val nextCursor: String?,
+)
+
+data class AdminPost(
+    val id: String,
+    val authorId: String,
+    val authorName: String,
+    val authorPhotoPath: String?,
+    val message: String,
+    val location: String,
+    val photoPath: String,
+    val avatarPath: String?,
+    val createdAt: Long,
+    val views: Long,
+    val replyClicks: Long,
+    val shareClicks: Long,
+    val musicName: String? = null,
+)
+
+data class AdminPostPage(
+    val items: List<AdminPost>,
+    val nextCursor: String?,
 )
 
 data class SessionRecord(

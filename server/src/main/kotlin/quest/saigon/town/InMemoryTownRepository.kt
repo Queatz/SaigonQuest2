@@ -14,6 +14,7 @@ class InMemoryTownRepository : TownRepository {
     private val comments = ConcurrentHashMap<String, CommentRecord>()
     private val watches = ConcurrentHashMap<String, Boolean>()
     private val notifications = ConcurrentHashMap<String, NotificationRecord>()
+    private val admins = ConcurrentHashMap<String, AdminRecord>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -427,6 +428,83 @@ class InMemoryTownRepository : TownRepository {
         totalUsers = users.size.toLong(),
         totalPosts = posts.size.toLong(),
     )
+
+    override fun findAdmin(userId: String): AdminRecord? = admins[userId]
+
+    override fun claimFirstAdmin(userId: String, createdAt: Long): Boolean {
+        synchronized(this) {
+            if (admins.containsKey(userId)) return true
+            if (admins.isNotEmpty()) return false
+            admins[userId] = AdminRecord(userId, createdAt)
+            return true
+        }
+    }
+
+    override fun usersPage(cursor: String?, limit: Int): AdminUserPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = users.values.sortedWith(compareByDescending<UserRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).map { user ->
+            AdminUser(
+                id = user.id,
+                name = user.name,
+                intro = user.intro,
+                profilePhotoPath = user.profilePhotoPath,
+                createdAt = user.createdAt,
+                postCount = posts.values.count { it.userId == user.id }.toLong(),
+                paused = user.paused,
+            )
+        }
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return AdminUserPage(items, next)
+    }
+
+    override fun setUserPaused(userId: String, paused: Boolean): UserRecord? {
+        synchronized(this) {
+            val current = users[userId] ?: return null
+            val next = current.copy(paused = paused)
+            users[userId] = next
+            return next
+        }
+    }
+
+    override fun adminPosts(cursor: String?, limit: Int): AdminPostPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = posts.values.sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).map { post ->
+            val author = users[post.userId]
+            AdminPost(
+                id = post.id,
+                authorId = post.userId,
+                authorName = author?.name.orEmpty(),
+                authorPhotoPath = author?.profilePhotoPath,
+                message = post.message,
+                location = post.location,
+                photoPath = post.photoPath,
+                avatarPath = avatars[post.avatarId]?.imagePath,
+                createdAt = post.createdAt,
+                views = post.views,
+                replyClicks = post.replyClicks,
+                shareClicks = post.shareClicks,
+                musicName = post.musicId?.let { music[it]?.name },
+            )
+        }
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return AdminPostPage(items, next)
+    }
 
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 
