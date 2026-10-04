@@ -59,8 +59,13 @@ internal fun statsScreen(router: HistoryRouter): HTMLElement {
             rangeDays = next
             paint()
         }
-        paintLegend(legend, series, hidden) { key ->
-            if (key in hidden) {
+        paintLegend(legend, series, hidden) { key, exclusive ->
+            if (exclusive) {
+                hidden.clear()
+                series.forEach { item ->
+                    if (item.key != key) hidden.add(item.key)
+                }
+            } else if (key in hidden) {
                 hidden.remove(key)
             } else if (hidden.size < series.size - 1) {
                 hidden.add(key)
@@ -169,7 +174,7 @@ private fun paintLegend(
     host: HTMLElement,
     series: List<SeriesDef>,
     hidden: Set<String>,
-    onToggle: (String) -> Unit,
+    onToggle: (String, Boolean) -> Unit,
 ) {
     host.clear()
     series.forEach { item ->
@@ -180,7 +185,9 @@ private fun paintLegend(
                 swatch.style.background = item.color
             })
             button.appendChild(el("span", text = item.label))
-            button.onClick { onToggle(item.key) }
+            button.asDynamic().onclick = { event: dynamic ->
+                onToggle(item.key, event.ctrlKey == true || event.metaKey == true)
+            }
         })
     }
 }

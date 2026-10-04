@@ -367,13 +367,13 @@ internal fun pollMusic(id: String, onDone: (dynamic) -> Unit) {
 
 internal fun musicLine(post: PostCard): HTMLElement {
     val line = el("div", "music-line")
-    line.appendChild(el("span", "music-name", text = "🎵 ${post.musicName}"))
     val muted = feedMusicMuted()
     val mute = el("button", "mute-btn", text = if (muted) "🔇" else "🔊")
     mute.setAttribute("type", "button")
     mute.setAttribute("aria-label", Town.t(if (muted) "unmute" else "mute"))
     mute.onClick { setFeedMusicMuted(!feedMusicMuted()) }
     line.appendChild(mute)
+    line.appendChild(el("span", "music-name", text = "${post.musicName}"))
     return line
 }
 
