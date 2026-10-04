@@ -361,6 +361,97 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun postsKeepTheCoverPhotoAndStoreExtras() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901234599","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, created.status)
+        val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        val avatar = services.repo.insertAvatar(userId, "smiling", 10)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
+        val ops = ImageOps()
+        val first = ops.writeJpeg(solid(8, 16, Color(40, 90, 160)), 0.85f)
+        val second = ops.writeJpeg(solid(8, 16, Color(20, 140, 80)), 0.85f)
+        val third = ops.writeJpeg(solid(8, 16, Color(180, 70, 40)), 0.85f)
+        fun photoHeaders() = io.ktor.http.Headers.build {
+            append(HttpHeaders.ContentType, "image/jpeg")
+            append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+        }
+        val posted = http.post("/api/posts") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", "Three views of the river.")
+                        append("location", "Cát Lái")
+                        append("avatarId", avatar.id)
+                        append("photo", first, photoHeaders())
+                        append("photo", second, photoHeaders())
+                        append("photo", third, photoHeaders())
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, posted.status)
+        val body = mapper.readTree(posted.bodyAsText())
+        val photoUrl = body.path("photoUrl").asText()
+        assertTrue(photoUrl.startsWith("/media/"))
+        assertEquals(2, body.path("photoUrls").size())
+        assertNotEquals(photoUrl, body.path("photoUrls").path(0).asText())
+        assertNotEquals(body.path("photoUrls").path(0).asText(), body.path("photoUrls").path(1).asText())
+
+        val stored = services.repo.findPost(body.path("id").asText())!!
+        assertEquals(2, stored.extraPhotoPaths.size)
+        assertTrue(services.uploads.resolve(stored.photoPath)!!.isFile)
+        stored.extraPhotoPaths.forEach { assertTrue(services.uploads.resolve(it)!!.isFile) }
+
+        val feedCard = mapper.readTree(http.get("/api/posts").bodyAsText()).path("posts").path(0)
+        assertEquals(photoUrl, feedCard.path("photoUrl").asText())
+        assertEquals(2, feedCard.path("photoUrls").size())
+
+        val tooMany = http.post("/api/posts") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", "Too many photos")
+                        append("location", "Cát Lái")
+                        append("avatarId", avatar.id)
+                        repeat(Limits.PHOTOS_MAX + 1) { append("photo", first, photoHeaders()) }
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooMany.status)
+        assertEquals("too_many_photos", mapper.readTree(tooMany.bodyAsText()).path("error").asText())
+
+        val single = http.post("/api/posts") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", "Just one photo")
+                        append("location", "Cát Lái")
+                        append("avatarId", avatar.id)
+                        append("photo", first, photoHeaders())
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, single.status)
+        val one = mapper.readTree(single.bodyAsText())
+        assertTrue(one.path("photoUrl").asText().startsWith("/media/"))
+        assertEquals(0, one.path("photoUrls").size())
+
+        val extras = stored.extraPhotoPaths
+        val cover = stored.photoPath
+        assertEquals(HttpStatusCode.OK, http.delete("/api/posts/${stored.id}").status)
+        assertEquals(null, services.uploads.resolve(cover))
+        extras.forEach { assertEquals(null, services.uploads.resolve(it)) }
+    }
+
+    @Test
     fun postPhotosAreCappedAtEightHundredPixels() {
         val images = ImageOps()
         val source = BufferedImage(1600, 2844, BufferedImage.TYPE_INT_RGB)

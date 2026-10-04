@@ -23,4 +23,5 @@ object Limits {
     const val COMMENT_PREVIEW = 12
     const val COMMENT_CYCLE_MILLIS = 2000
     const val QUICK_REPLY_COUNT = 5
+    const val PHOTOS_MAX = 20
 }

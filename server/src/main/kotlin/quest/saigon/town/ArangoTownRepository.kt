@@ -235,6 +235,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("userKey", post.userId)
         doc.addAttribute("avatarKey", post.avatarId)
         doc.addAttribute("photoPath", post.photoPath)
+        doc.addAttribute("extraPhotoPaths", post.extraPhotoPaths)
         doc.addAttribute("message", post.message)
         doc.addAttribute("location", post.location)
         doc.addAttribute("createdAt", post.createdAt)
@@ -297,6 +298,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 message: p.message,
                 location: p.location,
                 photoPath: p.photoPath,
+                extraPhotoPaths: p.extraPhotoPaths == null ? [] : p.extraPhotoPaths,
                 avatarPath: avatar.imagePath,
                 createdAt: p.createdAt,
                 musicName: track.name,
@@ -326,6 +328,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 quickReplies = stringList(row, "quickReplies"),
                 commentCount = long(row, "commentCount"),
                 previewComments = commentList(row, "previewComments"),
+                extraPhotoPaths = stringList(row, "extraPhotoPaths"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -348,6 +351,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 musicId = string(doc, "musicKey").takeIf { it.isNotBlank() && it != "null" },
                 quickReplies = stringList(doc, "quickReplies"),
                 commentCount = long(doc, "commentCount"),
+                extraPhotoPaths = stringList(doc, "extraPhotoPaths"),
             )
         }
 
@@ -393,6 +397,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 message: p.message,
                 location: p.location,
                 photoPath: p.photoPath,
+                extraPhotoPaths: p.extraPhotoPaths == null ? [] : p.extraPhotoPaths,
                 avatarPath: avatar.imagePath,
                 createdAt: p.createdAt,
                 musicName: track.name,
@@ -420,6 +425,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             quickReplies = stringList(row, "quickReplies"),
             commentCount = long(row, "commentCount"),
             previewComments = commentList(row, "previewComments"),
+            extraPhotoPaths = stringList(row, "extraPhotoPaths"),
         )
     }
 

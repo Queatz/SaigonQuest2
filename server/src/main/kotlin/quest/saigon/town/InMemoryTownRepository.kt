@@ -351,6 +351,7 @@ class InMemoryTownRepository : TownRepository {
             quickReplies = post.quickReplies,
             commentCount = post.commentCount,
             previewComments = latestComments(post.id, Limits.COMMENT_PREVIEW),
+            extraPhotoPaths = post.extraPhotoPaths,
         )
     }
 

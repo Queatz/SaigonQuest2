@@ -37,6 +37,7 @@ class TownRulesTest {
         assertEquals(110.0, motion.cardOffset, 0.001)
         assertEquals(50, Limits.AVATAR_ENTER_PX)
         assertEquals(33, Limits.TYPEWRITER_MILLIS_PER_CHAR)
+        assertEquals(20, Limits.PHOTOS_MAX)
     }
 
     @Test
@@ -92,6 +93,9 @@ class TownRulesTest {
         assertEquals("Tài khoản của bạn đã bị tạm khóa", Copy.text(Language.VI, "accountPaused"))
         assertEquals("Admin", Copy.text(Language.EN, "admin"))
         assertEquals("Quản trị", Copy.text(Language.VI, "admin"))
+        assertEquals(20, Limits.PHOTOS_MAX)
+        assertEquals("Add photo", Copy.text(Language.EN, "addPhoto"))
+        assertEquals("Thêm ảnh", Copy.text(Language.VI, "addPhoto"))
         assertEquals("Nice ✨", Copy.quickReplies(Language.EN).first())
         assertEquals("Hay quá ✨", Copy.quickReplies(Language.VI).first())
         assertEquals(5, Copy.quickReplies(Language.EN).distinct().size)

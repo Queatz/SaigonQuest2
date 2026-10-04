@@ -103,6 +103,7 @@ data class PostRecord(
     val musicId: String? = null,
     val quickReplies: List<String> = emptyList(),
     val commentCount: Long = 0,
+    val extraPhotoPaths: List<String> = emptyList(),
 )
 
 data class FeedItem(
@@ -122,6 +123,7 @@ data class FeedItem(
     val quickReplies: List<String> = emptyList(),
     val commentCount: Long = 0,
     val previewComments: List<CommentItem> = emptyList(),
+    val extraPhotoPaths: List<String> = emptyList(),
 )
 
 data class FeedPage(

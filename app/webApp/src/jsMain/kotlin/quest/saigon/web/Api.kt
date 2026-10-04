@@ -68,6 +68,7 @@ internal fun errorText(body: String, status: Int): String {
         "invalid_intro" -> "invalidIntro"
         "invalid_prompt" -> "invalidPrompt"
         "photo_required" -> "photoRequired"
+        "too_many_photos" -> "tooManyPhotos"
         "avatar_required" -> "avatarRequired"
         "profile_photo_required" -> "profilePhotoRequired"
         "avatar_busy" -> "avatarBusy"

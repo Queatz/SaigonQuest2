@@ -335,23 +335,29 @@ fun Route.townApi(services: TownServices) {
         if (musicId != null && (music == null || music.status != MusicStatus.READY || music.audioPath == null)) {
             return@post call.fail("invalid_music")
         }
-        val photo = form.file("photo") ?: return@post call.fail("photo_required")
-        val jpeg = try {
-            services.images.preparePostPhoto(photo)
-        } catch (_: Exception) {
-            return@post call.fail("invalid_photo")
+        val photos = form.files("photo")
+        if (photos.isEmpty()) return@post call.fail("photo_required")
+        if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
+        val paths = mutableListOf<String>()
+        for (photo in photos) {
+            val jpeg = try {
+                services.images.preparePostPhoto(photo)
+            } catch (_: Exception) {
+                return@post call.fail("invalid_photo")
+            }
+            paths += services.uploads.writePost(jpeg)
         }
-        val path = services.uploads.writePost(jpeg)
         val post = services.repo.insertPost(
             PostRecord(
                 id = "",
                 userId = user.id,
                 avatarId = avatar.id,
-                photoPath = path,
+                photoPath = paths.first(),
                 message = message,
                 location = location,
                 createdAt = services.clock(),
                 musicId = music?.id,
+                extraPhotoPaths = paths.drop(1),
             ),
         )
         services.replies.enqueue(post.id, message)
@@ -371,6 +377,7 @@ fun Route.townApi(services: TownServices) {
                     createdAt = post.createdAt,
                     musicName = music?.name,
                     musicPath = music?.audioPath,
+                    extraPhotoPaths = post.extraPhotoPaths,
                 ),
             ),
             HttpStatusCode.Created,
@@ -543,7 +550,7 @@ fun Route.townApi(services: TownServices) {
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")
         if (post.userId != user.id) return@delete call.fail("not_found")
         services.repo.deletePost(post.id)
-        services.uploads.delete(post.photoPath)
+        deletePostPhotos(services, post)
         call.respondJson(mapOf("ok" to true))
     }
 
@@ -596,7 +603,7 @@ fun Route.townApi(services: TownServices) {
         call.requireAdmin(services) ?: return@delete
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")
         services.repo.deletePost(post.id)
-        services.uploads.delete(post.photoPath)
+        deletePostPhotos(services, post)
         call.respondJson(mapOf("ok" to true))
     }
 
@@ -763,6 +770,7 @@ private fun postPayload(item: FeedItem) = mapOf(
     "message" to item.message,
     "location" to item.location,
     "photoUrl" to "/media/${item.photoPath}",
+    "photoUrls" to item.extraPhotoPaths.map { "/media/$it" },
     "avatarUrl" to item.avatarPath?.let { "/media/$it" },
     "createdAt" to item.createdAt,
     "musicName" to item.musicName,
@@ -850,15 +858,20 @@ private fun clientIp(call: ApplicationCall, trustProxy: Boolean): String {
 
 private suspend fun ApplicationCall.fileBytes(field: String): ByteArray? = formParts().file(field)
 
+private fun deletePostPhotos(services: TownServices, post: PostRecord) {
+    services.uploads.delete(post.photoPath)
+    post.extraPhotoPaths.forEach { services.uploads.delete(it) }
+}
+
 private suspend fun ApplicationCall.formParts(): FormParts {
     val text = mutableMapOf<String, String>()
-    val files = mutableMapOf<String, ByteArray>()
+    val files = mutableMapOf<String, MutableList<ByteArray>>()
     val multipart = receiveMultipart(formFieldLimit = 1024 * 1024)
     while (true) {
         val part = multipart.readPart() ?: break
         when (part) {
             is PartData.FormItem -> text[part.name.orEmpty()] = part.value
-            is PartData.FileItem -> files[part.name.orEmpty()] = readLimited(part)
+            is PartData.FileItem -> files.getOrPut(part.name.orEmpty()) { mutableListOf() }.add(readLimited(part))
             else -> Unit
         }
         part.release()
@@ -884,8 +897,9 @@ private fun readLimited(part: PartData.FileItem): ByteArray {
 
 private class FormParts(
     private val text: Map<String, String>,
-    private val files: Map<String, ByteArray>,
+    private val files: Map<String, List<ByteArray>>,
 ) {
     fun text(name: String): String = text[name].orEmpty()
-    fun file(name: String): ByteArray? = files[name]
+    fun file(name: String): ByteArray? = files[name]?.firstOrNull()
+    fun files(name: String): List<ByteArray> = files[name].orEmpty()
 }

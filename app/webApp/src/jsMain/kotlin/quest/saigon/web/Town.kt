@@ -43,6 +43,7 @@ internal data class PostCard(
     val message: String,
     val location: String,
     val photoUrl: String,
+    val photoUrls: List<String> = emptyList(),
     val avatarUrl: String?,
     val musicName: String?,
     val musicUrl: String?,
@@ -98,6 +99,7 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     message = (node.message as? String).orEmpty(),
     location = (node.location as? String).orEmpty(),
     photoUrl = prefixServerOrigin((node.photoUrl as? String).orEmpty()),
+    photoUrls = readStringList(node.photoUrls).map(::prefixServerOrigin),
     avatarUrl = (node.avatarUrl as? String)?.let(::prefixServerOrigin),
     musicName = (node.musicName as? String)?.takeIf { it.isNotBlank() },
     musicUrl = (node.musicUrl as? String)?.let(::prefixServerOrigin),
@@ -126,6 +128,11 @@ internal fun readComments(node: dynamic): List<CommentCard> {
     val length = node.length as? Int ?: return comments
     for (i in 0 until length) comments += commentFrom(node[i])
     return comments
+}
+
+internal fun PostCard.allPhotoUrls(): List<String> {
+    val extras = photoUrls.filter { it.isNotBlank() && it != photoUrl }
+    return if (photoUrl.isBlank()) extras else listOf(photoUrl) + extras
 }
 
 internal fun readStringList(node: dynamic): List<String> {

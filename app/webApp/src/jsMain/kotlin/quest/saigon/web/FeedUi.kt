@@ -95,6 +95,12 @@ private fun mountPager(
     var cancelType: () -> Unit = {}
     var viewedId: String? = null
     val slides = mutableMapOf<Int, HTMLElement>()
+    val photoPagers = mutableMapOf<Int, PhotoPager>()
+    var startX = 0.0
+    var lastX = 0.0
+    var velocityX = 0.0
+    var axis: String? = null
+    var photoDrag = 0.0
 
     fun stageHeight(): Double {
         val height = num(stage.asDynamic().clientHeight)
@@ -141,15 +147,17 @@ private fun mountPager(
 
     fun ensureSlide(i: Int) {
         if (i !in posts.indices || slides.containsKey(i)) return
-        val slide = buildSlide(posts[i], host, router, { next -> posts[i] = next }) { playCurrent() }
-        stage.appendChild(slide)
-        slides[i] = slide
+        val built = buildSlide(posts[i], host, router, { next -> posts[i] = next }) { playCurrent() }
+        stage.appendChild(built.root)
+        slides[i] = built.root
+        built.pager?.let { photoPagers[i] = it }
     }
 
     fun rebuild() {
         val stale = slides.keys.filter { it < index - 1 || it > index + 1 }
         stale.forEach { key ->
             slides.remove(key)?.asDynamic()?.remove()
+            photoPagers.remove(key)
         }
         ensureSlide(index - 1)
         ensureSlide(index)
@@ -190,6 +198,7 @@ private fun mountPager(
         posts.addAll(0, newcomers)
         slides.values.forEach { it.asDynamic().remove() }
         slides.clear()
+        photoPagers.clear()
         index = 0
         return true
     }
@@ -271,20 +280,54 @@ private fun mountPager(
         else -> raw
     }
 
+    fun currentPhotos(): PhotoPager? = photoPagers[index]
+
+    fun resistedPhoto(raw: Double): Double {
+        val pager = currentPhotos() ?: return 0.0
+        return when {
+            raw > 0 && pager.index == 0 -> raw * 0.35
+            raw < 0 && pager.index >= pager.lastIndex -> raw * 0.35
+            else -> raw
+        }
+    }
+
     stage.asDynamic().addEventListener("pointerdown", { event: dynamic ->
         if (animating || interactive(event.target)) return@addEventListener
         dragging = true
+        axis = null
+        startX = num(event.clientX)
         startY = num(event.clientY)
+        lastX = startX
         lastY = startY
         lastTime = num(event.timeStamp)
         velocity = 0.0
+        velocityX = 0.0
+        photoDrag = 0.0
         if (stage.asDynamic().setPointerCapture != undefined) stage.asDynamic().setPointerCapture(event.pointerId)
     })
     stage.asDynamic().addEventListener("pointermove", { event: dynamic ->
         if (!dragging) return@addEventListener
+        val x = num(event.clientX)
         val y = num(event.clientY)
         val time = num(event.timeStamp)
-        velocity = (y - lastY) / (time - lastTime).coerceAtLeast(1.0)
+        val dt = (time - lastTime).coerceAtLeast(1.0)
+        if (axis == null) {
+            val dx = x - startX
+            val dy = y - startY
+            if (abs(dx) < 10 && abs(dy) < 10) return@addEventListener
+            val photos = currentPhotos()
+            axis = if (photos != null && photos.size > 1 && abs(dx) > abs(dy)) "x" else "y"
+        }
+        if (axis == "x") {
+            velocityX = (x - lastX) / dt
+            lastX = x
+            lastTime = time
+            photoDrag = resistedPhoto(x - startX)
+            currentPhotos()?.drag(photoDrag)
+            event.preventDefault()
+            return@addEventListener
+        }
+        velocity = (y - lastY) / dt
         lastY = y
         lastTime = time
         drag = resisted(y - startY)
@@ -294,10 +337,23 @@ private fun mountPager(
     val endPointer = { _: dynamic ->
         if (dragging) {
             dragging = false
-            val height = stageHeight()
-            val flung = abs(velocity) > 0.45
-            val far = abs(drag) > height * 0.18
-            if (flung || far) commit(if (velocity < -0.45 || (!flung && drag < 0)) 1 else -1) else animate(0.0, 0)
+            if (axis == "x") {
+                val pager = currentPhotos()
+                if (pager != null) {
+                    val width = pager.width()
+                    val flung = abs(velocityX) > 0.45
+                    val far = abs(photoDrag) > width * 0.18
+                    if (flung || far) pager.go(if (velocityX < -0.45 || (!flung && photoDrag < 0)) 1 else -1)
+                    else pager.go(0)
+                }
+            } else {
+                val height = stageHeight()
+                val flung = abs(velocity) > 0.45
+                val far = abs(drag) > height * 0.18
+                if (flung || far) commit(if (velocity < -0.45 || (!flung && drag < 0)) 1 else -1) else animate(0.0, 0)
+            }
+            axis = null
+            photoDrag = 0.0
         }
     }
     stage.asDynamic().addEventListener("pointerup", endPointer)
@@ -305,10 +361,18 @@ private fun mountPager(
     stage.asDynamic().addEventListener("wheel", { event: dynamic ->
         event.preventDefault()
         if (animating || dragging || wheelLock) return@addEventListener
-        val delta = num(event.deltaY)
-        if (abs(delta) < 24) return@addEventListener
+        val dx = num(event.deltaX)
+        val dy = num(event.deltaY)
+        val photos = currentPhotos()
+        if (photos != null && photos.size > 1 && abs(dx) > abs(dy) && abs(dx) >= 24) {
+            wheelLock = true
+            photos.go(if (dx > 0) 1 else -1)
+            window.asDynamic().setTimeout({ wheelLock = false }, 520)
+            return@addEventListener
+        }
+        if (abs(dy) < 24) return@addEventListener
         wheelLock = true
-        commit(if (delta > 0) 1 else -1)
+        commit(if (dy > 0) 1 else -1)
         window.asDynamic().setTimeout({ wheelLock = false }, 520)
     }, js("({passive:false})"))
 
@@ -318,6 +382,8 @@ private fun mountPager(
             when (key) {
                 "ArrowDown", "PageDown" -> commit(1)
                 "ArrowUp", "PageUp" -> commit(-1)
+                "ArrowRight" -> currentPhotos()?.takeIf { it.size > 1 }?.go(1)
+                "ArrowLeft" -> currentPhotos()?.takeIf { it.size > 1 }?.go(-1)
             }
         }
     }
@@ -331,10 +397,13 @@ private fun mountPager(
     feedResizeHandler = {
         if (!animating && !dragging) layout(0.0, true)
         else layout(drag, false)
+        photoPagers.values.forEach { it.layout() }
     }
     rebuild()
     startSwipeHint(host) { index < 1 }
 }
+
+private class BuiltSlide(val root: HTMLElement, val pager: PhotoPager?)
 
 private fun buildSlide(
     post: PostCard,
@@ -342,10 +411,18 @@ private fun buildSlide(
     router: HistoryRouter,
     onUpdate: (PostCard) -> Unit,
     @Suppress("UNUSED_PARAMETER") replay: () -> Unit,
-): HTMLElement {
+): BuiltSlide {
     val slide = el("article", "slide")
+    val urls = post.allPhotoUrls().ifEmpty { listOf(post.photoUrl) }
     val photo = el("div", "photo")
-    photo.asDynamic().style.backgroundImage = "url(\"${post.photoUrl}\")"
+    val track = el("div", "photo-track")
+    val frames = urls.map { url ->
+        val frame = el("div", "photo-frame")
+        frame.setAttribute("data-url", url)
+        track.appendChild(frame)
+        frame
+    }
+    photo.appendChild(track)
     slide.appendChild(photo)
     val stack = el("div", "card-stack")
     if (!post.avatarUrl.isNullOrBlank()) {
@@ -355,7 +432,17 @@ private fun buildSlide(
         avatar.setAttribute("src", post.avatarUrl)
         stack.appendChild(avatar)
     }
-    if (!post.musicName.isNullOrBlank()) stack.appendChild(musicLine(post))
+    val dots = if (urls.size > 1) {
+        val row = el("div", "photo-dots")
+        urls.forEach { _ -> row.appendChild(el("span", "photo-dot")) }
+        row
+    } else {
+        null
+    }
+    val meta = el("div", "slide-meta")
+    if (dots != null) meta.appendChild(dots)
+    if (!post.musicName.isNullOrBlank()) meta.appendChild(musicLine(post))
+    if (meta.childNodes.length > 0) stack.appendChild(meta)
     val card = el("div", "card")
     val name = el("button", if (post.authorPhotoUrl.isNullOrBlank()) "name-chip" else "name-chip has-face")
     name.setAttribute("type", "button")
@@ -373,7 +460,94 @@ private fun buildSlide(
     card.appendChild(collapsedChat(post, host, router, onUpdate))
     stack.appendChild(card)
     slide.appendChild(stack)
-    return slide
+    val pager = PhotoPager(urls, photo, track, frames, dots).also { it.preload() }
+    return BuiltSlide(slide, pager)
+}
+
+private class PhotoPager(
+    val urls: List<String>,
+    val host: HTMLElement,
+    val track: HTMLElement,
+    val frames: List<HTMLElement>,
+    val dots: HTMLElement?,
+) {
+    var index = 0
+        private set
+    val size: Int get() = urls.size
+    val lastIndex: Int get() = urls.lastIndex
+    private var shift = 0.0
+    private var animating = false
+
+    fun width(): Double {
+        val w = num(host.asDynamic().clientWidth)
+        return if (w > 40.0) w else 400.0
+    }
+
+    fun layout(offset: Double = shift) {
+        shift = offset
+        track.asDynamic().style.transform = "translate3d(${-index * width() + offset}px, 0, 0)"
+        syncDots()
+    }
+
+    fun drag(offset: Double) {
+        if (animating || size < 2) return
+        layout(offset)
+    }
+
+    fun go(delta: Int) {
+        if (animating) return
+        val next = (index + delta).coerceIn(0, lastIndex)
+        val width = width()
+        if (delta == 0 || next == index) {
+            animateTo(0.0, 0)
+            return
+        }
+        animateTo((index - next) * width, next - index)
+    }
+
+    fun preload() {
+        val last = urls.lastIndex
+        for (i in index..(index + 2).coerceAtMost(last)) load(i)
+        if (index > 0) load(index - 1)
+        layout(0.0)
+    }
+
+    private fun load(i: Int) {
+        if (i !in frames.indices) return
+        val frame = frames[i]
+        if (frame.getAttribute("data-loaded") == "1") return
+        frame.asDynamic().style.backgroundImage = "url(\"${urls[i]}\")"
+        frame.setAttribute("data-loaded", "1")
+    }
+
+    private fun syncDots() {
+        val row = dots ?: return
+        val nodes = row.asDynamic().children
+        val count = nodes.length as Int
+        for (i in 0 until count) {
+            nodes[i].className = if (i == index) "photo-dot on" else "photo-dot"
+        }
+    }
+
+    private fun animateTo(target: Double, delta: Int) {
+        animating = true
+        val origin = shift
+        val started = now()
+        fun frame() {
+            val t = ((now() - started) / 280.0).coerceIn(0.0, 1.0)
+            val eased = 1 - (1 - t) * (1 - t)
+            layout(origin + (target - origin) * eased)
+            if (t < 1.0) {
+                window.asDynamic().requestAnimationFrame { frame() }
+            } else {
+                index = (index + delta).coerceIn(0, lastIndex)
+                shift = 0.0
+                animating = false
+                preload()
+            }
+        }
+        frame()
+    }
 }
 
 internal fun showVisitorWelcome(host: HTMLElement) {
@@ -581,7 +755,8 @@ private fun ensureKeys() {
     keysInstalled = true
     window.asDynamic().addEventListener("keydown", { event: dynamic ->
         val key = event.key as? String ?: return@addEventListener
-        val paging = key == "ArrowDown" || key == "ArrowUp" || key == "PageDown" || key == "PageUp"
+        val paging = key == "ArrowDown" || key == "ArrowUp" || key == "PageDown" || key == "PageUp" ||
+            key == "ArrowLeft" || key == "ArrowRight"
         if (feedKeyHandler != null && paging && !feedDialogOpen()) {
             event.preventDefault()
         }
