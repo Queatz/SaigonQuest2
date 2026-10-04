@@ -300,7 +300,7 @@ internal fun openCommentsSheet(
 
     fun canDelete(comment: CommentCard): Boolean {
         val me = Town.me ?: return false
-        return me.id == comment.userId || me.id == current.authorId
+        return me.id == comment.userId || me.id == current.authorId || me.admin
     }
 
     fun forget(commentId: String) {

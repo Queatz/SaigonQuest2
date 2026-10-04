@@ -16,6 +16,7 @@ import quest.saigon.auth.RateLimiter
 import quest.saigon.media.UploadStore
 import quest.saigon.town.AvatarService
 import quest.saigon.town.AvatarStatus
+import quest.saigon.town.CommentRecord
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
 import quest.saigon.town.PostRecord
@@ -57,7 +58,9 @@ class AdminBehaviorTest {
         assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/me").status)
         assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/users").status)
         assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/posts").status)
+        assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/comments").status)
         assertEquals(HttpStatusCode.Forbidden, other.post("/api/admin/users/missing/pause").status)
+        assertEquals(HttpStatusCode.Forbidden, other.delete("/api/admin/comments/missing").status)
     }
 
     @Test
@@ -135,6 +138,65 @@ class AdminBehaviorTest {
         assertNull(services.repo.findPost(post.id))
         assertEquals(HttpStatusCode.NotFound, admin.delete("/api/admin/posts/${post.id}").status)
         assertEquals(0, mapper.readTree(admin.get("/api/admin/posts").bodyAsText()).path("posts").size())
+    }
+
+    @Test
+    fun adminListsLatestCommentsAndCanDeleteThem() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+
+        val admin = createClient { install(HttpCookies) }
+        admin.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901112233","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, admin.get("/api/admin/me").status)
+        assertTrue(mapper.readTree(admin.get("/api/me").bodyAsText()).path("admin").asBoolean())
+
+        val owner = services.repo.createUser("0901000001", "hash", "Old", 100)
+        val commenter = services.repo.createUser("0901000002", "hash", "New", 200)
+        val avatar = services.repo.insertAvatar(owner.id, "smiling", 10)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/ready.png", null)
+        val post = services.repo.insertPost(
+            PostRecord("", owner.id, avatar.id, "posts/x.jpg", "Hello town", "Thảo Điền", 50L),
+        )
+        val older = services.repo.insertComment(
+            CommentRecord("", post.id, commenter.id, "first hello", null, 10),
+        )
+        val newer = services.repo.insertComment(
+            CommentRecord("", post.id, commenter.id, "later hello", null, 20),
+        )
+
+        val member = createClient { install(HttpCookies) }
+        member.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"An","phone":"0903334455","password":"secretpass"}""")
+        }
+        assertFalse(mapper.readTree(member.get("/api/me").bodyAsText()).path("admin").asBoolean())
+        assertEquals(HttpStatusCode.Forbidden, member.get("/api/admin/comments").status)
+        assertEquals(HttpStatusCode.NotFound, member.delete("/api/posts/${post.id}/comments/${newer.id}").status)
+
+        val page = admin.get("/api/admin/comments?limit=1")
+        assertEquals(HttpStatusCode.OK, page.status)
+        val listed = mapper.readTree(page.bodyAsText())
+        assertEquals(1, listed.path("comments").size())
+        assertEquals("later hello", listed.path("comments").path(0).path("text").asText())
+        assertEquals(newer.id, listed.path("comments").path(0).path("id").asText())
+        assertEquals(post.id, listed.path("comments").path(0).path("postId").asText())
+        assertEquals("Hello town", listed.path("comments").path(0).path("postText").asText())
+        assertTrue(listed.path("nextCursor").asText().isNotBlank())
+
+        val rest = mapper.readTree(admin.get("/api/admin/comments?limit=1&cursor=${listed.path("nextCursor").asText()}").bodyAsText())
+        assertEquals("first hello", rest.path("comments").path(0).path("text").asText())
+        assertEquals(older.id, rest.path("comments").path(0).path("id").asText())
+        assertTrue(rest.path("nextCursor").isNull)
+
+        assertEquals(HttpStatusCode.OK, admin.delete("/api/posts/${post.id}/comments/${newer.id}").status)
+        assertEquals(HttpStatusCode.OK, admin.delete("/api/admin/comments/${older.id}").status)
+        assertNull(services.repo.findComment(older.id))
+        assertNull(services.repo.findComment(newer.id))
+        assertEquals(0, mapper.readTree(admin.get("/api/admin/comments").bodyAsText()).path("comments").size())
+        assertEquals(HttpStatusCode.NotFound, admin.delete("/api/admin/comments/${older.id}").status)
     }
 
     private fun services(): TownServices {

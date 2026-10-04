@@ -506,6 +506,23 @@ class InMemoryTownRepository : TownRepository {
         return AdminPostPage(items, next)
     }
 
+    override fun adminComments(cursor: String?, limit: Int): CommentPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = comments.values.sortedWith(compareByDescending<CommentRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).map { comment ->
+            toCommentItem(comment).copy(postText = posts[comment.postId]?.message)
+        }
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return CommentPage(items, next, comments.size.toLong())
+    }
+
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 
     private class DailyBucket {

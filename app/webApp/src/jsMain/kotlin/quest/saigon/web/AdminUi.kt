@@ -14,6 +14,7 @@ internal fun adminScreen(router: HistoryRouter): HTMLElement {
             router.navigate("/", replace = true)
             return@http
         }
+        Town.me = Town.me?.copy(admin = true)
         paintAdmin(body, shell, router)
     }
     return shell
@@ -25,30 +26,43 @@ private fun paintAdmin(body: HTMLElement, shell: HTMLElement, router: HistoryRou
     usersChip.setAttribute("type", "button")
     val postsChip = el("button", "chip", text = Town.t("adminPosts"))
     postsChip.setAttribute("type", "button")
+    val commentsChip = el("button", "chip", text = Town.t("adminComments"))
+    commentsChip.setAttribute("type", "button")
     chips.appendChild(usersChip)
     chips.appendChild(postsChip)
+    chips.appendChild(commentsChip)
     val pane = el("div", "admin-pane")
     body.appendChild(chips)
     body.appendChild(pane)
 
-    fun select(users: Boolean) {
-        usersChip.asDynamic().classList.toggle("selected", users)
-        postsChip.asDynamic().classList.toggle("selected", !users)
+    fun select(tab: String) {
+        usersChip.asDynamic().classList.toggle("selected", tab == "users")
+        postsChip.asDynamic().classList.toggle("selected", tab == "posts")
+        commentsChip.asDynamic().classList.toggle("selected", tab == "comments")
         pane.clear()
-        if (users) {
-            val list = el("div", "admin-users")
-            pane.appendChild(list)
-            loadAdminUsers(list, shell, null)
-        } else {
-            val list = el("div", "own-posts")
-            pane.appendChild(list)
-            loadAdminPosts(list, shell, router, null)
+        when (tab) {
+            "users" -> {
+                val list = el("div", "admin-users")
+                pane.appendChild(list)
+                loadAdminUsers(list, shell, null)
+            }
+            "posts" -> {
+                val list = el("div", "own-posts")
+                pane.appendChild(list)
+                loadAdminPosts(list, shell, router, null)
+            }
+            else -> {
+                val list = el("div", "admin-comments")
+                pane.appendChild(list)
+                loadAdminComments(list, shell, null)
+            }
         }
     }
 
-    usersChip.onClick { select(true) }
-    postsChip.onClick { select(false) }
-    select(true)
+    usersChip.onClick { select("users") }
+    postsChip.onClick { select("posts") }
+    commentsChip.onClick { select("comments") }
+    select("users")
 }
 
 private fun loadAdminUsers(list: HTMLElement, shell: HTMLElement, cursor: String?) {
@@ -195,6 +209,72 @@ private fun adminPostRow(post: dynamic, shell: HTMLElement, router: HistoryRoute
         }
     })
     row.appendChild(copy)
+    return row
+}
+
+private fun loadAdminComments(list: HTMLElement, shell: HTMLElement, cursor: String?) {
+    val query = if (cursor.isNullOrBlank()) {
+        "/api/admin/comments?limit=50"
+    } else {
+        "/api/admin/comments?limit=50&cursor=${encodeQuery(cursor)}"
+    }
+    http("GET", query) { status, text ->
+        if (status != 200) {
+            if (list.childNodes.length == 0) list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            return@http
+        }
+        val parsed = parseJson(text)
+        val comments = parsed.comments
+        val length = nodeCount(comments)
+        if (length == 0 && list.childNodes.length == 0) {
+            list.appendChild(el("p", "hint", text = Town.t("noComments")))
+            return@http
+        }
+        for (i in 0 until length) list.appendChild(adminCommentRow(comments[i], shell))
+        val next = parsed.nextCursor as? String
+        if (!next.isNullOrBlank()) {
+            list.appendChild(el("button", "text-button", text = Town.t("loadMore")) { button ->
+                button.setAttribute("type", "button")
+                button.onClick {
+                    button.asDynamic().remove()
+                    loadAdminComments(list, shell, next)
+                }
+            })
+        }
+    }
+}
+
+private fun adminCommentRow(comment: dynamic, shell: HTMLElement): HTMLElement {
+    val card = commentFrom(comment)
+    val row = el("article", "admin-comment")
+    row.appendChild(publicFace(card.authorName, card.authorPhotoUrl))
+    val copy = el("div", "admin-user-copy")
+    val title = el("div", "admin-user-title")
+    title.appendChild(el("strong", text = card.authorName))
+    title.appendChild(el("span", "comment-time", text = relativeTime(card.createdAt)))
+    copy.appendChild(title)
+    if (!card.replyToText.isNullOrBlank()) {
+        copy.appendChild(el("div", "comment-quote", text = "@${card.replyToAuthorName}: ${card.replyToText}"))
+    }
+    copy.appendChild(el("p", "admin-comment-text", text = card.text))
+    if (!card.postText.isNullOrBlank()) {
+        val preview = el("div", "admin-comment-post")
+        preview.appendChild(el("strong", text = Town.t("onPost")))
+        preview.appendChild(el("span", text = card.postText))
+        copy.appendChild(preview)
+    }
+    row.appendChild(copy)
+    row.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick {
+            confirmDialog(shell, Town.t("deleteCommentAsk"), Town.t("deleteCommentHint")) {
+                http("DELETE", "/api/admin/comments/${card.id}") { code, body ->
+                    if (code == 200) row.asDynamic().remove()
+                    else toast(shell, errorText(body, code))
+                }
+            }
+        }
+    })
     return row
 }
 

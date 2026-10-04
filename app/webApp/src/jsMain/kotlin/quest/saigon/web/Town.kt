@@ -16,6 +16,7 @@ internal data class Me(
     val hasProfilePhoto: Boolean,
     val photoUrl: String?,
     val paused: Boolean = false,
+    val admin: Boolean = false,
 )
 
 internal data class CommentCard(
@@ -29,6 +30,7 @@ internal data class CommentCard(
     val createdAt: Long,
     val replyToAuthorName: String?,
     val replyToText: String?,
+    val postText: String? = null,
 )
 
 internal data class PostCard(
@@ -83,6 +85,7 @@ internal fun meFrom(node: dynamic): Me = Me(
     hasProfilePhoto = node.hasProfilePhoto == true,
     photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
     paused = node.paused == true,
+    admin = node.admin == true,
 )
 
 internal fun postFrom(node: dynamic): PostCard = PostCard(
@@ -114,6 +117,7 @@ internal fun commentFrom(node: dynamic): CommentCard = CommentCard(
     createdAt = num(node.createdAt).toLong(),
     replyToAuthorName = (node.replyToAuthorName as? String)?.takeIf { it.isNotBlank() },
     replyToText = (node.replyToText as? String)?.takeIf { it.isNotBlank() },
+    postText = (node.postText as? String)?.takeIf { it.isNotBlank() },
 )
 
 internal fun readComments(node: dynamic): List<CommentCard> {

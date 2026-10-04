@@ -71,4 +71,5 @@ interface TownRepository {
     fun usersPage(cursor: String?, limit: Int): AdminUserPage
     fun setUserPaused(userId: String, paused: Boolean): UserRecord?
     fun adminPosts(cursor: String?, limit: Int): AdminPostPage
+    fun adminComments(cursor: String?, limit: Int): CommentPage
 }

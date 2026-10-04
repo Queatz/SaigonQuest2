@@ -63,7 +63,7 @@ fun Route.townApi(services: TownServices) {
             return@post call.fail(error.code)
         }
         call.session(services, user.id)
-        call.respondJson(mePayload(user))
+        call.respondJson(mePayload(user, services))
     }
 
     post("/auth/login") {
@@ -75,7 +75,7 @@ fun Route.townApi(services: TownServices) {
             return@post call.fail("bad_credentials")
         }
         call.session(services, user.id)
-        call.respondJson(mePayload(user))
+        call.respondJson(mePayload(user, services))
     }
 
     post("/auth/logout") {
@@ -120,7 +120,7 @@ fun Route.townApi(services: TownServices) {
 
     get("/me") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
-        call.respondJson(mePayload(user))
+        call.respondJson(mePayload(user, services))
     }
 
     patch("/me") {
@@ -151,7 +151,7 @@ fun Route.townApi(services: TownServices) {
         } catch (error: TownException) {
             return@patch call.fail(error.code)
         }
-        call.respondJson(mePayload(services.repo.findUser(next.id) ?: next))
+        call.respondJson(mePayload(services.repo.findUser(next.id) ?: next, services))
     }
 
     post("/me/photo") {
@@ -164,7 +164,7 @@ fun Route.townApi(services: TownServices) {
         }
         val updated = user.copy(profilePhotoPath = stored)
         services.repo.updateUser(updated)
-        call.respondJson(mePayload(updated))
+        call.respondJson(mePayload(updated, services))
     }
 
     get("/me/photo") {
@@ -599,6 +599,28 @@ fun Route.townApi(services: TownServices) {
         services.uploads.delete(post.photoPath)
         call.respondJson(mapOf("ok" to true))
     }
+
+    get("/admin/comments") {
+        call.requireAdmin(services) ?: return@get
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50
+        val page = services.repo.adminComments(call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "comments" to page.items.map(::commentPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    delete("/admin/comments/{id}") {
+        val user = call.requireAdmin(services) ?: return@delete
+        try {
+            services.comments.remove(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
 }
 
 fun Route.mediaRoutes(services: TownServices) {
@@ -696,7 +718,7 @@ private fun sessionCookie(value: String, config: AppConfig, maxAge: Int) = Cooki
 private fun ApplicationCall.requestCookie(): String? =
     request.cookies[SESSION_COOKIE]?.takeIf { it.isNotBlank() }
 
-private fun mePayload(user: UserRecord) = mapOf(
+private fun mePayload(user: UserRecord, services: TownServices) = mapOf(
     "id" to user.id,
     "name" to user.name,
     "phone" to PhoneNumbers.display(user.phone),
@@ -706,6 +728,7 @@ private fun mePayload(user: UserRecord) = mapOf(
     "hasProfilePhoto" to (user.profilePhotoPath != null),
     "photoUrl" to if (user.profilePhotoPath != null) "/api/me/photo" else null,
     "paused" to user.paused,
+    "admin" to (services.repo.findAdmin(user.id) != null),
 )
 
 private fun avatarPayload(avatar: AvatarRecord) = mapOf(
@@ -751,6 +774,7 @@ private fun postPayload(item: FeedItem) = mapOf(
 
 private fun commentPayload(item: CommentItem) = mapOf(
     "id" to item.id,
+    "postId" to item.postId,
     "userId" to item.userId,
     "authorName" to item.authorName,
     "authorPhotoUrl" to item.authorPhotoPath?.let { "/api/users/${item.userId}/photo" },
@@ -760,6 +784,7 @@ private fun commentPayload(item: CommentItem) = mapOf(
     "createdAt" to item.createdAt,
     "replyToAuthorName" to item.replyToAuthorName,
     "replyToText" to item.replyToText,
+    "postText" to item.postText,
 )
 
 private fun adminUserPayload(item: AdminUser) = mapOf(

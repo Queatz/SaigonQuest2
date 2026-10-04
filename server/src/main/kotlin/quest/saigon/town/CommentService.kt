@@ -31,11 +31,17 @@ class CommentService(
         return item
     }
 
+    fun remove(actor: UserRecord, commentId: String) {
+        val comment = repo.findComment(commentId) ?: throw TownException("not_found")
+        remove(actor, comment.postId, commentId)
+    }
+
     fun remove(actor: UserRecord, postId: String, commentId: String) {
         val post = repo.findPost(postId) ?: throw TownException("not_found")
         val comment = repo.findComment(commentId) ?: throw TownException("not_found")
         if (comment.postId != post.id) throw TownException("not_found")
-        if (actor.id != comment.userId && actor.id != post.userId) throw TownException("not_found")
+        val admin = repo.findAdmin(actor.id) != null
+        if (actor.id != comment.userId && actor.id != post.userId && !admin) throw TownException("not_found")
         repo.deleteComment(comment.id)
     }
 

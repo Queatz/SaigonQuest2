@@ -200,6 +200,7 @@ data class CommentItem(
     val replyToId: String? = null,
     val replyToAuthorName: String? = null,
     val replyToText: String? = null,
+    val postText: String? = null,
 )
 
 data class CommentPage(

@@ -958,6 +958,47 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return AdminPostPage(items, next)
     }
 
+    override fun adminComments(cursor: String?, limit: Int): CommentPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val rows = queryList(
+            """
+            FOR c IN $COMMENTS
+              FILTER @hasCursor == false OR c.createdAt < @cursorAt OR (c.createdAt == @cursorAt AND c._key < @cursorKey)
+              SORT c.createdAt DESC, c._key DESC
+              LIMIT @limit
+              LET commenter = DOCUMENT("$USERS", c.userKey)
+              LET parent = (c.replyToKey == null || c.replyToKey == "") ? null : DOCUMENT("$COMMENTS", c.replyToKey)
+              LET parentAuthor = parent == null ? null : DOCUMENT("$USERS", parent.userKey)
+              LET post = DOCUMENT("$POSTS", c.postKey)
+              RETURN {
+                id: c._key,
+                postId: c.postKey,
+                userId: c.userKey,
+                authorName: commenter.name,
+                authorPhotoPath: commenter.profilePhotoPath,
+                authorLocation: commenter.location,
+                authorIntro: commenter.intro,
+                text: c.text,
+                createdAt: c.createdAt,
+                replyToId: parent == null ? null : parent._key,
+                replyToAuthorName: parentAuthor == null ? null : parentAuthor.name,
+                replyToText: parent == null ? null : parent.text,
+                postText: post == null ? null : post.message
+              }
+            """.trimIndent(),
+            bind,
+        )
+        val items = rows.take(limit).mapNotNull(::commentFromAny)
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return CommentPage(items, next, db.collection(COMMENTS).count().count)
+    }
+
     private fun bumpDaily(day: String, field: String) {
         val fieldName = DAILY_FIELDS.find { it == field } ?: return
         val visitor = if (fieldName == "visitorVisits") 1 else 0
@@ -1146,6 +1187,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             replyToId = strOrNull("replyToId"),
             replyToAuthorName = strOrNull("replyToAuthorName"),
             replyToText = strOrNull("replyToText"),
+            postText = strOrNull("postText"),
         )
     }
 
