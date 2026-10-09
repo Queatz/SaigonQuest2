@@ -92,7 +92,7 @@ data class MusicPage(
 data class PostRecord(
     val id: String,
     val userId: String,
-    val avatarId: String,
+    val avatarId: String? = null,
     val photoPath: String,
     val message: String,
     val location: String,

@@ -28,6 +28,7 @@ import quest.saigon.Limits
 import quest.saigon.MusicNames
 import quest.saigon.PhoneNumbers
 import quest.saigon.languagePreference
+import quest.saigon.ai.AvatarPrompts
 import quest.saigon.media.ImageOps
 import quest.saigon.town.AdminPost
 import quest.saigon.town.AdminUser
@@ -164,6 +165,10 @@ fun Route.townApi(services: TownServices) {
         }
         val updated = user.copy(profilePhotoPath = stored)
         services.repo.updateUser(updated)
+        try {
+            services.avatars.enqueue(updated, AvatarPrompts.WAVE_HELLO)
+        } catch (_: TownException) {
+        }
         call.respondJson(mePayload(updated, services))
     }
 
@@ -324,8 +329,9 @@ fun Route.townApi(services: TownServices) {
         val form = call.formParts()
         val message = form.text("message").trim()
         if (message.length !in 1..Limits.MESSAGE_MAX) return@post call.fail("invalid_message")
-        val avatar = services.repo.findAvatar(form.text("avatarId"))
-        if (avatar == null || avatar.userId != user.id || avatar.status != AvatarStatus.READY || avatar.imagePath == null) {
+        val avatarId = form.text("avatarId").trim().ifBlank { null }
+        val avatar = avatarId?.let { services.repo.findAvatar(it) }
+        if (avatarId != null && (avatar == null || avatar.userId != user.id || avatar.status != AvatarStatus.READY || avatar.imagePath == null)) {
             return@post call.fail("avatar_required")
         }
         val location = form.text("location").trim().ifBlank { user.location.trim() }
@@ -351,7 +357,7 @@ fun Route.townApi(services: TownServices) {
             PostRecord(
                 id = "",
                 userId = user.id,
-                avatarId = avatar.id,
+                avatarId = avatar?.id,
                 photoPath = paths.first(),
                 message = message,
                 location = location,
@@ -371,7 +377,7 @@ fun Route.townApi(services: TownServices) {
                     message = post.message,
                     location = post.location,
                     photoPath = post.photoPath,
-                    avatarPath = avatar.imagePath,
+                    avatarPath = avatar?.imagePath,
                     authorLocation = user.location,
                     authorIntro = user.intro,
                     createdAt = post.createdAt,

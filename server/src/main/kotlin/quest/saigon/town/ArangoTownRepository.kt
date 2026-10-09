@@ -340,7 +340,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             PostRecord(
                 id = doc.key,
                 userId = string(doc, "userKey"),
-                avatarId = string(doc, "avatarKey"),
+                avatarId = string(doc, "avatarKey").takeIf { it.isNotBlank() && it != "null" },
                 photoPath = string(doc, "photoPath"),
                 message = string(doc, "message"),
                 location = string(doc, "location"),

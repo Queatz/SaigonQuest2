@@ -1,6 +1,8 @@
 package quest.saigon.ai
 
 object AvatarPrompts {
+    const val WAVE_HELLO = "waving hello"
+
     const val EXPAND_SYSTEM = """
         You write one short image-edit note for an illustrated character.
         The note describes things such as expression, pose, apparel, and mood.

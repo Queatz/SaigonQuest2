@@ -134,9 +134,9 @@ internal fun musicPicker(host: HTMLElement, onSelect: (String?) -> Unit): HTMLEl
         }
     })
 
+    row.appendChild(ghost)
     row.appendChild(none)
     row.appendChild(results)
-    row.appendChild(ghost)
     box.appendChild(search)
     box.appendChild(row)
     box.appendChild(studio)

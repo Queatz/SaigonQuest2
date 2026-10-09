@@ -47,3 +47,5 @@ The script creates the ArangoDB user and database from `.env.prod` with `arangos
 nginx proxies every path, including WebSocket upgrades and SSE, to the app on `127.0.0.1`. Traefik terminates TLS on 443 and flushes streaming responses. The firewall opens 80 and 443. Those are the WebSocket and SSE ports; the app does not listen on a separate public port. ArangoDB stays on localhost.
 
 The final check is `https://SERVER_DOMAIN/api/health`. The web script then checks the homepage, `sq-config.js`, and `https://WEB_DOMAIN/api/health`.
+
+Follow production API logs with `./deploy/logs.sh`. Pass `-n 100` to print the latest 100 lines and exit instead of following.

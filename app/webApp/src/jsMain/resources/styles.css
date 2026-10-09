@@ -856,6 +856,21 @@ small, .hint { color: var(--muted); font-size: 13px; }
 
 .avatar-choice.selected { border-color: var(--accent); }
 
+.avatar-choice.none {
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--line);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.avatar-choice.none.selected {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .avatar-choice.ghost {
     display: grid;
     place-items: center;

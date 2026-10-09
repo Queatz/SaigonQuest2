@@ -452,6 +452,47 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun postsCanBeCreatedWithoutAnAvatar() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901234500","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, created.status)
+        http.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Cát Lái"}""")
+        }
+        val jpeg = ImageOps().writeJpeg(solid(8, 16, Color(40, 90, 160)), 0.85f)
+        val posted = http.post("/api/posts") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", "Just a photo of the river.")
+                        append(
+                            "photo",
+                            jpeg,
+                            io.ktor.http.Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, posted.status)
+        val body = mapper.readTree(posted.bodyAsText())
+        assertTrue(body.path("avatarUrl").isNull || body.path("avatarUrl").asText().isBlank())
+        val stored = services.repo.findPost(body.path("id").asText())!!
+        assertEquals(null, stored.avatarId)
+        val feedCard = mapper.readTree(http.get("/api/posts").bodyAsText()).path("posts").path(0)
+        assertTrue(feedCard.path("avatarUrl").isNull || feedCard.path("avatarUrl").asText().isBlank())
+    }
+
+    @Test
     fun postPhotosAreCappedAtEightHundredPixels() {
         val images = ImageOps()
         val source = BufferedImage(1600, 2844, BufferedImage.TYPE_INT_RGB)
@@ -776,6 +817,71 @@ class TownBehaviorTest {
         assertTrue(missingPhoto.bodyAsText().contains("qwen_not_configured"))
     }
 
+    @Test
+    fun uploadingAProfilePhotoStartsAWavingHelloAvatar() = testApplication {
+        val services = services(avatarsConfigured = true)
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901112244","password":"secretpass"}""")
+        }
+        val jpeg = ImageOps().writeJpeg(solid(8, 8, Color(40, 90, 160)), 0.85f)
+        val uploaded = http.post("/api/me/photo") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append(
+                            "photo",
+                            jpeg,
+                            io.ktor.http.Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.OK, uploaded.status)
+        assertTrue(mapper.readTree(uploaded.bodyAsText()).path("hasProfilePhoto").asBoolean())
+        val listed = mapper.readTree(http.get("/api/avatars").bodyAsText())
+        assertEquals(1, listed.path("avatars").size())
+        assertEquals(AvatarPrompts.WAVE_HELLO, listed.path("avatars").path(0).path("prompt").asText())
+        assertEquals("ready", listed.path("avatars").path(0).path("status").asText())
+    }
+
+    @Test
+    fun uploadingAProfilePhotoStillWorksWhenAvatarsAreUnavailable() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901112255","password":"secretpass"}""")
+        }
+        val jpeg = ImageOps().writeJpeg(solid(8, 8, Color(40, 90, 160)), 0.85f)
+        val uploaded = http.post("/api/me/photo") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append(
+                            "photo",
+                            jpeg,
+                            io.ktor.http.Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.OK, uploaded.status)
+        assertTrue(mapper.readTree(uploaded.bodyAsText()).path("hasProfilePhoto").asBoolean())
+        assertEquals(0, mapper.readTree(http.get("/api/avatars").bodyAsText()).path("avatars").size())
+    }
+
     private fun todayNode(body: JsonNode, day: String): JsonNode {
         body.path("days").forEach { row ->
             if (row.path("day").asText() == day) return row
@@ -783,7 +889,7 @@ class TownBehaviorTest {
         error("missing day $day")
     }
 
-    private fun services(): TownServices {
+    private fun services(avatarsConfigured: Boolean = false): TownServices {
         val clock = { 1_700_000_000_000L }
         val repo = InMemoryTownRepository()
         val uploads = UploadStore(File.createTempFile("sq-upload", "").apply {
@@ -797,7 +903,7 @@ class TownBehaviorTest {
                 repo = repo,
                 uploads = uploads,
                 renderer = { _, _ -> byteArrayOf(1) },
-                configured = false,
+                configured = avatarsConfigured,
                 executor = { it.run() },
                 clock = clock,
             ),
@@ -809,7 +915,7 @@ class TownBehaviorTest {
                 executor = { it.run() },
                 clock = clock,
             ),
-            config = AppConfig(uploadDir = uploads.root, qwenApiKey = null),
+            config = AppConfig(uploadDir = uploads.root, qwenApiKey = if (avatarsConfigured) "test-key" else null),
             clock = clock,
             contactLimiter = RateLimiter(1, 60_000, clock),
         )

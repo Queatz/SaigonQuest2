@@ -118,10 +118,23 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val avatarRow = el("div", "avatar-row")
     val studio = el("div", "studio")
     studio.asDynamic().hidden = true
+    val none = el("button", "avatar-choice none selected", text = Town.t("noAvatar"))
+    none.setAttribute("type", "button")
     val ghost = el("button", "avatar-choice ghost")
     ghost.setAttribute("type", "button")
     ghost.setAttribute("aria-label", Town.t("createAvatar"))
     ghost.textContent = "+"
+    fun pickAvatar(id: String?, button: HTMLElement) {
+        if (id != null && selectedAvatar == id) {
+            selectedAvatar = null
+            markAvatarSelected(avatarRow, none)
+            return
+        }
+        selectedAvatar = id
+        hideAvatarStudio(studio, ghost)
+        markAvatarSelected(avatarRow, button)
+    }
+    none.onClick { pickAvatar(null, none) }
     ghost.onClick {
         val opening = studio.asDynamic().hidden == true
         studio.asDynamic().hidden = !opening
@@ -134,6 +147,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
         }
     }
     avatarRow.appendChild(ghost)
+    avatarRow.appendChild(none)
     studio.appendChild(avatarPromptForm(shell, me) { id ->
         studio.asDynamic().hidden = true
         ghost.asDynamic().classList.remove("open")
@@ -141,18 +155,14 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
         pending.setAttribute("type", "button")
         pending.setAttribute("disabled", "disabled")
         pending.appendChild(el("span", "avatar-spinner"))
-        avatarRow.asDynamic().insertBefore(pending, ghost.asDynamic().nextSibling)
+        avatarRow.asDynamic().insertBefore(pending, none)
         pollAvatar(id) { avatar ->
             if (avatar.status == "ready" && avatar.imageUrl != null) {
                 val choice = composerAvatarChoice(avatar) { selectedId, button ->
-                    selectedAvatar = selectedId
-                    hideAvatarStudio(studio, ghost)
-                    markAvatarSelected(avatarRow, button)
+                    pickAvatar(selectedId, button)
                 }
                 pending.asDynamic().replaceWith(choice)
-                selectedAvatar = avatar.id as String
-                hideAvatarStudio(studio, ghost)
-                markAvatarSelected(avatarRow, choice)
+                pickAvatar(avatar.id as String, choice)
             } else {
                 pending.asDynamic().remove()
                 toast(shell, Town.t("avatarFailed"))
@@ -168,9 +178,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
             val avatar = avatars[i]
             if (avatar.status != "ready" || avatar.imageUrl == null) continue
             avatarRow.appendChild(composerAvatarChoice(avatar) { selectedId, button ->
-                selectedAvatar = selectedId
-                hideAvatarStudio(studio, ghost)
-                markAvatarSelected(avatarRow, button)
+                pickAvatar(selectedId, button)
             })
         }
     }
@@ -202,7 +210,6 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
             photos.isEmpty() -> show(error, Town.t("photoRequired"))
             text.isEmpty() -> show(error, Town.t("invalidMessage"))
             place.isEmpty() -> show(error, Town.t("invalidLocation"))
-            selectedAvatar == null -> show(error, Town.t("avatarRequired"))
             else -> {
                 post.setAttribute("disabled", "disabled")
                 post.textContent = Town.t("posting")
@@ -212,7 +219,8 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 }
                 form.append("message", text)
                 form.append("location", place)
-                form.append("avatarId", selectedAvatar)
+                val avatarId = selectedAvatar
+                if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
                 if (!musicId.isNullOrBlank()) form.append("musicId", musicId)
                 http("POST", "/api/posts", form = form) { status, body ->

@@ -193,7 +193,7 @@ class InMemoryTownRepository : TownRepository {
                 message = post.message,
                 location = post.location,
                 photoPath = post.photoPath,
-                avatarPath = avatars[post.avatarId]?.imagePath,
+                avatarPath = post.avatarId?.let { avatars[it]?.imagePath },
                 createdAt = post.createdAt,
                 views = post.views,
                 replyClicks = post.replyClicks,
@@ -332,7 +332,7 @@ class InMemoryTownRepository : TownRepository {
 
     private fun toFeedItem(post: PostRecord): FeedItem {
         val author = users[post.userId]
-        val avatar = avatars[post.avatarId]
+        val avatar = post.avatarId?.let { avatars[it] }
         val track = post.musicId?.let { music[it] }
         return FeedItem(
             id = post.id,
@@ -495,7 +495,7 @@ class InMemoryTownRepository : TownRepository {
                 message = post.message,
                 location = post.location,
                 photoPath = post.photoPath,
-                avatarPath = avatars[post.avatarId]?.imagePath,
+                avatarPath = post.avatarId?.let { avatars[it]?.imagePath },
                 createdAt = post.createdAt,
                 views = post.views,
                 replyClicks = post.replyClicks,
