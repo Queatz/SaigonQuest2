@@ -148,6 +148,10 @@ data class OwnedPost(
     val replyClicks: Long,
     val shareClicks: Long,
     val musicName: String? = null,
+    val communityId: String? = null,
+    val communityName: String? = null,
+    val communityEmoji: String? = null,
+    val communityOnly: Boolean = false,
 )
 
 data class OwnedPostPage(

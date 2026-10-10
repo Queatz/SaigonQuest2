@@ -133,6 +133,16 @@ class CommunityBehaviorTest {
         assertEquals(2, communityFeed.size())
         assertEquals(hiddenId, mapper.readTree(minh.get("/api/posts/$hiddenId").bodyAsText()).path("id").asText())
 
+        val own = mapper.readTree(linh.get("/api/me/posts").bodyAsText()).path("posts")
+        assertEquals(2, own.size())
+        val exclusiveOwn = own.first { it.path("id").asText() == hiddenId }
+        val sharedOwn = own.first { it.path("id").asText() == sharedBody.path("id").asText() }
+        assertEquals(communityId, exclusiveOwn.path("communityId").asText())
+        assertEquals("Vegans", exclusiveOwn.path("communityName").asText())
+        assertTrue(exclusiveOwn.path("communityOnly").asBoolean())
+        assertEquals(communityId, sharedOwn.path("communityId").asText())
+        assertFalse(sharedOwn.path("communityOnly").asBoolean())
+
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Nowhere", null, exclusive = true).status)
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Missing", "nope", exclusive = false).status)
         assertEquals(HttpStatusCode.NotFound, linh.get("/api/communities/missing").status)

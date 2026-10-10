@@ -407,6 +407,21 @@ private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter)
     row.appendChild(photo)
     val copy = el("div", "own-post-copy")
     copy.appendChild(el("p", "own-post-message", text = post.message as? String ?: ""))
+    val communityId = post.communityId as? String
+    val communityName = post.communityName as? String
+    if (!communityId.isNullOrBlank() && !communityName.isNullOrBlank()) {
+        val line = el("div", "own-post-community")
+        line.appendChild(
+            communityChip(
+                router,
+                CommunityCard(communityId, communityName, post.communityEmoji as? String ?: "✨"),
+            ),
+        )
+        if (post.communityOnly == true) {
+            line.appendChild(el("span", "own-post-community-only", text = Town.t("communityOnly")))
+        }
+        copy.appendChild(line)
+    }
     val musicName = post.musicName as? String
     if (!musicName.isNullOrBlank()) {
         copy.appendChild(el("p", "own-post-music", text = "🎵 $musicName"))

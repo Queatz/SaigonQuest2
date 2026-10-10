@@ -464,6 +464,11 @@ button { cursor: pointer; }
     white-space: nowrap;
 }
 
+.message-star {
+    margin-left: 0.4em;
+    text-shadow: 0 0 2px #0008;
+}
+
 .play {
     position: absolute;
     right: 14px;
@@ -1123,6 +1128,30 @@ button.busy .avatar-spinner {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.own-post-community {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0 0;
+}
+
+.own-post-community .community-chip {
+    margin: 0;
+    font-size: 13px;
+    padding: 4px 10px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.own-post-community-only {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
 }
 
 .post-stats {
@@ -2342,7 +2371,7 @@ button.busy .avatar-spinner {
     border-radius: 999px;
     font-weight: 800;
     font-family: inherit;
-    padding: 6px 12px;
+    padding: 12px;
     margin: 0 0 8px;
 }
 
@@ -2431,7 +2460,7 @@ button.busy .avatar-spinner {
     padding: 0 14px;
 }
 
-.chooser-list { max-height: 36vh; overflow: auto; gap: 8px; }
+.chooser-list { max-height: 36vh; overflow: auto; gap: 8px; margin-top: 16px; }
 
 .chooser-row {
     display: flex;

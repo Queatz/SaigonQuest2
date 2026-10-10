@@ -481,6 +481,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               LIMIT @limit
               LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
               LET track = DOCUMENT("$MUSIC", p.musicKey)
+              LET community = DOCUMENT("$COMMUNITIES", p.communityKey)
               RETURN {
                 id: p._key,
                 message: p.message,
@@ -491,7 +492,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 views: p.views == null ? 0 : p.views,
                 replyClicks: p.replyClicks == null ? 0 : p.replyClicks,
                 shareClicks: p.shareClicks == null ? 0 : p.shareClicks,
-                musicName: track.name
+                musicName: track.name,
+                communityId: community == null ? null : community._key,
+                communityName: community == null ? null : community.name,
+                communityEmoji: community == null ? null : community.emoji,
+                communityOnly: p.communityOnly == true
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -508,6 +513,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 replyClicks = long(row, "replyClicks"),
                 shareClicks = long(row, "shareClicks"),
                 musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                communityId = optional(row, "communityId"),
+                communityName = optional(row, "communityName"),
+                communityEmoji = optional(row, "communityEmoji"),
+                communityOnly = boolean(row, "communityOnly"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null

@@ -202,6 +202,7 @@ class InMemoryTownRepository : TownRepository {
         }
         val page = filtered.take(limit + 1)
         val items = page.take(limit).map { post ->
+            val community = post.communityId?.let { communities[it] }
             OwnedPost(
                 id = post.id,
                 message = post.message,
@@ -213,6 +214,10 @@ class InMemoryTownRepository : TownRepository {
                 replyClicks = post.replyClicks,
                 shareClicks = post.shareClicks,
                 musicName = post.musicId?.let { music[it]?.name },
+                communityId = community?.id,
+                communityName = community?.name,
+                communityEmoji = community?.emoji,
+                communityOnly = post.communityOnly,
             )
         }
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null

@@ -515,6 +515,12 @@ private fun buildSlide(
     val time = el("span", "message-time")
     message.appendChild(time)
     paintPostTime(time, post.createdAt)
+    if (post.communityOnly) {
+        val exclusive = el("span", "message-star")
+        exclusive.textContent = "⭐"
+        exclusive.title = Town.t("communityOnly")
+        message.appendChild(exclusive)
+    }
     card.appendChild(message)
     card.appendChild(collapsedChat(post, host, router, onUpdate))
     stack.appendChild(card)

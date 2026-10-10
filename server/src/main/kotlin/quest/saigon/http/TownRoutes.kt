@@ -982,6 +982,10 @@ private fun ownedPostPayload(item: OwnedPost) = mapOf(
     "replyClicks" to item.replyClicks,
     "shareClicks" to item.shareClicks,
     "musicName" to item.musicName,
+    "communityId" to item.communityId,
+    "communityName" to item.communityName,
+    "communityEmoji" to item.communityEmoji,
+    "communityOnly" to item.communityOnly,
 )
 
 private fun cleanName(raw: String): String? {
