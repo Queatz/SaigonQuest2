@@ -51,6 +51,10 @@ internal data class PostCard(
     val createdAt: Long = 0L,
     val commentCount: Int = 0,
     val previewComments: List<CommentCard> = emptyList(),
+    val communityId: String? = null,
+    val communityName: String? = null,
+    val communityEmoji: String? = null,
+    val communityOnly: Boolean = false,
 )
 
 internal object Town {
@@ -108,6 +112,10 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     createdAt = num(node.createdAt).toLong(),
     commentCount = num(node.commentCount).toInt(),
     previewComments = readComments(node.comments),
+    communityId = (node.communityId as? String)?.takeIf { it.isNotBlank() },
+    communityName = (node.communityName as? String)?.takeIf { it.isNotBlank() },
+    communityEmoji = (node.communityEmoji as? String)?.takeIf { it.isNotBlank() },
+    communityOnly = node.communityOnly == true,
 )
 
 internal fun commentFrom(node: dynamic): CommentCard = CommentCard(

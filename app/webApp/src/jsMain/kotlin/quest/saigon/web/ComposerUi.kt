@@ -110,6 +110,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val messageLabel = el("label", "field")
     messageLabel.appendChild(el("span", text = Town.t("message")))
     messageLabel.appendChild(message)
+    val communities = communityPicker(shell, message)
 
     val location = field(Town.t("location"), "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
@@ -223,10 +224,19 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
                 if (!musicId.isNullOrBlank()) form.append("musicId", musicId)
+                val postedCommunity = communities.second.communityId
+                val exclusive = communities.second.exclusive && !postedCommunity.isNullOrBlank()
+                if (!postedCommunity.isNullOrBlank()) form.append("communityId", postedCommunity)
+                if (exclusive) form.append("communityOnly", "true")
                 http("POST", "/api/posts", form = form) { status, body ->
                     if (status == 201) {
-                        Town.pending = postFrom(parseJson(body))
-                        router.navigate("/")
+                        val card = postFrom(parseJson(body))
+                        if (exclusive && !card.communityId.isNullOrBlank()) {
+                            router.navigate("/c/${card.communityId}")
+                        } else {
+                            Town.pending = card
+                            router.navigate("/")
+                        }
                     } else if (status == 403) {
                         applyPaused(true)
                         show(error, errorText(body, status))
@@ -243,6 +253,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(photosWrap)
     body.appendChild(picker)
     body.appendChild(messageLabel)
+    body.appendChild(communities.first)
     body.appendChild(location.root)
     body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)

@@ -23,50 +23,88 @@ internal fun clearFeedKeys() {
     clearChatTimers()
 }
 
-internal fun feedScreen(router: HistoryRouter, focusPostId: String? = null): HTMLElement {
+internal fun feedScreen(
+    router: HistoryRouter,
+    focusPostId: String? = null,
+    communityId: String? = null,
+): HTMLElement {
     val shell = el("section", "shell feed-shell")
     shell.asDynamic().style.setProperty("--avatar-enter", "${Limits.AVATAR_ENTER_PX}px")
     val stage = el("div", "stage")
     val location = el("button", "location")
     location.setAttribute("type", "button")
-    val brand = el("div", "feed-brand")
-    brand.appendChild(location)
-    brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
-    val top = el("div", "topbar")
-    top.appendChild(brand)
-    val actions = el("div", "top-actions")
-    if (Town.me != null) actions.appendChild(notificationButton(router, shell))
-    actions.appendChild(viewerButton(router, toComposer = true))
-    top.appendChild(actions)
+    val top = el("div", if (communityId == null) "topbar" else "topbar community-top")
+    val communityTitle = el("div", "community-title")
+    val members = el("button", "pill-btn", text = Town.t("communityMembers"))
+    val join = el("button", "pill-btn", text = Town.t("joinCommunity"))
+    members.setAttribute("type", "button")
+    join.setAttribute("type", "button")
+    if (communityId == null) {
+        val brand = el("div", "feed-brand")
+        brand.appendChild(location)
+        brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
+        top.appendChild(brand)
+        val actions = el("div", "top-actions")
+        if (Town.me != null) actions.appendChild(notificationButton(router, shell))
+        actions.appendChild(viewerButton(router, toComposer = true))
+        top.appendChild(actions)
+    } else {
+        val back = el("button", "icon-btn", text = "‹")
+        back.setAttribute("type", "button")
+        back.setAttribute("aria-label", Town.t("back"))
+        back.onClick { router.navigate("/") }
+        val brand = el("div", "feed-brand community-brand")
+        brand.appendChild(communityTitle)
+        brand.appendChild(location)
+        val actions = el("div", "community-actions")
+        actions.appendChild(members)
+        actions.appendChild(join)
+        actions.appendChild(viewerButton(router, toComposer = false))
+        top.appendChild(back)
+        top.appendChild(brand)
+        top.appendChild(actions)
+    }
     shell.appendChild(stage)
     shell.appendChild(top)
-    http("GET", "/api/posts?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
-        if (status != 200) {
-            stage.appendChild(emptyState(Town.t("unavailable"), Town.t("emptyFeedHint")))
-            return@http
-        }
-        val parsed = parseJson(body)
-        val posts = readPosts(parsed.posts)
-        val pending = Town.pending
-        if (pending != null && posts.none { it.id == pending.id }) posts.add(0, pending)
-        Town.pending = null
-        fun start(cursor: String?) {
-            if (posts.isEmpty()) {
-                stage.appendChild(emptyState(Town.t("emptyFeed"), Town.t("emptyFeedHint")))
-                return
+    val feedPath = if (communityId.isNullOrBlank()) "/api/posts" else "/api/communities/${encodeQuery(communityId)}/posts"
+    val emptyTitle = if (communityId == null) Town.t("emptyFeed") else Town.t("emptyCommunity")
+    val emptyHint = if (communityId == null) Town.t("emptyFeedHint") else Town.t("emptyCommunityHint")
+    fun loadFeed() {
+        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+            if (status != 200) {
+                stage.appendChild(emptyState(Town.t("unavailable"), emptyHint))
+                return@http
             }
-            mountPager(stage, location, shell, router, posts, cursor, focusPostId)
-        }
-        if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
-            http("GET", "/api/posts/${encodeQuery(focusPostId)}") { postStatus, postBody ->
-                if (postStatus == 200) {
-                    val focused = postFrom(parseJson(postBody))
-                    if (posts.none { it.id == focused.id }) posts.add(0, focused)
+            val parsed = parseJson(body)
+            val posts = readPosts(parsed.posts)
+            val pending = if (communityId == null) Town.pending else null
+            Town.pending = null
+            if (pending != null && !pending.communityOnly && posts.none { it.id == pending.id }) posts.add(0, pending)
+            fun start(cursor: String?) {
+                if (posts.isEmpty()) {
+                    stage.appendChild(emptyState(emptyTitle, emptyHint))
+                    return
                 }
+                mountPager(stage, location, shell, router, posts, cursor, focusPostId, feedPath)
+            }
+            if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
+                http("GET", "/api/posts/${encodeQuery(focusPostId)}") { postStatus, postBody ->
+                    if (postStatus == 200) {
+                        val focused = postFrom(parseJson(postBody))
+                        if (posts.none { it.id == focused.id }) posts.add(0, focused)
+                    }
+                    start(parsed.nextCursor as? String)
+                }
+            } else {
                 start(parsed.nextCursor as? String)
             }
-        } else {
-            start(parsed.nextCursor as? String)
+        }
+    }
+    if (communityId.isNullOrBlank()) {
+        loadFeed()
+    } else {
+        bindCommunityBar(shell, router, communityId, communityTitle, members, join, onReady = { loadFeed() }) {
+            stage.appendChild(emptyState(Town.t("notFound"), Town.t("goHome")))
         }
     }
     return shell
@@ -80,6 +118,7 @@ private fun mountPager(
     posts: MutableList<PostCard>,
     initialCursor: String?,
     focusPostId: String? = null,
+    feedPath: String = "/api/posts",
 ) {
     var index = focusPostId?.let { id -> posts.indexOfFirst { it.id == id }.takeIf { it >= 0 } } ?: 0
     var openedFocus = false
@@ -183,7 +222,7 @@ private fun mountPager(
             return
         }
         loading = true
-        http("GET", "/api/posts?limit=${Limits.FEED_PAGE_SIZE}&cursor=${encodeQuery(next)}") { status, body ->
+        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}&cursor=${encodeQuery(next)}") { status, body ->
             loading = false
             if (status == 200) {
                 val parsed = parseJson(body)
@@ -244,7 +283,7 @@ private fun mountPager(
         }
         loading = true
         animating = true
-        http("GET", "/api/posts?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
             loading = false
             animating = false
             val changed = status == 200 && applyNewer(readPosts(parseJson(body).posts))
@@ -456,9 +495,22 @@ private fun buildSlide(
         name.appendChild(face)
     }
     name.appendChild(el("span", text = post.authorName))
-    name.onClick { openMiniProfile(host, post.authorName, post.authorPhotoUrl, post.authorLocation, post.authorIntro) }
+    name.onClick {
+        openMiniProfile(host, post.authorName, post.authorPhotoUrl, post.authorLocation, post.authorIntro, post.authorId, router)
+    }
     card.appendChild(name)
     val message = el("p", "message")
+    val communityId = post.communityId
+    val communityName = post.communityName
+    if (!communityId.isNullOrBlank() && !communityName.isNullOrBlank()) {
+        val chip = communityChip(
+            router,
+            CommunityCard(communityId, communityName, post.communityEmoji ?: "✨"),
+        )
+        chip.asDynamic().classList.add("in-message")
+        message.appendChild(chip)
+        message.asDynamic().classList.add("has-community")
+    }
     message.appendChild(el("span", "message-copy"))
     val time = el("span", "message-time")
     message.appendChild(time)
@@ -588,6 +640,8 @@ internal fun openMiniProfile(
     photoUrl: String?,
     location: String = "",
     intro: String = "",
+    userId: String = "",
+    router: HistoryRouter? = null,
 ) {
     if (host.asDynamic().querySelector(".dialog.mini-profile") != null) return
     val backdrop = el("div", "dialog-backdrop stacked")
@@ -606,6 +660,16 @@ internal fun openMiniProfile(
     }
     if (intro.isNotBlank()) {
         card.appendChild(el("p", "mini-profile-intro", text = intro))
+    }
+    if (userId.isNotBlank()) {
+        val row = el("div", "mini-communities")
+        card.appendChild(row)
+        http("GET", "/api/users/${encodeQuery(userId)}/communities") { status, body ->
+            if (status != 200) return@http
+            readCommunities(parseJson(body).communities).forEach { community ->
+                row.appendChild(communityChip(router, community) { backdrop.asDynamic().remove() })
+            }
+        }
     }
     card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
         button.setAttribute("type", "button")

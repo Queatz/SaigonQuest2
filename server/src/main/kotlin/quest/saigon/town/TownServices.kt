@@ -4,6 +4,8 @@ import org.slf4j.LoggerFactory
 import quest.saigon.AppConfig
 import quest.saigon.ai.AvatarPipeline
 import quest.saigon.ai.AvatarRenderer
+import quest.saigon.ai.CommunityPrompts
+import quest.saigon.ai.CommunitySuggester
 import quest.saigon.ai.MusicPipeline
 import quest.saigon.ai.QuickReplyPipeline
 import quest.saigon.ai.QwenClient
@@ -28,6 +30,7 @@ class TownServices(
     val images: ImageOps = ImageOps(),
     val hub: NotificationHub = NotificationHub(),
     val replies: QuickReplyService = QuickReplyService(repo),
+    val communities: CommunityService = CommunityService(repo, clock),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock)
 
@@ -36,13 +39,16 @@ class TownServices(
             val repo = ArangoTownRepository.open(config)
             val uploads = UploadStore(config.uploadDir).also { it.ensure() }
             val qwen = QwenClient.fromConfig(config)
+            val clock: () -> Long = System::currentTimeMillis
             return TownServices(
                 repo = repo,
                 uploads = uploads,
                 avatars = AvatarService(repo, uploads, AvatarPipeline(qwen), config.qwenConfigured),
                 music = MusicService(repo, uploads, MusicPipeline(qwen), config.qwenConfigured),
                 config = config,
+                clock = clock,
                 replies = QuickReplyService(repo, QuickReplyPipeline(qwen), config.qwenConfigured),
+                communities = CommunityService(repo, clock, communitySuggester(qwen, config.qwenConfigured)),
             )
         }
     }
@@ -112,6 +118,25 @@ class AvatarService(
         }
     }
 }
+
+internal fun communitySuggester(qwen: QwenClient, configured: Boolean): CommunitySuggester =
+    CommunitySuggester { message, existing ->
+        if (!configured) {
+            CommunityPrompts.fallback(message, existing)
+        } else {
+            try {
+                CommunityPrompts.parse(
+                    qwen.chat(
+                        CommunityPrompts.SYSTEM,
+                        CommunityPrompts.user(message, existing),
+                        temperature = 0.2,
+                    ),
+                ) ?: CommunityPrompts.fallback(message, existing)
+            } catch (_: Exception) {
+                CommunityPrompts.fallback(message, existing)
+            }
+        }
+    }
 
 internal fun avatarFailureReason(error: Throwable): String {
     val raw = generateSequence(error) { it.cause }

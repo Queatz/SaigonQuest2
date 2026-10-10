@@ -72,4 +72,14 @@ interface TownRepository {
     fun setUserPaused(userId: String, paused: Boolean): UserRecord?
     fun adminPosts(cursor: String?, limit: Int): AdminPostPage
     fun adminComments(cursor: String?, limit: Int): CommentPage
+    fun insertCommunity(community: CommunityRecord): CommunityRecord
+    fun findCommunity(id: String): CommunityRecord?
+    fun findCommunityBySlug(slug: String): CommunityRecord?
+    fun searchCommunities(query: String, userId: String?, limit: Int): List<CommunityView>
+    fun communitiesForUser(userId: String): List<CommunityRecord>
+    fun joinCommunity(communityId: String, userId: String, joinedAt: Long): Boolean
+    fun leaveCommunity(communityId: String, userId: String): Boolean
+    fun isMember(communityId: String, userId: String): Boolean
+    fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage
+    fun communityFeed(communityId: String, cursor: String?, limit: Int): FeedPage
 }

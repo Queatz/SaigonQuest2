@@ -13,7 +13,10 @@ import java.time.LocalDate
 
 class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
-        listOf(USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES, NOTIFICATIONS, ADMINS, DAY_STATS).forEach { name ->
+        listOf(
+            USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
+            NOTIFICATIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS,
+        ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
         }
@@ -21,6 +24,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(USERS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
+        db.collection(POSTS).ensurePersistentIndex(listOf("communityKey", "createdAt"), PersistentIndexOptions())
+        db.collection(COMMUNITIES).ensurePersistentIndex(listOf("slug"), PersistentIndexOptions().unique(true))
+        db.collection(COMMUNITIES).ensurePersistentIndex(listOf("memberCount"), PersistentIndexOptions())
+        db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("userKey", "joinedAt"), PersistentIndexOptions())
+        db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("communityKey", "joinedAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -245,26 +253,34 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("musicKey", post.musicId)
         doc.addAttribute("quickReplies", post.quickReplies)
         doc.addAttribute("commentCount", post.commentCount)
+        doc.addAttribute("communityKey", post.communityId)
+        doc.addAttribute("communityOnly", post.communityOnly)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
 
-    override fun feed(cursor: String?, limit: Int): FeedPage {
-        val parsed = Cursors.parse(cursor)
-        val bind = mapOf(
-            "limit" to limit + 1,
-            "hasCursor" to (parsed != null),
-            "cursorAt" to (parsed?.first ?: 0L),
-            "cursorKey" to (parsed?.second ?: ""),
-        )
+    override fun feed(cursor: String?, limit: Int): FeedPage = pageFeed(
+        "(p.communityOnly != true) AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
+        cursorBind(cursor, limit),
+        limit,
+    )
+
+    override fun communityFeed(communityId: String, cursor: String?, limit: Int): FeedPage = pageFeed(
+        "p.communityKey == @communityKey AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
+        cursorBind(cursor, limit) + mapOf("communityKey" to communityId),
+        limit,
+    )
+
+    private fun pageFeed(where: String, bind: Map<String, Any?>, limit: Int): FeedPage {
         val query = """
             FOR p IN $POSTS
-              FILTER @hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey)
+              FILTER $where
               SORT p.createdAt DESC, p._key DESC
               LIMIT @limit
               LET author = DOCUMENT("$USERS", p.userKey)
               LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
               LET track = DOCUMENT("$MUSIC", p.musicKey)
+              LET community = DOCUMENT("$COMMUNITIES", p.communityKey)
               LET preview = (
                 FOR c IN $COMMENTS
                   FILTER c.postKey == p._key
@@ -305,7 +321,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 musicPath: track.audioPath,
                 quickReplies: p.quickReplies == null ? [] : p.quickReplies,
                 commentCount: p.commentCount == null ? 0 : p.commentCount,
-                previewComments: preview
+                previewComments: preview,
+                communityId: community == null ? null : community._key,
+                communityName: community == null ? null : community.name,
+                communityEmoji: community == null ? null : community.emoji,
+                communityOnly: p.communityOnly == true
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -329,6 +349,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 commentCount = long(row, "commentCount"),
                 previewComments = commentList(row, "previewComments"),
                 extraPhotoPaths = stringList(row, "extraPhotoPaths"),
+                communityId = optional(row, "communityId"),
+                communityName = optional(row, "communityName"),
+                communityEmoji = optional(row, "communityEmoji"),
+                communityOnly = boolean(row, "communityOnly"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
@@ -352,6 +376,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 quickReplies = stringList(doc, "quickReplies"),
                 commentCount = long(doc, "commentCount"),
                 extraPhotoPaths = stringList(doc, "extraPhotoPaths"),
+                communityId = string(doc, "communityKey").takeIf { it.isNotBlank() && it != "null" },
+                communityOnly = boolean(doc, "communityOnly"),
             )
         }
 
@@ -364,6 +390,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               LET author = DOCUMENT("$USERS", p.userKey)
               LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
               LET track = DOCUMENT("$MUSIC", p.musicKey)
+              LET community = DOCUMENT("$COMMUNITIES", p.communityKey)
               LET preview = (
                 FOR c IN $COMMENTS
                   FILTER c.postKey == p._key
@@ -404,7 +431,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 musicPath: track.audioPath,
                 quickReplies: p.quickReplies == null ? [] : p.quickReplies,
                 commentCount: p.commentCount == null ? 0 : p.commentCount,
-                previewComments: preview
+                previewComments: preview,
+                communityId: community == null ? null : community._key,
+                communityName: community == null ? null : community.name,
+                communityEmoji: community == null ? null : community.emoji,
+                communityOnly: p.communityOnly == true
               }
         """.trimIndent()
         val row = first(query, bind) ?: return null
@@ -426,6 +457,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             commentCount = long(row, "commentCount"),
             previewComments = commentList(row, "previewComments"),
             extraPhotoPaths = stringList(row, "extraPhotoPaths"),
+            communityId = optional(row, "communityId"),
+            communityName = optional(row, "communityName"),
+            communityEmoji = optional(row, "communityEmoji"),
+            communityOnly = boolean(row, "communityOnly"),
         )
     }
 
@@ -1080,6 +1115,175 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         }
     }
 
+    private fun cursorBind(cursor: String?, limit: Int): Map<String, Any?> {
+        val parsed = Cursors.parse(cursor)
+        return mapOf(
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+    }
+
+    private fun optional(doc: BaseDocument, name: String): String? =
+        doc.getAttribute(name)?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+
+    override fun insertCommunity(community: CommunityRecord): CommunityRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("name", community.name)
+        doc.addAttribute("emoji", community.emoji)
+        doc.addAttribute("slug", community.slug)
+        doc.addAttribute("createdBy", community.createdBy)
+        doc.addAttribute("createdAt", community.createdAt)
+        doc.addAttribute("memberCount", community.memberCount)
+        val key = try {
+            db.collection(COMMUNITIES).insertDocument(doc).key
+        } catch (error: ArangoDBException) {
+            if (error.errorNum == 1210) throw TownException("community_taken")
+            throw error
+        }
+        return community.copy(id = key)
+    }
+
+    override fun findCommunity(id: String): CommunityRecord? =
+        db.collection(COMMUNITIES).getDocument(id, BaseDocument::class.java)?.let(::communityFrom)
+
+    override fun findCommunityBySlug(slug: String): CommunityRecord? = first(
+        "FOR c IN $COMMUNITIES FILTER c.slug == @slug LIMIT 1 RETURN c",
+        mapOf("slug" to slug),
+    )?.let(::communityFrom)
+
+    override fun searchCommunities(query: String, userId: String?, limit: Int): List<CommunityView> {
+        val needle = query.trim().lowercase()
+        val like = if (needle.isEmpty()) "%" else "%${escapeLike(needle)}%"
+        val rows = queryList(
+            """
+            FOR c IN $COMMUNITIES
+              FILTER @hasQuery == false OR LOWER(c.name) LIKE @like OR LOWER(c.slug) LIKE @like
+              SORT c.memberCount DESC, c.name ASC
+              LIMIT @limit
+              RETURN c
+            """.trimIndent(),
+            mapOf("hasQuery" to needle.isNotEmpty(), "like" to like, "limit" to limit),
+        )
+        val joined = joinedIds(userId)
+        return rows.map(::communityFrom).map { CommunityView(it, it.id in joined) }
+    }
+
+    override fun communitiesForUser(userId: String): List<CommunityRecord> = queryList(
+        """
+        FOR m IN $MEMBERSHIPS
+          FILTER m.userKey == @userKey
+          SORT m.joinedAt DESC
+          LET c = DOCUMENT("$COMMUNITIES", m.communityKey)
+          FILTER c != null
+          RETURN c
+        """.trimIndent(),
+        mapOf("userKey" to userId),
+    ).map(::communityFrom)
+
+    override fun joinCommunity(communityId: String, userId: String, joinedAt: Long): Boolean {
+        val community = findCommunity(communityId) ?: return false
+        val key = membershipKey(communityId, userId)
+        val collection = db.collection(MEMBERSHIPS)
+        if (collection.documentExists(key)) return false
+        val doc = BaseDocument(key)
+        doc.addAttribute("communityKey", communityId)
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("joinedAt", joinedAt)
+        try {
+            collection.insertDocument(doc)
+        } catch (error: ArangoDBException) {
+            if (error.errorNum == 1210) return false
+            throw error
+        }
+        val patch = BaseDocument(community.id)
+        patch.addAttribute("memberCount", community.memberCount + 1)
+        db.collection(COMMUNITIES).updateDocument(community.id, patch)
+        return true
+    }
+
+    override fun leaveCommunity(communityId: String, userId: String): Boolean {
+        val community = findCommunity(communityId) ?: return false
+        val key = membershipKey(communityId, userId)
+        val collection = db.collection(MEMBERSHIPS)
+        if (!collection.documentExists(key)) return false
+        collection.deleteDocument(key)
+        val patch = BaseDocument(community.id)
+        patch.addAttribute("memberCount", (community.memberCount - 1).coerceAtLeast(0))
+        db.collection(COMMUNITIES).updateDocument(community.id, patch)
+        return true
+    }
+
+    override fun isMember(communityId: String, userId: String): Boolean =
+        db.collection(MEMBERSHIPS).documentExists(membershipKey(communityId, userId))
+
+    override fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR m IN $MEMBERSHIPS
+              FILTER m.communityKey == @communityKey
+              FILTER @hasCursor == false OR m.joinedAt < @cursorAt OR (m.joinedAt == @cursorAt AND m._key < @cursorKey)
+              SORT m.joinedAt DESC, m._key DESC
+              LIMIT @limit
+              LET u = DOCUMENT("$USERS", m.userKey)
+              FILTER u != null
+              RETURN {
+                id: u._key,
+                name: u.name,
+                profilePhotoPath: u.profilePhotoPath,
+                location: u.location,
+                intro: u.intro,
+                joinedAt: m.joinedAt,
+                memberKey: m._key
+              }
+            """.trimIndent(),
+            mapOf(
+                "communityKey" to communityId,
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            CommunityMember(
+                id = string(row, "id"),
+                name = string(row, "name"),
+                profilePhotoPath = optional(row, "profilePhotoPath"),
+                location = string(row, "location"),
+                intro = string(row, "intro"),
+                joinedAt = long(row, "joinedAt"),
+            )
+        }
+        val next = if (rows.size > limit) {
+            page.lastOrNull()?.let { Cursors.encode(long(it, "joinedAt"), string(it, "memberKey")) }
+        } else {
+            null
+        }
+        return CommunityMemberPage(items, next)
+    }
+
+    private fun joinedIds(userId: String?): Set<String> {
+        if (userId.isNullOrBlank()) return emptySet()
+        return queryList(
+            "FOR m IN $MEMBERSHIPS FILTER m.userKey == @userKey RETURN m",
+            mapOf("userKey" to userId),
+        ).map { string(it, "communityKey") }.toSet()
+    }
+
+    private fun communityFrom(doc: BaseDocument) = CommunityRecord(
+        id = doc.key,
+        name = string(doc, "name"),
+        emoji = string(doc, "emoji").ifBlank { "✨" },
+        slug = string(doc, "slug"),
+        createdBy = string(doc, "createdBy"),
+        createdAt = long(doc, "createdAt"),
+        memberCount = long(doc, "memberCount"),
+    )
+
     private fun first(query: String, bind: Map<String, Any?>): BaseDocument? =
         db.query(query, BaseDocument::class.java, bind).use { cursor ->
             if (cursor.hasNext()) cursor.next() else null
@@ -1220,6 +1424,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val NOTIFICATIONS = "notifications"
         private const val ADMINS = "admins"
         private const val DAY_STATS = "dayStats"
+        private const val COMMUNITIES = "communities"
+        private const val MEMBERSHIPS = "memberships"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 
         fun open(config: AppConfig): ArangoTownRepository {

@@ -341,6 +341,12 @@ fun Route.townApi(services: TownServices) {
         if (musicId != null && (music == null || music.status != MusicStatus.READY || music.audioPath == null)) {
             return@post call.fail("invalid_music")
         }
+        val communityId = form.text("communityId").trim().ifBlank { null }
+        val communityOnlyRaw = form.text("communityOnly").trim()
+        val communityOnly = communityOnlyRaw.equals("true", true) || communityOnlyRaw == "1"
+        val community = communityId?.let { services.repo.findCommunity(it) }
+        if (communityId != null && community == null) return@post call.fail("invalid_community")
+        if (communityOnly && community == null) return@post call.fail("invalid_community")
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
@@ -364,8 +370,11 @@ fun Route.townApi(services: TownServices) {
                 createdAt = services.clock(),
                 musicId = music?.id,
                 extraPhotoPaths = paths.drop(1),
+                communityId = community?.id,
+                communityOnly = communityOnly,
             ),
         )
+        if (community != null) services.repo.joinCommunity(community.id, user.id, services.clock())
         services.replies.enqueue(post.id, message)
         call.respondJson(
             postPayload(
@@ -384,6 +393,10 @@ fun Route.townApi(services: TownServices) {
                     musicName = music?.name,
                     musicPath = music?.audioPath,
                     extraPhotoPaths = post.extraPhotoPaths,
+                    communityId = community?.id,
+                    communityName = community?.name,
+                    communityEmoji = community?.emoji,
+                    communityOnly = communityOnly,
                 ),
             ),
             HttpStatusCode.Created,
@@ -549,6 +562,115 @@ fun Route.townApi(services: TownServices) {
             services.repo.recordDailyEvent("shareClicks", services.clock())
         }
         call.respondJson(mapOf("ok" to true))
+    }
+
+    get("/communities") {
+        val user = call.user(services)
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 30
+        val items = services.repo.searchCommunities(call.request.queryParameters["q"].orEmpty(), user?.id, limit)
+        call.respondJson(mapOf("communities" to items.map { communityPayload(it.community, it.joined) }))
+    }
+
+    post("/communities/suggest") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val text = Jsons.text(Jsons.parse(call.receiveText()), "text")
+        if (text.length !in 1..Limits.MESSAGE_MAX) return@post call.fail("invalid_message")
+        val suggestion = try {
+            services.communities.suggest(user.id, text)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        val match = services.repo.findCommunityBySlug(quest.saigon.town.CommunityNames.slug(suggestion.name))
+        call.respondJson(
+            mapOf(
+                "emoji" to suggestion.emoji,
+                "name" to suggestion.name,
+                "communityId" to match?.id,
+            ),
+        )
+    }
+
+    post("/communities") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val opened = try {
+            services.communities.open(user, Jsons.text(body, "name"), Jsons.text(body, "emoji"))
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(
+            communityPayload(opened.community, true),
+            if (opened.created) HttpStatusCode.Created else HttpStatusCode.OK,
+        )
+    }
+
+    get("/communities/{id}") {
+        val community = services.repo.findCommunity(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val user = call.user(services)
+        call.respondJson(communityPayload(community, user != null && services.repo.isMember(community.id, user.id)))
+    }
+
+    post("/communities/{id}/join") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val community = services.repo.findCommunity(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
+        services.repo.joinCommunity(community.id, user.id, services.clock())
+        val fresh = services.repo.findCommunity(community.id) ?: community
+        call.respondJson(communityPayload(fresh, true))
+    }
+
+    post("/communities/{id}/leave") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val community = services.repo.findCommunity(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
+        services.repo.leaveCommunity(community.id, user.id)
+        val fresh = services.repo.findCommunity(community.id) ?: community
+        call.respondJson(communityPayload(fresh, false))
+    }
+
+    get("/communities/{id}/members") {
+        val id = call.parameters["id"].orEmpty()
+        services.repo.findCommunity(id) ?: return@get call.fail("not_found")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 30
+        val page = services.repo.members(id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "members" to page.items.map(::memberPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    get("/communities/{id}/posts") {
+        val id = call.parameters["id"].orEmpty()
+        services.repo.findCommunity(id) ?: return@get call.fail("not_found")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 20) ?: Limits.FEED_PAGE_SIZE
+        val page = services.repo.communityFeed(id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "posts" to page.items.map(::postPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    get("/me/communities") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        call.respondJson(
+            mapOf(
+                "communities" to services.repo.communitiesForUser(user.id).map { communityPayload(it, true) },
+            ),
+        )
+    }
+
+    get("/users/{id}/communities") {
+        val user = services.repo.findUser(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val viewer = call.user(services)
+        call.respondJson(
+            mapOf(
+                "communities" to services.repo.communitiesForUser(user.id).map { community ->
+                    communityPayload(community, viewer != null && services.repo.isMember(community.id, viewer.id))
+                },
+            ),
+        )
     }
 
     delete("/posts/{id}") {
@@ -784,6 +906,28 @@ private fun postPayload(item: FeedItem) = mapOf(
     "quickReplies" to item.quickReplies,
     "commentCount" to item.commentCount,
     "comments" to item.previewComments.map(::commentPayload),
+    "communityId" to item.communityId,
+    "communityName" to item.communityName,
+    "communityEmoji" to item.communityEmoji,
+    "communityOnly" to item.communityOnly,
+)
+
+private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(
+    "id" to community.id,
+    "name" to community.name,
+    "emoji" to community.emoji,
+    "memberCount" to community.memberCount,
+    "joined" to joined,
+    "createdAt" to community.createdAt,
+)
+
+private fun memberPayload(member: quest.saigon.town.CommunityMember) = mapOf(
+    "id" to member.id,
+    "name" to member.name,
+    "photoUrl" to member.profilePhotoPath?.let { "/api/users/${member.id}/photo" },
+    "location" to member.location,
+    "intro" to member.intro,
+    "joinedAt" to member.joinedAt,
 )
 
 private fun commentPayload(item: CommentItem) = mapOf(

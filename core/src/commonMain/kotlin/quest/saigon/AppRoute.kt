@@ -8,6 +8,7 @@ sealed class AppRoute {
     data object Stats : AppRoute()
     data object Admin : AppRoute()
     data class Post(val id: String) : AppRoute()
+    data class Community(val id: String) : AppRoute()
     data class NotFound(val path: String) : AppRoute()
 }
 
@@ -16,6 +17,7 @@ fun matchAppRoute(path: String): AppRoute {
         if (value != "/" && value.endsWith("/")) value.dropLast(1) else value
     }
     val post = POST_PATH.matchEntire(normalized)
+    val community = COMMUNITY_PATH.matchEntire(normalized)
     return when {
         normalized == "/" || normalized.isEmpty() -> AppRoute.Home
         normalized == "/new" -> AppRoute.NewPost
@@ -24,8 +26,10 @@ fun matchAppRoute(path: String): AppRoute {
         normalized == "/stats" -> AppRoute.Stats
         normalized == "/admin" -> AppRoute.Admin
         post != null -> AppRoute.Post(post.groupValues[1])
+        community != null -> AppRoute.Community(community.groupValues[1])
         else -> AppRoute.NotFound(path)
     }
 }
 
 private val POST_PATH = Regex("^/p/([A-Za-z0-9_-]+)$")
+private val COMMUNITY_PATH = Regex("^/c/([A-Za-z0-9_-]+)$")

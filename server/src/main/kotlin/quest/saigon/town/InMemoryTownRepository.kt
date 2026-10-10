@@ -15,6 +15,8 @@ class InMemoryTownRepository : TownRepository {
     private val watches = ConcurrentHashMap<String, Boolean>()
     private val notifications = ConcurrentHashMap<String, NotificationRecord>()
     private val admins = ConcurrentHashMap<String, AdminRecord>()
+    private val communities = ConcurrentHashMap<String, CommunityRecord>()
+    private val memberships = ConcurrentHashMap<String, Membership>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -156,9 +158,21 @@ class InMemoryTownRepository : TownRepository {
         return stored
     }
 
-    override fun feed(cursor: String?, limit: Int): FeedPage {
+    override fun feed(cursor: String?, limit: Int): FeedPage = pagePosts(
+        posts.values.filter { !it.communityOnly },
+        cursor,
+        limit,
+    )
+
+    override fun communityFeed(communityId: String, cursor: String?, limit: Int): FeedPage = pagePosts(
+        posts.values.filter { it.communityId == communityId },
+        cursor,
+        limit,
+    )
+
+    private fun pagePosts(source: Collection<PostRecord>, cursor: String?, limit: Int): FeedPage {
         val parsed = Cursors.parse(cursor)
-        val sorted = posts.values.sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+        val sorted = source.sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
         val filtered = if (parsed == null) {
             sorted
         } else {
@@ -334,6 +348,7 @@ class InMemoryTownRepository : TownRepository {
         val author = users[post.userId]
         val avatar = post.avatarId?.let { avatars[it] }
         val track = post.musicId?.let { music[it] }
+        val community = post.communityId?.let { communities[it] }
         return FeedItem(
             id = post.id,
             authorId = post.userId,
@@ -352,6 +367,10 @@ class InMemoryTownRepository : TownRepository {
             commentCount = post.commentCount,
             previewComments = latestComments(post.id, Limits.COMMENT_PREVIEW),
             extraPhotoPaths = post.extraPhotoPaths,
+            communityId = community?.id,
+            communityName = community?.name,
+            communityEmoji = community?.emoji,
+            communityOnly = post.communityOnly,
         )
     }
 
@@ -524,7 +543,86 @@ class InMemoryTownRepository : TownRepository {
         return CommentPage(items, next, comments.size.toLong())
     }
 
+    override fun insertCommunity(community: CommunityRecord): CommunityRecord {
+        if (communities.values.any { it.slug == community.slug }) throw TownException("community_taken")
+        val stored = if (community.id.isBlank()) community.copy(id = newId()) else community
+        communities[stored.id] = stored
+        return stored
+    }
+
+    override fun findCommunity(id: String): CommunityRecord? = communities[id]
+
+    override fun findCommunityBySlug(slug: String): CommunityRecord? =
+        communities.values.firstOrNull { it.slug == slug }
+
+    override fun searchCommunities(query: String, userId: String?, limit: Int): List<CommunityView> {
+        val needle = query.trim().lowercase()
+        return communities.values
+            .filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.slug.contains(needle) }
+            .sortedWith(compareByDescending<CommunityRecord> { it.memberCount }.thenBy { it.name.lowercase() })
+            .take(limit)
+            .map { CommunityView(it, userId != null && isMember(it.id, userId)) }
+    }
+
+    override fun communitiesForUser(userId: String): List<CommunityRecord> =
+        memberships.values
+            .filter { it.userId == userId }
+            .sortedByDescending { it.joinedAt }
+            .mapNotNull { communities[it.communityId] }
+
+    override fun joinCommunity(communityId: String, userId: String, joinedAt: Long): Boolean {
+        val community = communities[communityId] ?: return false
+        val key = membershipKey(communityId, userId)
+        if (memberships.containsKey(key)) return false
+        memberships[key] = Membership(communityId, userId, joinedAt)
+        communities[communityId] = community.copy(memberCount = community.memberCount + 1)
+        return true
+    }
+
+    override fun leaveCommunity(communityId: String, userId: String): Boolean {
+        val community = communities[communityId] ?: return false
+        if (memberships.remove(membershipKey(communityId, userId)) == null) return false
+        communities[communityId] = community.copy(memberCount = (community.memberCount - 1).coerceAtLeast(0))
+        return true
+    }
+
+    override fun isMember(communityId: String, userId: String): Boolean =
+        memberships.containsKey(membershipKey(communityId, userId))
+
+    override fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = memberships.values
+            .filter { it.communityId == communityId }
+            .sortedWith(compareByDescending<Membership> { it.joinedAt }.thenByDescending { membershipKey(it.communityId, it.userId) })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (joinedAt, key) = parsed
+            sorted.filter { it.joinedAt < joinedAt || (it.joinedAt == joinedAt && membershipKey(it.communityId, it.userId) < key) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).mapNotNull { membership ->
+            val user = users[membership.userId] ?: return@mapNotNull null
+            CommunityMember(
+                id = user.id,
+                name = user.name,
+                profilePhotoPath = user.profilePhotoPath,
+                location = user.location,
+                intro = user.intro,
+                joinedAt = membership.joinedAt,
+            )
+        }
+        val next = if (page.size > limit) {
+            page.getOrNull(limit - 1)?.let { Cursors.encode(it.joinedAt, membershipKey(it.communityId, it.userId)) }
+        } else {
+            null
+        }
+        return CommunityMemberPage(items, next)
+    }
+
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
+
+    private class Membership(val communityId: String, val userId: String, val joinedAt: Long)
 
     private class DailyBucket {
         var visitorVisits = 0L

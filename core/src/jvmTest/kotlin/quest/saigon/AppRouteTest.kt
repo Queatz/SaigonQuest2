@@ -32,6 +32,12 @@ class AppRouteTest {
     }
 
     @Test
+    fun communityPathOpensThatFeed() {
+        assertEquals(AppRoute.Community("abc123"), matchAppRoute("/c/abc123"))
+        assertEquals(AppRoute.Community("abc123"), matchAppRoute("/c/abc123/"))
+    }
+
+    @Test
     fun unknownPathIsNotFound() {
         val route = matchAppRoute("/about")
         assertIs<AppRoute.NotFound>(route)

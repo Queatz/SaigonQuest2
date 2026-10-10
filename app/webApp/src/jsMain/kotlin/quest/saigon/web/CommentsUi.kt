@@ -341,7 +341,15 @@ internal fun openCommentsSheet(
         face.setAttribute("tabindex", "0")
         face.asDynamic().addEventListener("click", { event: dynamic ->
             event.stopPropagation()
-            openMiniProfile(host, comment.authorName, comment.authorPhotoUrl, comment.authorLocation, comment.authorIntro)
+            openMiniProfile(
+                host,
+                comment.authorName,
+                comment.authorPhotoUrl,
+                comment.authorLocation,
+                comment.authorIntro,
+                comment.userId,
+                router,
+            )
         })
         item.appendChild(face)
         val body = el("div", "comment-body")

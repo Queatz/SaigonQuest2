@@ -104,6 +104,8 @@ data class PostRecord(
     val quickReplies: List<String> = emptyList(),
     val commentCount: Long = 0,
     val extraPhotoPaths: List<String> = emptyList(),
+    val communityId: String? = null,
+    val communityOnly: Boolean = false,
 )
 
 data class FeedItem(
@@ -124,6 +126,10 @@ data class FeedItem(
     val commentCount: Long = 0,
     val previewComments: List<CommentItem> = emptyList(),
     val extraPhotoPaths: List<String> = emptyList(),
+    val communityId: String? = null,
+    val communityName: String? = null,
+    val communityEmoji: String? = null,
+    val communityOnly: Boolean = false,
 )
 
 data class FeedPage(
@@ -234,3 +240,32 @@ object NotificationType {
     const val POST_COMMENT = "post_comment"
     const val THREAD_COMMENT = "thread_comment"
 }
+
+data class CommunityRecord(
+    val id: String,
+    val name: String,
+    val emoji: String,
+    val slug: String,
+    val createdBy: String,
+    val createdAt: Long,
+    val memberCount: Long = 0,
+)
+
+data class CommunityView(
+    val community: CommunityRecord,
+    val joined: Boolean,
+)
+
+data class CommunityMember(
+    val id: String,
+    val name: String,
+    val profilePhotoPath: String?,
+    val location: String,
+    val intro: String,
+    val joinedAt: Long,
+)
+
+data class CommunityMemberPage(
+    val items: List<CommunityMember>,
+    val nextCursor: String?,
+)
