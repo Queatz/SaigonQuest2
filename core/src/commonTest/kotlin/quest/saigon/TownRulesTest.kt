@@ -103,6 +103,25 @@ class TownRulesTest {
     }
 
     @Test
+    fun postAgeUsesShortEnglishAndVietnameseLabels() {
+        val now = 1_700_000_000_000L
+        fun age(ago: Long, language: Language) = PostAge.relative(now - ago, now, language)
+
+        assertEquals("1m", age(30_000L, Language.EN))
+        assertEquals("1p", age(30_000L, Language.VI))
+        assertEquals("1h", age(60 * 60_000L, Language.EN))
+        assertEquals("1g", age(60 * 60_000L, Language.VI))
+        assertEquals("5h", age(5 * 60 * 60_000L, Language.EN))
+        assertEquals("5g", age(5 * 60 * 60_000L, Language.VI))
+        assertEquals("6d", age(6 * 24 * 60 * 60_000L, Language.EN))
+        assertEquals("6n", age(6 * 24 * 60 * 60_000L, Language.VI))
+        assertEquals("1w", age(7 * 24 * 60 * 60_000L, Language.EN))
+        assertEquals("1t", age(7 * 24 * 60 * 60_000L, Language.VI))
+        assertNull(age(30 * 24 * 60 * 60_000L, Language.EN))
+        assertEquals("", PostAge.relative(0L, now, Language.EN))
+    }
+
+    @Test
     fun musicNamesPreferLyricsThenPrompt() {
         assertEquals("Sáng sớm trời mưa", MusicNames.fromPrompt("Sáng sớm trời mưa"))
         assertEquals(

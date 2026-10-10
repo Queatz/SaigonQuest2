@@ -457,6 +457,13 @@ button { cursor: pointer; }
     font-weight: 700;
 }
 
+.message-time {
+    margin-left: 0.4em;
+    opacity: 0.5;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .play {
     position: absolute;
     right: 14px;
@@ -1548,10 +1555,14 @@ button.busy .avatar-spinner {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, .4);
+    background-color: rgba(255, 255, 255, .4);
+    transition: background-color .125s ease-out, scale .125s ease-out;
 }
 
-.photo-dot.on { background: #fff; }
+.photo-dot.on {
+    background-color: rgba(255, 255, 255, 1);
+    scale: 1.2;
+}
 
 .music-name {
     min-width: 0;

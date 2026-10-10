@@ -1,6 +1,7 @@
 package quest.saigon.web
 
 import quest.saigon.Limits
+import quest.saigon.PostAge
 import quest.saigon.feedSlideMotion
 import web.dom.document
 import web.html.HTMLElement
@@ -128,11 +129,13 @@ private fun mountPager(
         val post = posts.getOrNull(index) ?: return
         syncFeedAudio(post)
         val message = slides[index]?.asDynamic()?.querySelector(".message") ?: return
+        val copy = message.querySelector(".message-copy") ?: message
+        paintPostTime(message.querySelector(".message-time"), post.createdAt)
         if (viewedId != post.id) {
             viewedId = post.id
             http("POST", "/api/posts/${post.id}/view", "{}") { _, _ -> }
         }
-        cancelType = typewrite(message, post.message)
+        cancelType = typewrite(copy, post.message)
     }
 
     fun revealAvatar() {
@@ -456,6 +459,10 @@ private fun buildSlide(
     name.onClick { openMiniProfile(host, post.authorName, post.authorPhotoUrl, post.authorLocation, post.authorIntro) }
     card.appendChild(name)
     val message = el("p", "message")
+    message.appendChild(el("span", "message-copy"))
+    val time = el("span", "message-time")
+    message.appendChild(time)
+    paintPostTime(time, post.createdAt)
     card.appendChild(message)
     card.appendChild(collapsedChat(post, host, router, onUpdate))
     stack.appendChild(card)
@@ -607,6 +614,28 @@ internal fun openMiniProfile(
     backdrop.appendChild(card)
     backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
+}
+
+private val monthNames = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+private fun shortPostTime(createdAt: Long): String {
+    val now = num(js("Date.now()")).toLong()
+    return PostAge.relative(createdAt, now, Town.language) ?: absolutePostDate(createdAt)
+}
+
+private fun absolutePostDate(createdAt: Long): String {
+    val date = js("new Date(createdAt)")
+    val month = monthNames[num(date.getMonth()).toInt().coerceIn(0, 11)]
+    val day = num(date.getDate()).toInt()
+    val year = num(date.getFullYear()).toInt()
+    return "$month $day, $year"
+}
+
+private fun paintPostTime(node: dynamic, createdAt: Long) {
+    if (node == null || node == undefined) return
+    val label = shortPostTime(createdAt)
+    node.textContent = label
+    node.style.display = if (label.isBlank()) "none" else ""
 }
 
 private fun typewrite(node: dynamic, text: String): () -> Unit {

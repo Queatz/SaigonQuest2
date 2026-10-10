@@ -48,6 +48,7 @@ internal data class PostCard(
     val musicName: String?,
     val musicUrl: String?,
     val quickReplies: List<String> = emptyList(),
+    val createdAt: Long = 0L,
     val commentCount: Int = 0,
     val previewComments: List<CommentCard> = emptyList(),
 )
@@ -104,6 +105,7 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     musicName = (node.musicName as? String)?.takeIf { it.isNotBlank() },
     musicUrl = (node.musicUrl as? String)?.let(::prefixServerOrigin),
     quickReplies = readStringList(node.quickReplies),
+    createdAt = num(node.createdAt).toLong(),
     commentCount = num(node.commentCount).toInt(),
     previewComments = readComments(node.comments),
 )
