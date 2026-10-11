@@ -14,11 +14,13 @@ private var keysInstalled = false
 private var resizeInstalled = false
 private var swipeHintTimer: dynamic = null
 private var swipeHintDone = false
+private var photoPeekTimer: dynamic = null
 
 internal fun clearFeedKeys() {
     feedKeyHandler = null
     feedResizeHandler = null
     stopSwipeHint()
+    stopPhotoPeekTimer()
     stopFeedAudio()
     clearChatTimers()
 }
@@ -59,10 +61,10 @@ internal fun feedScreen(
         val actions = el("div", "community-actions")
         actions.appendChild(members)
         actions.appendChild(join)
-        actions.appendChild(viewerButton(router, toComposer = false))
         top.appendChild(back)
         top.appendChild(brand)
         top.appendChild(actions)
+        top.appendChild(viewerButton(router, toComposer = false))
     }
     shell.appendChild(stage)
     shell.appendChild(top)
@@ -141,6 +143,7 @@ private fun mountPager(
     var velocityX = 0.0
     var axis: String? = null
     var photoDrag = 0.0
+    var peeking = false
 
     fun stageHeight(): Double {
         val height = num(stage.asDynamic().clientHeight)
@@ -324,6 +327,25 @@ private fun mountPager(
 
     fun currentPhotos(): PhotoPager? = photoPagers[index]
 
+    fun endPeek() {
+        stopPhotoPeekTimer()
+        if (!peeking) return
+        peeking = false
+        slides[index]?.asDynamic()?.classList?.remove("peeking")
+    }
+
+    fun armPeek() {
+        stopPhotoPeekTimer()
+        photoPeekTimer = window.asDynamic().setTimeout({
+            photoPeekTimer = null
+            peeking = true
+            dragging = false
+            drag = 0.0
+            layout(0.0, true)
+            slides[index]?.asDynamic()?.classList?.add("peeking")
+        }, Limits.PHOTO_PEEK_MILLIS)
+    }
+
     fun resistedPhoto(raw: Double): Double {
         val pager = currentPhotos() ?: return 0.0
         return when {
@@ -345,9 +367,14 @@ private fun mountPager(
         velocity = 0.0
         velocityX = 0.0
         photoDrag = 0.0
+        if (photoTarget(event.target)) armPeek()
         if (stage.asDynamic().setPointerCapture != undefined) stage.asDynamic().setPointerCapture(event.pointerId)
     })
     stage.asDynamic().addEventListener("pointermove", { event: dynamic ->
+        if (peeking) {
+            event.preventDefault()
+            return@addEventListener
+        }
         if (!dragging) return@addEventListener
         val x = num(event.clientX)
         val y = num(event.clientY)
@@ -357,6 +384,7 @@ private fun mountPager(
             val dx = x - startX
             val dy = y - startY
             if (abs(dx) < 10 && abs(dy) < 10) return@addEventListener
+            stopPhotoPeekTimer()
             val photos = currentPhotos()
             axis = if (photos != null && photos.size > 1 && abs(dx) > abs(dy)) "x" else "y"
         }
@@ -377,8 +405,14 @@ private fun mountPager(
         event.preventDefault()
     })
     val endPointer = { _: dynamic ->
-        if (dragging) {
+        if (peeking) {
+            endPeek()
             dragging = false
+            axis = null
+            photoDrag = 0.0
+        } else if (dragging) {
+            dragging = false
+            stopPhotoPeekTimer()
             if (axis == "x") {
                 val pager = currentPhotos()
                 if (pager != null) {
@@ -400,9 +434,12 @@ private fun mountPager(
     }
     stage.asDynamic().addEventListener("pointerup", endPointer)
     stage.asDynamic().addEventListener("pointercancel", endPointer)
+    stage.asDynamic().addEventListener("contextmenu", { event: dynamic ->
+        if (peeking || photoPeekTimer != null) event.preventDefault()
+    })
     stage.asDynamic().addEventListener("wheel", { event: dynamic ->
         event.preventDefault()
-        if (animating || dragging || wheelLock) return@addEventListener
+        if (animating || dragging || peeking || wheelLock) return@addEventListener
         val dx = num(event.deltaX)
         val dy = num(event.deltaY)
         val photos = currentPhotos()
@@ -496,7 +533,15 @@ private fun buildSlide(
     }
     name.appendChild(el("span", text = post.authorName))
     name.onClick {
-        openMiniProfile(host, post.authorName, post.authorPhotoUrl, post.authorLocation, post.authorIntro, post.authorId, router)
+        openMiniProfile(
+            host = host,
+            name = post.authorName,
+            photoUrl = post.authorPhotoUrl,
+            location = post.authorLocation,
+            intro = post.authorIntro,
+            userId = post.authorId,
+            router = router
+        )
     }
     card.appendChild(name)
     val message = el("p", "message")
@@ -810,6 +855,19 @@ private fun interactive(target: dynamic): Boolean {
     return false
 }
 
+private fun photoTarget(target: dynamic): Boolean {
+    var node = target
+    while (node != null && node != undefined) {
+        val list = node.classList
+        if (list != null && list != undefined) {
+            if (list.contains("card-stack") == true) return false
+            if (list.contains("photo") == true) return true
+        }
+        node = node.parentElement
+    }
+    return false
+}
+
 private fun now(): Double = num(window.asDynamic().performance.now())
 
 private fun feedDialogOpen(): Boolean {
@@ -837,6 +895,13 @@ private fun stopSwipeHint() {
         window.asDynamic().clearInterval(swipeHintTimer)
     }
     swipeHintTimer = null
+}
+
+private fun stopPhotoPeekTimer() {
+    if (photoPeekTimer != null && photoPeekTimer != undefined) {
+        window.asDynamic().clearTimeout(photoPeekTimer)
+    }
+    photoPeekTimer = null
 }
 
 private fun flashSwipeHint(host: HTMLElement) {

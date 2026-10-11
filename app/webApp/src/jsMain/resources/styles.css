@@ -272,6 +272,8 @@ button { cursor: pointer; }
     overflow: hidden;
     touch-action: none;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
 }
 
 .swipe-hint {
@@ -397,6 +399,12 @@ button { cursor: pointer; }
     right: 0;
     bottom: calc(16px + env(safe-area-inset-bottom));
     z-index: 4;
+    transition: opacity .18s ease;
+}
+
+.slide.peeking .card-stack {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .card {
@@ -2174,8 +2182,12 @@ button.busy .avatar-spinner {
 }
 
 .topbar.community-top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "back brand actions profile";
     justify-content: flex-start;
-    gap: 8px;
+    align-items: center;
+    column-gap: 8px;
 }
 
 .topbar.community-top .icon-btn,
@@ -2186,9 +2198,13 @@ button.busy .avatar-spinner {
     pointer-events: auto;
 }
 
+.topbar.community-top .icon-btn { grid-area: back; }
+.community-brand { grid-area: brand; }
+.community-actions { grid-area: actions; }
+.topbar.community-top .profile-btn { grid-area: profile; }
+
 .community-brand {
     align-items: flex-start;
-    flex: 1;
     min-width: 0;
     max-width: none;
 }
@@ -2214,7 +2230,21 @@ button.busy .avatar-spinner {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-left: auto;
+}
+
+@media (max-width: 539px) {
+    .topbar.community-top {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "back brand profile"
+            ". actions actions";
+        align-items: start;
+        row-gap: 6px;
+    }
+
+    .community-actions {
+        justify-self: start;
+    }
 }
 
 .community-actions .pill-btn {
