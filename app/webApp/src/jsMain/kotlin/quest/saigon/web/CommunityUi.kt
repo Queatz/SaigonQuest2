@@ -439,7 +439,7 @@ internal fun openMembersDialog(host: HTMLElement, router: HistoryRouter, communi
     if (host.asDynamic().querySelector(".members-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop members-backdrop")
     val card = el("div", "dialog")
-    card.appendChild(el("h2", text = "${communityLabel(community)} · ${Town.t("communityMembers")}"))
+    card.appendChild(el("h2", text = communityLabel(community)))
     val list = el("div", "member-list")
     card.appendChild(list)
     card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->

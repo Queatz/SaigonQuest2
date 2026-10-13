@@ -11,7 +11,7 @@ object Limits {
     const val INTRO_MAX = 280
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72
-    const val PHOTO_MAX_EDGE = 800
+    const val PHOTO_MAX_EDGE = 1200
     const val AVATAR_MAX_EDGE = 512
     const val JPEG_QUALITY = 0.85
     const val TYPEWRITER_MILLIS_PER_CHAR = 16

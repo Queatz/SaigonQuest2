@@ -45,6 +45,10 @@ class CommunityBehaviorTest {
         assertEquals("🌱", suggested.emoji)
         val parsed = CommunityPrompts.parse("""{"emoji":"🌱","name":"Vegans"}""")
         assertEquals("Vegans", parsed?.name)
+        val vietnamese = CommunityPrompts.fallback("Hôm nay ăn chay với bạn ở quận 1", emptyList())
+        assertEquals("Ăn chay", vietnamese.name)
+        assertEquals("🌱", vietnamese.emoji)
+        assertTrue(CommunityPrompts.SYSTEM.contains("same language as the post"))
     }
 
     @Test

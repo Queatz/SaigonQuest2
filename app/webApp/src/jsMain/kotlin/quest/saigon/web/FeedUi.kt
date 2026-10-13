@@ -64,7 +64,7 @@ internal fun feedScreen(
         top.appendChild(back)
         top.appendChild(brand)
         top.appendChild(actions)
-        top.appendChild(viewerButton(router, toComposer = false))
+        top.appendChild(viewerButton(router, toComposer = true))
     }
     shell.appendChild(stage)
     shell.appendChild(top)
