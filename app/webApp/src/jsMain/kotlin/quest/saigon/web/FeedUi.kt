@@ -10,6 +10,7 @@ import kotlin.math.abs
 
 private var feedKeyHandler: ((String) -> Unit)? = null
 private var feedResizeHandler: (() -> Unit)? = null
+private var feedResumeHandler: (() -> Unit)? = null
 private var keysInstalled = false
 private var resizeInstalled = false
 private var swipeHintTimer: dynamic = null
@@ -19,10 +20,15 @@ private var photoPeekTimer: dynamic = null
 internal fun clearFeedKeys() {
     feedKeyHandler = null
     feedResizeHandler = null
+    feedResumeHandler = null
     stopSwipeHint()
     stopPhotoPeekTimer()
     stopFeedAudio()
     clearChatTimers()
+}
+
+internal fun resumeFeedOnVisible() {
+    feedResumeHandler?.invoke()
 }
 
 internal fun feedScreen(
@@ -44,6 +50,7 @@ internal fun feedScreen(
     if (communityId == null) {
         val brand = el("div", "feed-brand")
         brand.appendChild(location)
+        brand.appendChild(eventsSummaryButton(router))
         brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
         top.appendChild(brand)
         val actions = el("div", "top-actions")
@@ -71,9 +78,16 @@ internal fun feedScreen(
     val feedPath = if (communityId.isNullOrBlank()) "/api/posts" else "/api/communities/${encodeQuery(communityId)}/posts"
     val emptyTitle = if (communityId == null) Town.t("emptyFeed") else Town.t("emptyCommunity")
     val emptyHint = if (communityId == null) Town.t("emptyFeedHint") else Town.t("emptyCommunityHint")
+    var feedLoading = false
+    var pagerLive = false
     fun loadFeed() {
+        if (feedLoading || pagerLive) return
+        feedLoading = true
         http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+            feedLoading = false
+            if (pagerLive) return@http
             if (status != 200) {
+                stage.clear()
                 stage.appendChild(emptyState(Town.t("unavailable"), emptyHint))
                 return@http
             }
@@ -83,10 +97,13 @@ internal fun feedScreen(
             Town.pending = null
             if (pending != null && !pending.communityOnly && posts.none { it.id == pending.id }) posts.add(0, pending)
             fun start(cursor: String?) {
+                if (pagerLive) return
+                stage.clear()
                 if (posts.isEmpty()) {
                     stage.appendChild(emptyState(emptyTitle, emptyHint))
                     return
                 }
+                pagerLive = true
                 mountPager(stage, location, shell, router, posts, cursor, focusPostId, feedPath)
             }
             if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
@@ -102,10 +119,17 @@ internal fun feedScreen(
             }
         }
     }
+    fun watchFeed() {
+        feedResumeHandler = { loadFeed() }
+    }
     if (communityId.isNullOrBlank()) {
+        watchFeed()
         loadFeed()
     } else {
-        bindCommunityBar(shell, router, communityId, communityTitle, members, join, onReady = { loadFeed() }) {
+        bindCommunityBar(shell, router, communityId, communityTitle, members, join, onReady = {
+            watchFeed()
+            loadFeed()
+        }) {
             stage.appendChild(emptyState(Town.t("notFound"), Town.t("goHome")))
         }
     }
@@ -279,24 +303,41 @@ private fun mountPager(
         frame()
     }
 
+    fun pullLatest(onUnchanged: (() -> Unit)? = null) {
+        if (loading) {
+            onUnchanged?.invoke()
+            return
+        }
+        loading = true
+        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+            loading = false
+            val changed = status == 200 && applyNewer(readPosts(parseJson(body).posts))
+            if (changed) {
+                drag = 0.0
+                animating = false
+                dragging = false
+                rebuild()
+            } else {
+                onUnchanged?.invoke()
+            }
+        }
+    }
+
     fun reloadNewer() {
         if (loading) {
             animate(0.0, 0)
             return
         }
-        loading = true
         animating = true
-        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
-            loading = false
+        pullLatest {
             animating = false
-            val changed = status == 200 && applyNewer(readPosts(parseJson(body).posts))
-            if (changed) {
-                drag = 0.0
-                rebuild()
-            } else {
-                animate(0.0, 0)
-            }
+            animate(0.0, 0)
         }
+    }
+
+    fun reloadQuiet() {
+        if (loading || animating || dragging || feedDialogOpen()) return
+        pullLatest()
     }
 
     fun commit(direction: Int) {
@@ -467,10 +508,10 @@ private fun mountPager(
         }
     }
     location.onClick {
-        val place = posts.getOrNull(index)?.location.orEmpty().trim()
+        val post = posts.getOrNull(index) ?: return@onClick
+        val place = post.location.trim()
         if (place.isBlank()) return@onClick
-        val query = encodeQuery("$place ở gần Sài Gòn")
-        window.asDynamic().open("https://www.google.com/maps/search/?api=1&query=$query", "_blank")
+        window.asDynamic().open(mapsUrl(place, post.placeId), "_blank")
     }
     ensureResize()
     feedResizeHandler = {
@@ -478,6 +519,7 @@ private fun mountPager(
         else layout(drag, false)
         photoPagers.values.forEach { it.layout() }
     }
+    feedResumeHandler = { reloadQuiet() }
     rebuild()
     startSwipeHint(host) { index < 1 }
 }
@@ -567,6 +609,7 @@ private fun buildSlide(
         message.appendChild(exclusive)
     }
     card.appendChild(message)
+    if (post.hasEvent) card.appendChild(eventCard(post, host, router, onUpdate))
     card.appendChild(collapsedChat(post, host, router, onUpdate))
     stack.appendChild(card)
     slide.appendChild(stack)

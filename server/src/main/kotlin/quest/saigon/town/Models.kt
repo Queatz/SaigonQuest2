@@ -11,6 +11,7 @@ data class UserRecord(
     val createdAt: Long,
     val intro: String = "",
     val paused: Boolean = false,
+    val lastActiveAt: Long = 0,
 )
 
 data class AdminRecord(
@@ -106,6 +107,15 @@ data class PostRecord(
     val extraPhotoPaths: List<String> = emptyList(),
     val communityId: String? = null,
     val communityOnly: Boolean = false,
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val eventStartAt: Long? = null,
+    val eventEndAt: Long? = null,
+    val eventPrice: Long? = null,
+    val attendeeCount: Long = 0,
+    val eventHourNotified: Boolean = false,
+    val eventNowNotified: Boolean = false,
 )
 
 data class FeedItem(
@@ -130,6 +140,15 @@ data class FeedItem(
     val communityName: String? = null,
     val communityEmoji: String? = null,
     val communityOnly: Boolean = false,
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val eventStartAt: Long? = null,
+    val eventEndAt: Long? = null,
+    val eventPrice: Long? = null,
+    val attendeeCount: Long = 0,
+    val joined: Boolean = false,
+    val attendees: List<EventAttendee> = emptyList(),
 )
 
 data class FeedPage(
@@ -243,7 +262,41 @@ data class NotificationPage(
 object NotificationType {
     const val POST_COMMENT = "post_comment"
     const val THREAD_COMMENT = "thread_comment"
+    const val EVENT_JOINED = "event_joined"
+    const val EVENT_LEFT = "event_left"
+    const val EVENT_FRIEND_JOINED = "event_friend_joined"
+    const val EVENT_STARTING_SOON = "event_starting_soon"
+    const val EVENT_STARTING_NOW = "event_starting_now"
 }
+
+data class EventAttendee(
+    val id: String,
+    val name: String,
+    val profilePhotoPath: String?,
+    val location: String = "",
+    val intro: String = "",
+    val phone: String? = null,
+    val joinedAt: Long = 0,
+)
+
+data class EventAttendeePage(
+    val items: List<EventAttendee>,
+    val nextCursor: String?,
+)
+
+data class EventSummary(
+    val today: Long,
+    val tomorrow: Long,
+)
+
+data class PlaceSuggestion(
+    val name: String,
+    val address: String = "",
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val recent: Boolean = false,
+)
 
 data class CommunityRecord(
     val id: String,

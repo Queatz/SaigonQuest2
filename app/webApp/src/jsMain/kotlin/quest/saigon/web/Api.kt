@@ -86,6 +86,8 @@ internal fun errorText(body: String, status: Int): String {
         "unauthorized" -> "needSignInToPost"
         "invalid_comment" -> "invalidComment"
         "invalid_community" -> "invalidCommunity"
+        "invalid_event" -> "invalidEvent"
+        "invalid_event_price" -> "invalidEventPrice"
         "account_paused" -> "accountPaused"
         else -> if (status == 0) "unavailable" else "errorGeneric"
     }

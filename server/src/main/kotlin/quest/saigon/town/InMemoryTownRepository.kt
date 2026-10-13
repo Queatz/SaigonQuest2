@@ -17,11 +17,12 @@ class InMemoryTownRepository : TownRepository {
     private val admins = ConcurrentHashMap<String, AdminRecord>()
     private val communities = ConcurrentHashMap<String, CommunityRecord>()
     private val memberships = ConcurrentHashMap<String, Membership>()
+    private val attendances = ConcurrentHashMap<String, Attendance>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
         val id = newId()
-        val user = UserRecord(id, phone, passwordHash, name, "", null, "system", createdAt)
+        val user = UserRecord(id, phone, passwordHash, name, "", null, "system", createdAt, lastActiveAt = createdAt)
         synchronized(this) {
             if (phones.containsKey(phone)) throw TownException("phone_taken")
             users[id] = user
@@ -158,19 +159,21 @@ class InMemoryTownRepository : TownRepository {
         return stored
     }
 
-    override fun feed(cursor: String?, limit: Int): FeedPage = pagePosts(
+    override fun feed(cursor: String?, limit: Int, viewerId: String?): FeedPage = pagePosts(
         posts.values.filter { !it.communityOnly },
         cursor,
         limit,
+        viewerId,
     )
 
-    override fun communityFeed(communityId: String, cursor: String?, limit: Int): FeedPage = pagePosts(
+    override fun communityFeed(communityId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage = pagePosts(
         posts.values.filter { it.communityId == communityId },
         cursor,
         limit,
+        viewerId,
     )
 
-    private fun pagePosts(source: Collection<PostRecord>, cursor: String?, limit: Int): FeedPage {
+    private fun pagePosts(source: Collection<PostRecord>, cursor: String?, limit: Int, viewerId: String?): FeedPage {
         val parsed = Cursors.parse(cursor)
         val sorted = source.sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
         val filtered = if (parsed == null) {
@@ -180,14 +183,14 @@ class InMemoryTownRepository : TownRepository {
             sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
         }
         val page = filtered.take(limit + 1)
-        val items = page.take(limit).map(::toFeedItem)
+        val items = page.take(limit).map { toFeedItem(it, viewerId) }
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
         return FeedPage(items, next)
     }
 
     override fun findPost(id: String): PostRecord? = posts[id]
 
-    override fun feedItem(id: String): FeedItem? = posts[id]?.let(::toFeedItem)
+    override fun feedItem(id: String, viewerId: String?): FeedItem? = posts[id]?.let { toFeedItem(it, viewerId) }
 
     override fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage {
         val parsed = Cursors.parse(cursor)
@@ -248,6 +251,7 @@ class InMemoryTownRepository : TownRepository {
         posts.remove(id)
         comments.values.filter { it.postId == id }.forEach { comments.remove(it.id) }
         watches.keys.filter { it.startsWith("$id:") }.forEach { watches.remove(it) }
+        attendances.keys.filter { it.startsWith("${id}_") || attendances[it]?.postId == id }.forEach { attendances.remove(it) }
     }
 
     override fun insertComment(comment: CommentRecord): CommentRecord {
@@ -349,7 +353,7 @@ class InMemoryTownRepository : TownRepository {
     override fun unreadNotificationCount(userId: String): Long =
         notifications.values.count { it.userId == userId && it.readAt == null }.toLong()
 
-    private fun toFeedItem(post: PostRecord): FeedItem {
+    private fun toFeedItem(post: PostRecord, viewerId: String? = null): FeedItem {
         val author = users[post.userId]
         val avatar = post.avatarId?.let { avatars[it] }
         val track = post.musicId?.let { music[it] }
@@ -376,6 +380,15 @@ class InMemoryTownRepository : TownRepository {
             communityName = community?.name,
             communityEmoji = community?.emoji,
             communityOnly = post.communityOnly,
+            placeId = post.placeId,
+            lat = post.lat,
+            lng = post.lng,
+            eventStartAt = post.eventStartAt,
+            eventEndAt = post.eventEndAt,
+            eventPrice = post.eventPrice,
+            attendeeCount = post.attendeeCount,
+            joined = viewerId != null && isAttending(post.id, viewerId),
+            attendees = previewAttendees(post.id),
         )
     }
 
@@ -407,6 +420,7 @@ class InMemoryTownRepository : TownRepository {
             } else {
                 bucket.userVisits += 1
                 bucket.uniqueUsers.add(userId)
+                users[userId]?.let { users[userId] = it.copy(lastActiveAt = at) }
             }
         }
     }
@@ -625,9 +639,172 @@ class InMemoryTownRepository : TownRepository {
         return CommunityMemberPage(items, next)
     }
 
+    override fun joinEvent(postId: String, userId: String, joinedAt: Long): Boolean {
+        val post = posts[postId] ?: return false
+        if (post.eventStartAt == null) return false
+        val key = membershipKey(postId, userId)
+        if (attendances.containsKey(key)) return false
+        attendances[key] = Attendance(postId, userId, joinedAt)
+        posts[postId] = post.copy(attendeeCount = post.attendeeCount + 1)
+        return true
+    }
+
+    override fun leaveEvent(postId: String, userId: String): Boolean {
+        val post = posts[postId] ?: return false
+        if (attendances.remove(membershipKey(postId, userId)) == null) return false
+        posts[postId] = post.copy(attendeeCount = (post.attendeeCount - 1).coerceAtLeast(0))
+        return true
+    }
+
+    override fun isAttending(postId: String, userId: String): Boolean =
+        attendances.containsKey(membershipKey(postId, userId))
+
+    override fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = attendances.values
+            .filter { it.postId == postId }
+            .sortedWith(compareByDescending<Attendance> { it.joinedAt }.thenByDescending { membershipKey(it.postId, it.userId) })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (joinedAt, key) = parsed
+            sorted.filter { it.joinedAt < joinedAt || (it.joinedAt == joinedAt && membershipKey(it.postId, it.userId) < key) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).mapNotNull { attendance ->
+            val user = users[attendance.userId] ?: return@mapNotNull null
+            EventAttendee(
+                id = user.id,
+                name = user.name,
+                profilePhotoPath = user.profilePhotoPath,
+                location = user.location,
+                intro = user.intro,
+                phone = user.phone,
+                joinedAt = attendance.joinedAt,
+            )
+        }
+        val next = if (page.size > limit) {
+            page.getOrNull(limit - 1)?.let { Cursors.encode(it.joinedAt, membershipKey(it.postId, it.userId)) }
+        } else {
+            null
+        }
+        return EventAttendeePage(items, next)
+    }
+
+    override fun attendeeIds(postId: String): List<String> =
+        attendances.values.filter { it.postId == postId }.map { it.userId }
+
+    override fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem> =
+        posts.values
+            .filter { start ->
+                val at = start.eventStartAt ?: return@filter false
+                at >= fromMillis && !start.communityOnly
+            }
+            .sortedWith(compareBy<PostRecord> { it.eventStartAt }.thenBy { it.id })
+            .take(limit)
+            .map { toFeedItem(it, viewerId) }
+
+    override fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long): EventSummary {
+        val upcoming = posts.values.filter { post ->
+            val start = post.eventStartAt ?: return@filter false
+            !post.communityOnly && start >= todayStart
+        }
+        return EventSummary(
+            today = upcoming.count { it.eventStartAt!! in todayStart until tomorrowStart }.toLong(),
+            tomorrow = upcoming.count { it.eventStartAt!! in tomorrowStart until tomorrowEnd }.toLong(),
+        )
+    }
+
+    override fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion> {
+        val seen = linkedSetOf<String>()
+        val places = mutableListOf<PlaceSuggestion>()
+        posts.values
+            .filter { post ->
+                post.location.isNotBlank() &&
+                    (communityId.isNullOrBlank() || post.communityId == communityId)
+            }
+            .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+            .forEach { post ->
+                val key = post.placeId?.takeIf { it.isNotBlank() } ?: post.location.lowercase()
+                if (seen.add(key)) {
+                    places += PlaceSuggestion(
+                        name = post.location,
+                        placeId = post.placeId,
+                        lat = post.lat,
+                        lng = post.lng,
+                        recent = true,
+                    )
+                }
+            }
+        return places.take(limit)
+    }
+
+    override fun people(cursor: String?, limit: Int): CommunityMemberPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = users.values.sortedWith(
+            compareByDescending<UserRecord> { maxOf(it.lastActiveAt, it.createdAt) }.thenByDescending { it.id },
+        )
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (activeAt, id) = parsed
+            sorted.filter {
+                val stamp = maxOf(it.lastActiveAt, it.createdAt)
+                stamp < activeAt || (stamp == activeAt && it.id < id)
+            }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).map { user ->
+            CommunityMember(
+                id = user.id,
+                name = user.name,
+                profilePhotoPath = user.profilePhotoPath,
+                location = user.location,
+                intro = user.intro,
+                joinedAt = maxOf(user.lastActiveAt, user.createdAt),
+            )
+        }
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.joinedAt, it.id) } else null
+        return CommunityMemberPage(items, next)
+    }
+
+    override fun eventPostsBetween(from: Long, to: Long): List<PostRecord> =
+        posts.values
+            .filter { start ->
+                val at = start.eventStartAt ?: return@filter false
+                at in from..to
+            }
+            .sortedBy { it.eventStartAt }
+
+    override fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean) {
+        val post = posts[postId] ?: return
+        posts[postId] = post.copy(
+            eventHourNotified = post.eventHourNotified || hour,
+            eventNowNotified = post.eventNowNotified || nowFlag,
+        )
+    }
+
+    private fun previewAttendees(postId: String): List<EventAttendee> =
+        attendances.values
+            .filter { it.postId == postId }
+            .sortedByDescending { it.joinedAt }
+            .take(5)
+            .mapNotNull { attendance ->
+                val user = users[attendance.userId] ?: return@mapNotNull null
+                EventAttendee(
+                    id = user.id,
+                    name = user.name,
+                    profilePhotoPath = user.profilePhotoPath,
+                    location = user.location,
+                    joinedAt = attendance.joinedAt,
+                )
+            }
+
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 
     private class Membership(val communityId: String, val userId: String, val joinedAt: Long)
+
+    private class Attendance(val postId: String, val userId: String, val joinedAt: Long)
 
     private class DailyBucket {
         var visitorVisits = 0L

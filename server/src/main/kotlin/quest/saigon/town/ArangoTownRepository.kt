@@ -15,20 +15,24 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
-            NOTIFICATIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS,
+            NOTIFICATIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
         }
         db.collection(USERS).ensurePersistentIndex(listOf("phone"), PersistentIndexOptions().unique(true))
         db.collection(USERS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(USERS).ensurePersistentIndex(listOf("lastActiveAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(POSTS).ensurePersistentIndex(listOf("eventStartAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("communityKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMUNITIES).ensurePersistentIndex(listOf("slug"), PersistentIndexOptions().unique(true))
         db.collection(COMMUNITIES).ensurePersistentIndex(listOf("memberCount"), PersistentIndexOptions())
         db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("userKey", "joinedAt"), PersistentIndexOptions())
         db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("communityKey", "joinedAt"), PersistentIndexOptions())
+        db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "joinedAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -48,6 +52,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("language", "system")
         doc.addAttribute("paused", false)
         doc.addAttribute("createdAt", createdAt)
+        doc.addAttribute("lastActiveAt", createdAt)
         val key = try {
             db.collection(USERS).insertDocument(doc).key
         } catch (error: ArangoDBException) {
@@ -76,6 +81,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("language", user.language)
         doc.addAttribute("paused", user.paused)
         doc.addAttribute("createdAt", user.createdAt)
+        doc.addAttribute("lastActiveAt", user.lastActiveAt)
         try {
             db.collection(USERS).replaceDocument(user.id, doc)
         } catch (error: ArangoDBException) {
@@ -255,19 +261,28 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("commentCount", post.commentCount)
         doc.addAttribute("communityKey", post.communityId)
         doc.addAttribute("communityOnly", post.communityOnly)
+        doc.addAttribute("placeId", post.placeId)
+        doc.addAttribute("lat", post.lat)
+        doc.addAttribute("lng", post.lng)
+        doc.addAttribute("eventStartAt", post.eventStartAt)
+        doc.addAttribute("eventEndAt", post.eventEndAt)
+        doc.addAttribute("eventPrice", post.eventPrice)
+        doc.addAttribute("attendeeCount", post.attendeeCount)
+        doc.addAttribute("eventHourNotified", post.eventHourNotified)
+        doc.addAttribute("eventNowNotified", post.eventNowNotified)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
 
-    override fun feed(cursor: String?, limit: Int): FeedPage = pageFeed(
+    override fun feed(cursor: String?, limit: Int, viewerId: String?): FeedPage = pageFeed(
         "(p.communityOnly != true) AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
-        cursorBind(cursor, limit),
+        cursorBind(cursor, limit) + mapOf("viewerId" to viewerId.orEmpty()),
         limit,
     )
 
-    override fun communityFeed(communityId: String, cursor: String?, limit: Int): FeedPage = pageFeed(
+    override fun communityFeed(communityId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage = pageFeed(
         "p.communityKey == @communityKey AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
-        cursorBind(cursor, limit) + mapOf("communityKey" to communityId),
+        cursorBind(cursor, limit) + mapOf("communityKey" to communityId, "viewerId" to viewerId.orEmpty()),
         limit,
     )
 
@@ -325,36 +340,41 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 communityId: community == null ? null : community._key,
                 communityName: community == null ? null : community.name,
                 communityEmoji: community == null ? null : community.emoji,
-                communityOnly: p.communityOnly == true
+                communityOnly: p.communityOnly == true,
+                placeId: p.placeId,
+                lat: p.lat,
+                lng: p.lng,
+                eventStartAt: p.eventStartAt,
+                eventEndAt: p.eventEndAt,
+                eventPrice: p.eventPrice,
+                attendeeCount: p.attendeeCount == null ? 0 : p.attendeeCount,
+                joined: @viewerId != "" && LENGTH(
+                  FOR a IN $EVENT_ATTENDANCES
+                    FILTER a.postKey == p._key AND a.userKey == @viewerId
+                    LIMIT 1
+                    RETURN 1
+                ) > 0,
+                attendees: (
+                  FOR a IN $EVENT_ATTENDANCES
+                    FILTER a.postKey == p._key
+                    SORT a.joinedAt DESC
+                    LIMIT 5
+                    LET person = DOCUMENT("$USERS", a.userKey)
+                    FILTER person != null
+                    RETURN {
+                      id: person._key,
+                      name: person.name,
+                      profilePhotoPath: person.profilePhotoPath,
+                      location: person.location,
+                      intro: person.intro,
+                      joinedAt: a.joinedAt
+                    }
+                )
               }
         """.trimIndent()
         val rows = queryList(query, bind)
         val page = rows.take(limit)
-        val items = page.map { row ->
-            FeedItem(
-                id = string(row, "id"),
-                authorId = string(row, "authorId"),
-                authorName = string(row, "authorName"),
-                authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-                message = string(row, "message"),
-                location = string(row, "location"),
-                photoPath = string(row, "photoPath"),
-                avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-                createdAt = long(row, "createdAt"),
-                authorLocation = string(row, "authorLocation"),
-                authorIntro = string(row, "authorIntro"),
-                musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-                musicPath = row.getAttribute("musicPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-                quickReplies = stringList(row, "quickReplies"),
-                commentCount = long(row, "commentCount"),
-                previewComments = commentList(row, "previewComments"),
-                extraPhotoPaths = stringList(row, "extraPhotoPaths"),
-                communityId = optional(row, "communityId"),
-                communityName = optional(row, "communityName"),
-                communityEmoji = optional(row, "communityEmoji"),
-                communityOnly = boolean(row, "communityOnly"),
-            )
-        }
+        val items = page.map(::feedItemFrom)
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
         return FeedPage(items, next)
     }
@@ -378,11 +398,20 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 extraPhotoPaths = stringList(doc, "extraPhotoPaths"),
                 communityId = string(doc, "communityKey").takeIf { it.isNotBlank() && it != "null" },
                 communityOnly = boolean(doc, "communityOnly"),
+                placeId = optional(doc, "placeId"),
+                lat = doubleOrNull(doc, "lat"),
+                lng = doubleOrNull(doc, "lng"),
+                eventStartAt = longOrNull(doc, "eventStartAt"),
+                eventEndAt = longOrNull(doc, "eventEndAt"),
+                eventPrice = longOrNull(doc, "eventPrice"),
+                attendeeCount = long(doc, "attendeeCount"),
+                eventHourNotified = boolean(doc, "eventHourNotified"),
+                eventNowNotified = boolean(doc, "eventNowNotified"),
             )
         }
 
-    override fun feedItem(id: String): FeedItem? {
-        val bind = mapOf("id" to id, "preview" to Limits.COMMENT_PREVIEW)
+    override fun feedItem(id: String, viewerId: String?): FeedItem? {
+        val bind = mapOf("id" to id, "preview" to Limits.COMMENT_PREVIEW, "viewerId" to viewerId.orEmpty())
         val query = """
             FOR p IN $POSTS
               FILTER p._key == @id
@@ -435,33 +464,40 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 communityId: community == null ? null : community._key,
                 communityName: community == null ? null : community.name,
                 communityEmoji: community == null ? null : community.emoji,
-                communityOnly: p.communityOnly == true
+                communityOnly: p.communityOnly == true,
+                placeId: p.placeId,
+                lat: p.lat,
+                lng: p.lng,
+                eventStartAt: p.eventStartAt,
+                eventEndAt: p.eventEndAt,
+                eventPrice: p.eventPrice,
+                attendeeCount: p.attendeeCount == null ? 0 : p.attendeeCount,
+                joined: @viewerId != "" && LENGTH(
+                  FOR a IN $EVENT_ATTENDANCES
+                    FILTER a.postKey == p._key AND a.userKey == @viewerId
+                    LIMIT 1
+                    RETURN 1
+                ) > 0,
+                attendees: (
+                  FOR a IN $EVENT_ATTENDANCES
+                    FILTER a.postKey == p._key
+                    SORT a.joinedAt DESC
+                    LIMIT 5
+                    LET person = DOCUMENT("$USERS", a.userKey)
+                    FILTER person != null
+                    RETURN {
+                      id: person._key,
+                      name: person.name,
+                      profilePhotoPath: person.profilePhotoPath,
+                      location: person.location,
+                      intro: person.intro,
+                      joinedAt: a.joinedAt
+                    }
+                )
               }
         """.trimIndent()
         val row = first(query, bind) ?: return null
-        return FeedItem(
-            id = string(row, "id"),
-            authorId = string(row, "authorId"),
-            authorName = string(row, "authorName"),
-            authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-            message = string(row, "message"),
-            location = string(row, "location"),
-            photoPath = string(row, "photoPath"),
-            avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-            createdAt = long(row, "createdAt"),
-            authorLocation = string(row, "authorLocation"),
-            authorIntro = string(row, "authorIntro"),
-            musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-            musicPath = row.getAttribute("musicPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
-            quickReplies = stringList(row, "quickReplies"),
-            commentCount = long(row, "commentCount"),
-            previewComments = commentList(row, "previewComments"),
-            extraPhotoPaths = stringList(row, "extraPhotoPaths"),
-            communityId = optional(row, "communityId"),
-            communityName = optional(row, "communityName"),
-            communityEmoji = optional(row, "communityEmoji"),
-            communityOnly = boolean(row, "communityOnly"),
-        )
+        return feedItemFrom(row)
     }
 
     override fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage {
@@ -550,6 +586,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     override fun deletePost(id: String) {
         exec("FOR c IN $COMMENTS FILTER c.postKey == @id REMOVE c IN $COMMENTS RETURN OLD", mapOf("id" to id))
         exec("FOR w IN $COMMENT_WATCHES FILTER w.postKey == @id REMOVE w IN $COMMENT_WATCHES RETURN OLD", mapOf("id" to id))
+        exec("FOR a IN $EVENT_ATTENDANCES FILTER a.postKey == @id REMOVE a IN $EVENT_ATTENDANCES RETURN OLD", mapOf("id" to id))
         db.collection(POSTS).deleteDocument(id)
     }
 
@@ -849,6 +886,15 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             RETURN NEW
             """.trimIndent(),
             mapOf("day" to day, "userId" to userId),
+        )
+        exec(
+            """
+            FOR u IN $USERS
+              FILTER u._key == @userId
+              UPDATE u WITH { lastActiveAt: @at } IN $USERS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("userId" to userId, "at" to at),
         )
     }
 
@@ -1275,6 +1321,300 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return CommunityMemberPage(items, next)
     }
 
+    override fun joinEvent(postId: String, userId: String, joinedAt: Long): Boolean {
+        val post = findPost(postId) ?: return false
+        if (post.eventStartAt == null) return false
+        val key = membershipKey(postId, userId)
+        if (db.collection(EVENT_ATTENDANCES).documentExists(key)) return false
+        val doc = BaseDocument(key)
+        doc.addAttribute("postKey", postId)
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("joinedAt", joinedAt)
+        try {
+            db.collection(EVENT_ATTENDANCES).insertDocument(doc)
+        } catch (_: ArangoDBException) {
+            return false
+        }
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { attendeeCount: (p.attendeeCount == null ? 0 : p.attendeeCount) + 1 } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to postId),
+        )
+        return true
+    }
+
+    override fun leaveEvent(postId: String, userId: String): Boolean {
+        val key = membershipKey(postId, userId)
+        if (!db.collection(EVENT_ATTENDANCES).documentExists(key)) return false
+        db.collection(EVENT_ATTENDANCES).deleteDocument(key)
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { attendeeCount: (p.attendeeCount == null || p.attendeeCount < 1 ? 0 : p.attendeeCount - 1) } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to postId),
+        )
+        return true
+    }
+
+    override fun isAttending(postId: String, userId: String): Boolean =
+        db.collection(EVENT_ATTENDANCES).documentExists(membershipKey(postId, userId))
+
+    override fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR a IN $EVENT_ATTENDANCES
+              FILTER a.postKey == @postKey
+              FILTER @hasCursor == false OR a.joinedAt < @cursorAt OR (a.joinedAt == @cursorAt AND a._key < @cursorKey)
+              SORT a.joinedAt DESC, a._key DESC
+              LIMIT @limit
+              LET u = DOCUMENT("$USERS", a.userKey)
+              FILTER u != null
+              RETURN {
+                id: u._key,
+                name: u.name,
+                profilePhotoPath: u.profilePhotoPath,
+                location: u.location,
+                intro: u.intro,
+                phone: u.phone,
+                joinedAt: a.joinedAt,
+                memberKey: a._key
+              }
+            """.trimIndent(),
+            mapOf(
+                "postKey" to postId,
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            EventAttendee(
+                id = string(row, "id"),
+                name = string(row, "name"),
+                profilePhotoPath = optional(row, "profilePhotoPath"),
+                location = string(row, "location"),
+                intro = string(row, "intro"),
+                phone = optional(row, "phone"),
+                joinedAt = long(row, "joinedAt"),
+            )
+        }
+        val next = if (rows.size > limit) {
+            page.lastOrNull()?.let { Cursors.encode(long(it, "joinedAt"), string(it, "memberKey")) }
+        } else {
+            null
+        }
+        return EventAttendeePage(items, next)
+    }
+
+    override fun attendeeIds(postId: String): List<String> = queryList(
+        "FOR a IN $EVENT_ATTENDANCES FILTER a.postKey == @postKey RETURN a",
+        mapOf("postKey" to postId),
+    ).map { string(it, "userKey") }
+
+    override fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem> {
+        val bind = mapOf(
+            "from" to fromMillis,
+            "limit" to limit,
+            "viewerId" to viewerId.orEmpty(),
+        )
+        val query = """
+            FOR p IN $POSTS
+              FILTER p.eventStartAt != null AND p.eventStartAt >= @from AND p.communityOnly != true
+              SORT p.eventStartAt ASC, p._key ASC
+              LIMIT @limit
+              LET author = DOCUMENT("$USERS", p.userKey)
+              LET avatar = DOCUMENT("$AVATARS", p.avatarKey)
+              LET track = DOCUMENT("$MUSIC", p.musicKey)
+              LET community = DOCUMENT("$COMMUNITIES", p.communityKey)
+              RETURN {
+                id: p._key,
+                authorId: p.userKey,
+                authorName: author.name,
+                authorPhotoPath: author.profilePhotoPath,
+                authorLocation: author.location,
+                authorIntro: author.intro,
+                message: p.message,
+                location: p.location,
+                photoPath: p.photoPath,
+                extraPhotoPaths: p.extraPhotoPaths == null ? [] : p.extraPhotoPaths,
+                avatarPath: avatar.imagePath,
+                createdAt: p.createdAt,
+                musicName: track.name,
+                musicPath: track.audioPath,
+                quickReplies: p.quickReplies == null ? [] : p.quickReplies,
+                commentCount: p.commentCount == null ? 0 : p.commentCount,
+                previewComments: [],
+                communityId: community == null ? null : community._key,
+                communityName: community == null ? null : community.name,
+                communityEmoji: community == null ? null : community.emoji,
+                communityOnly: p.communityOnly == true,
+                placeId: p.placeId,
+                lat: p.lat,
+                lng: p.lng,
+                eventStartAt: p.eventStartAt,
+                eventEndAt: p.eventEndAt,
+                eventPrice: p.eventPrice,
+                attendeeCount: p.attendeeCount == null ? 0 : p.attendeeCount,
+                joined: @viewerId != "" && LENGTH(
+                  FOR a IN $EVENT_ATTENDANCES
+                    FILTER a.postKey == p._key AND a.userKey == @viewerId
+                    LIMIT 1
+                    RETURN 1
+                ) > 0,
+                attendees: (
+                  FOR a IN $EVENT_ATTENDANCES
+                    FILTER a.postKey == p._key
+                    SORT a.joinedAt DESC
+                    LIMIT 5
+                    LET person = DOCUMENT("$USERS", a.userKey)
+                    FILTER person != null
+                    RETURN {
+                      id: person._key,
+                      name: person.name,
+                      profilePhotoPath: person.profilePhotoPath,
+                      location: person.location,
+                      intro: person.intro,
+                      joinedAt: a.joinedAt
+                    }
+                )
+              }
+        """.trimIndent()
+        return queryList(query, bind).map(::feedItemFrom)
+    }
+
+    override fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long): EventSummary {
+        val row = first(
+            """
+            LET upcoming = (
+              FOR p IN $POSTS
+                FILTER p.eventStartAt != null AND p.eventStartAt >= @todayStart AND p.communityOnly != true
+                RETURN p.eventStartAt
+            )
+            RETURN {
+              today: LENGTH(FOR t IN upcoming FILTER t >= @todayStart AND t < @tomorrowStart RETURN 1),
+              tomorrow: LENGTH(FOR t IN upcoming FILTER t >= @tomorrowStart AND t < @tomorrowEnd RETURN 1)
+            }
+            """.trimIndent(),
+            mapOf(
+                "todayStart" to todayStart,
+                "tomorrowStart" to tomorrowStart,
+                "tomorrowEnd" to tomorrowEnd,
+            ),
+        )
+        return EventSummary(long(row, "today"), long(row, "tomorrow"))
+    }
+
+    override fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion> {
+        val rows = queryList(
+            """
+            FOR p IN $POSTS
+              FILTER p.location != null AND p.location != ""
+              FILTER @communityKey == "" OR p.communityKey == @communityKey
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT 80
+              RETURN {
+                name: p.location,
+                placeId: p.placeId,
+                lat: p.lat,
+                lng: p.lng
+              }
+            """.trimIndent(),
+            mapOf("communityKey" to communityId.orEmpty()),
+        )
+        val seen = linkedSetOf<String>()
+        val places = mutableListOf<PlaceSuggestion>()
+        for (row in rows) {
+            val name = string(row, "name")
+            val placeId = optional(row, "placeId")
+            val key = placeId ?: name.lowercase()
+            if (!seen.add(key)) continue
+            places += PlaceSuggestion(
+                name = name,
+                placeId = placeId,
+                lat = doubleOrNull(row, "lat"),
+                lng = doubleOrNull(row, "lng"),
+                recent = true,
+            )
+            if (places.size >= limit) break
+        }
+        return places
+    }
+
+    override fun people(cursor: String?, limit: Int): CommunityMemberPage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR u IN $USERS
+              LET activeAt = u.lastActiveAt == null || u.lastActiveAt == 0 ? u.createdAt : u.lastActiveAt
+              FILTER @hasCursor == false OR activeAt < @cursorAt OR (activeAt == @cursorAt AND u._key < @cursorKey)
+              SORT activeAt DESC, u._key DESC
+              LIMIT @limit
+              RETURN {
+                id: u._key,
+                name: u.name,
+                profilePhotoPath: u.profilePhotoPath,
+                location: u.location,
+                intro: u.intro,
+                joinedAt: activeAt
+              }
+            """.trimIndent(),
+            mapOf(
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            CommunityMember(
+                id = string(row, "id"),
+                name = string(row, "name"),
+                profilePhotoPath = optional(row, "profilePhotoPath"),
+                location = string(row, "location"),
+                intro = string(row, "intro"),
+                joinedAt = long(row, "joinedAt"),
+            )
+        }
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.joinedAt, it.id) } else null
+        return CommunityMemberPage(items, next)
+    }
+
+    override fun eventPostsBetween(from: Long, to: Long): List<PostRecord> = queryList(
+        """
+        FOR p IN $POSTS
+          FILTER p.eventStartAt != null AND p.eventStartAt >= @from AND p.eventStartAt <= @to
+          SORT p.eventStartAt ASC
+          RETURN p
+        """.trimIndent(),
+        mapOf("from" to from, "to" to to),
+    ).mapNotNull { doc -> findPost(doc.key) }
+
+    override fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean) {
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH {
+                eventHourNotified: p.eventHourNotified == true || @hour,
+                eventNowNotified: p.eventNowNotified == true || @nowFlag
+              } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to postId, "hour" to hour, "nowFlag" to nowFlag),
+        )
+    }
+
     private fun joinedIds(userId: String?): Set<String> {
         if (userId.isNullOrBlank()) return emptySet()
         return queryList(
@@ -1317,6 +1657,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         createdAt = long(doc, "createdAt"),
         intro = string(doc, "intro"),
         paused = boolean(doc, "paused"),
+        lastActiveAt = long(doc, "lastActiveAt").takeIf { it > 0 } ?: long(doc, "createdAt"),
     )
 
     private fun musicFrom(doc: BaseDocument) = MusicRecord(
@@ -1348,6 +1689,66 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         error = doc.getAttribute("error")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
         createdAt = long(doc, "createdAt"),
     )
+
+    private fun feedItemFrom(row: BaseDocument) = FeedItem(
+        id = string(row, "id"),
+        authorId = string(row, "authorId"),
+        authorName = string(row, "authorName"),
+        authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        message = string(row, "message"),
+        location = string(row, "location"),
+        photoPath = string(row, "photoPath"),
+        avatarPath = row.getAttribute("avatarPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        createdAt = long(row, "createdAt"),
+        authorLocation = string(row, "authorLocation"),
+        authorIntro = string(row, "authorIntro"),
+        musicName = row.getAttribute("musicName")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        musicPath = row.getAttribute("musicPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        quickReplies = stringList(row, "quickReplies"),
+        commentCount = long(row, "commentCount"),
+        previewComments = commentList(row, "previewComments"),
+        extraPhotoPaths = stringList(row, "extraPhotoPaths"),
+        communityId = optional(row, "communityId"),
+        communityName = optional(row, "communityName"),
+        communityEmoji = optional(row, "communityEmoji"),
+        communityOnly = boolean(row, "communityOnly"),
+        placeId = optional(row, "placeId"),
+        lat = doubleOrNull(row, "lat"),
+        lng = doubleOrNull(row, "lng"),
+        eventStartAt = longOrNull(row, "eventStartAt"),
+        eventEndAt = longOrNull(row, "eventEndAt"),
+        eventPrice = longOrNull(row, "eventPrice"),
+        attendeeCount = long(row, "attendeeCount"),
+        joined = boolean(row, "joined"),
+        attendees = attendeeList(row, "attendees"),
+    )
+
+    private fun attendeeList(doc: BaseDocument, name: String): List<EventAttendee> {
+        val raw = doc.getAttribute(name) ?: return emptyList()
+        val rows = when (raw) {
+            is Collection<*> -> raw
+            is Array<*> -> raw.toList()
+            else -> return emptyList()
+        }
+        return rows.mapNotNull { row ->
+            fun read(field: String): Any? = when (row) {
+                is BaseDocument -> row.getAttribute(field)
+                is Map<*, *> -> row[field]
+                else -> null
+            }
+            fun str(field: String) = read(field)?.toString()?.takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            fun strOrNull(field: String) = read(field)?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+            val id = str("id")
+            if (id.isBlank()) null else EventAttendee(
+                id = id,
+                name = str("name"),
+                profilePhotoPath = strOrNull("profilePhotoPath"),
+                location = str("location"),
+                intro = str("intro"),
+                joinedAt = (read("joinedAt") as? Number)?.toLong() ?: 0L,
+            )
+        }
+    }
 
     private fun notificationFrom(doc: BaseDocument) = NotificationRecord(
         id = doc.key,
@@ -1422,6 +1823,12 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         else -> false
     }
 
+    private fun longOrNull(doc: BaseDocument, name: String): Long? =
+        (doc.getAttribute(name) as? Number)?.toLong()
+
+    private fun doubleOrNull(doc: BaseDocument, name: String): Double? =
+        (doc.getAttribute(name) as? Number)?.toDouble()
+
     companion object {
         private const val USERS = "users"
         private const val SESSIONS = "sessions"
@@ -1435,6 +1842,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val DAY_STATS = "dayStats"
         private const val COMMUNITIES = "communities"
         private const val MEMBERSHIPS = "memberships"
+        private const val EVENT_ATTENDANCES = "eventAttendances"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 
         fun open(config: AppConfig): ArangoTownRepository {

@@ -38,9 +38,9 @@ interface TownRepository {
     fun deleteMusic(id: String)
     fun musicReferenced(id: String): Boolean
     fun insertPost(post: PostRecord): PostRecord
-    fun feed(cursor: String?, limit: Int): FeedPage
+    fun feed(cursor: String?, limit: Int, viewerId: String? = null): FeedPage
     fun findPost(id: String): PostRecord?
-    fun feedItem(id: String): FeedItem?
+    fun feedItem(id: String, viewerId: String? = null): FeedItem?
     fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage
     fun recordView(id: String)
     fun recordReplyClick(id: String)
@@ -81,5 +81,16 @@ interface TownRepository {
     fun leaveCommunity(communityId: String, userId: String): Boolean
     fun isMember(communityId: String, userId: String): Boolean
     fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage
-    fun communityFeed(communityId: String, cursor: String?, limit: Int): FeedPage
+    fun communityFeed(communityId: String, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
+    fun joinEvent(postId: String, userId: String, joinedAt: Long): Boolean
+    fun leaveEvent(postId: String, userId: String): Boolean
+    fun isAttending(postId: String, userId: String): Boolean
+    fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage
+    fun attendeeIds(postId: String): List<String>
+    fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
+    fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long): EventSummary
+    fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion>
+    fun people(cursor: String?, limit: Int): CommunityMemberPage
+    fun eventPostsBetween(from: Long, to: Long): List<PostRecord>
+    fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean)
 }

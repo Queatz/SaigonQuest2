@@ -24,6 +24,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.MyPosts -> myPostsScreen(router)
         route == AppRoute.Stats -> statsScreen(router)
         route == AppRoute.Admin -> adminScreen(router)
+        route == AppRoute.Events -> eventsScreen(router)
         route is AppRoute.Community -> feedScreen(router, communityId = route.id)
         else -> missingScreen(router)
     }

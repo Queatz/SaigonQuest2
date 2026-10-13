@@ -18,8 +18,10 @@ data class AppConfig(
     val bindHost: String = "0.0.0.0",
     val corsAllowedHosts: List<CorsAllowedHost> = defaultCorsHosts(),
     val cookieSameSite: String = "Lax",
+    val googleMapsApiKey: String? = null,
 ) {
     val qwenConfigured: Boolean get() = !qwenApiKey.isNullOrBlank()
+    val mapsConfigured: Boolean get() = !googleMapsApiKey.isNullOrBlank()
 
     companion object {
         fun load(env: (String) -> String? = System::getenv, envFile: File = File(".env")): AppConfig {
@@ -42,6 +44,7 @@ data class AppConfig(
                 bindHost = value("BIND_HOST") ?: "0.0.0.0",
                 corsAllowedHosts = parseCorsAllowedHosts(value("CORS_ALLOWED_HOSTS")),
                 cookieSameSite = normalizeSameSite(value("COOKIE_SAMESITE")),
+                googleMapsApiKey = value("GOOGLE_MAPS_API_KEY"),
             )
         }
     }

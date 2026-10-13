@@ -8,6 +8,8 @@ object Limits {
     const val MUSIC_NAME_MAX = 40
     const val MUSIC_LYRICS_MAX = 4000
     const val LOCATION_MAX = 80
+    const val PLACE_ID_MAX = 256
+    const val EVENT_PRICE_MAX = 100_000_000
     const val INTRO_MAX = 280
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72

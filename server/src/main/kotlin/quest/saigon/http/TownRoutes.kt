@@ -42,6 +42,7 @@ import quest.saigon.town.MusicStatus
 import quest.saigon.town.OwnedPost
 import quest.saigon.town.PostRecord
 import quest.saigon.town.TownException
+import quest.saigon.town.SaigonDays
 import quest.saigon.town.TownServices
 import quest.saigon.town.UserRecord
 import java.io.ByteArrayOutputStream
@@ -312,9 +313,18 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("ok" to true))
     }
 
+    get("/config") {
+        call.respondJson(
+            mapOf(
+                "mapsKey" to services.config.googleMapsApiKey,
+            ),
+        )
+    }
+
     get("/posts") {
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 20) ?: Limits.FEED_PAGE_SIZE
-        val page = services.repo.feed(call.request.queryParameters["cursor"], limit)
+        val viewer = call.user(services)
+        val page = services.repo.feed(call.request.queryParameters["cursor"], limit, viewer?.id)
         call.respondJson(
             mapOf(
                 "posts" to page.items.map(::postPayload),
@@ -347,6 +357,20 @@ fun Route.townApi(services: TownServices) {
         val community = communityId?.let { services.repo.findCommunity(it) }
         if (communityId != null && community == null) return@post call.fail("invalid_community")
         if (communityOnly && community == null) return@post call.fail("invalid_community")
+        val placeId = cleanPlaceId(form.text("placeId"))
+        val lat = parseCoord(form.text("lat"))
+        val lng = parseCoord(form.text("lng"))
+        if ((lat == null) != (lng == null)) return@post call.fail("invalid_location")
+        val eventStartAt = parseEpoch(form.text("eventStartAt"))
+        val eventEndAt = parseEpoch(form.text("eventEndAt"))
+        val eventPrice = try {
+            parseVnd(form.text("eventPrice"))
+        } catch (_: TownException) {
+            return@post call.fail("invalid_event_price")
+        }
+        if (eventEndAt != null && eventStartAt == null) return@post call.fail("invalid_event")
+        if (eventPrice != null && eventStartAt == null) return@post call.fail("invalid_event")
+        if (eventStartAt != null && eventEndAt != null && eventEndAt < eventStartAt) return@post call.fail("invalid_event")
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
@@ -372,13 +396,20 @@ fun Route.townApi(services: TownServices) {
                 extraPhotoPaths = paths.drop(1),
                 communityId = community?.id,
                 communityOnly = communityOnly,
+                placeId = placeId,
+                lat = lat,
+                lng = lng,
+                eventStartAt = eventStartAt,
+                eventEndAt = eventEndAt,
+                eventPrice = eventPrice,
             ),
         )
+        if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
         if (community != null) services.repo.joinCommunity(community.id, user.id, services.clock())
         services.replies.enqueue(post.id, message)
         call.respondJson(
             postPayload(
-                services.repo.feedItem(post.id) ?: FeedItem(
+                services.repo.feedItem(post.id, user.id) ?: FeedItem(
                     id = post.id,
                     authorId = user.id,
                     authorName = user.name,
@@ -397,6 +428,14 @@ fun Route.townApi(services: TownServices) {
                     communityName = community?.name,
                     communityEmoji = community?.emoji,
                     communityOnly = communityOnly,
+                    placeId = post.placeId,
+                    lat = post.lat,
+                    lng = post.lng,
+                    eventStartAt = post.eventStartAt,
+                    eventEndAt = post.eventEndAt,
+                    eventPrice = post.eventPrice,
+                    attendeeCount = 1,
+                    joined = true,
                 ),
             ),
             HttpStatusCode.Created,
@@ -404,8 +443,87 @@ fun Route.townApi(services: TownServices) {
     }
 
     get("/posts/{id}") {
-        val item = services.repo.feedItem(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val viewer = call.user(services)
+        val item = services.repo.feedItem(call.parameters["id"].orEmpty(), viewer?.id) ?: return@get call.fail("not_found")
         call.respondJson(postPayload(item))
+    }
+
+    post("/posts/{id}/join") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val item = try {
+            services.events.join(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(postPayload(item))
+    }
+
+    post("/posts/{id}/leave") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val item = try {
+            services.events.leave(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(postPayload(item))
+    }
+
+    get("/posts/{id}/attendees") {
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        if (post.eventStartAt == null) return@get call.fail("not_found")
+        val viewer = call.user(services)
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 30
+        val page = services.repo.attendees(post.id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "attendees" to page.items.map { attendeePayload(it, includePhone = viewer != null) },
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    get("/events/summary") {
+        val today = SaigonDays.dayKey(services.clock())
+        val todayStart = SaigonDays.startMillis(today)
+        val tomorrowStart = todayStart + 24 * 60 * 60 * 1000L
+        val tomorrowEnd = tomorrowStart + 24 * 60 * 60 * 1000L
+        val counts = services.repo.eventCounts(todayStart, tomorrowStart, tomorrowEnd)
+        call.respondJson(mapOf("today" to counts.today, "tomorrow" to counts.tomorrow))
+    }
+
+    get("/events") {
+        val viewer = call.user(services)
+        val todayStart = SaigonDays.startMillis(SaigonDays.dayKey(services.clock()))
+        val events = services.repo.upcomingEvents(todayStart, viewer?.id, 100)
+        val people = services.repo.people(call.request.queryParameters["cursor"], 40)
+        call.respondJson(
+            mapOf(
+                "events" to events.map(::postPayload),
+                "people" to people.items.map(::memberPayload),
+                "nextPeopleCursor" to people.nextCursor,
+            ),
+        )
+    }
+
+    get("/places") {
+        call.user(services) ?: return@get call.fail("unauthorized")
+        val query = call.request.queryParameters["q"].orEmpty()
+        val communityId = call.request.queryParameters["communityId"]?.trim()?.ifBlank { null }
+        val recent = services.repo.recentPlaces(communityId, 8)
+        val google = if (query.trim().length >= 2) services.places.search(query) else emptyList()
+        call.respondJson(
+            mapOf(
+                "recent" to recent.map(::placePayload),
+                "places" to google.map(::placePayload),
+            ),
+        )
+    }
+
+    get("/places/details") {
+        call.user(services) ?: return@get call.fail("unauthorized")
+        val placeId = call.request.queryParameters["id"].orEmpty()
+        val details = services.places.details(placeId) ?: return@get call.fail("not_found")
+        call.respondJson(placePayload(details))
     }
 
     get("/posts/{id}/comments") {
@@ -643,7 +761,8 @@ fun Route.townApi(services: TownServices) {
         val id = call.parameters["id"].orEmpty()
         services.repo.findCommunity(id) ?: return@get call.fail("not_found")
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 20) ?: Limits.FEED_PAGE_SIZE
-        val page = services.repo.communityFeed(id, call.request.queryParameters["cursor"], limit)
+        val viewer = call.user(services)
+        val page = services.repo.communityFeed(id, call.request.queryParameters["cursor"], limit, viewer?.id)
         call.respondJson(
             mapOf(
                 "posts" to page.items.map(::postPayload),
@@ -910,6 +1029,15 @@ private fun postPayload(item: FeedItem) = mapOf(
     "communityName" to item.communityName,
     "communityEmoji" to item.communityEmoji,
     "communityOnly" to item.communityOnly,
+    "placeId" to item.placeId,
+    "lat" to item.lat,
+    "lng" to item.lng,
+    "eventStartAt" to item.eventStartAt,
+    "eventEndAt" to item.eventEndAt,
+    "eventPrice" to item.eventPrice,
+    "attendeeCount" to item.attendeeCount,
+    "joined" to item.joined,
+    "attendees" to item.attendees.map { attendeePayload(it, includePhone = false) },
 )
 
 private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(
@@ -928,6 +1056,26 @@ private fun memberPayload(member: quest.saigon.town.CommunityMember) = mapOf(
     "location" to member.location,
     "intro" to member.intro,
     "joinedAt" to member.joinedAt,
+)
+
+private fun attendeePayload(member: quest.saigon.town.EventAttendee, includePhone: Boolean) = mapOf(
+    "id" to member.id,
+    "name" to member.name,
+    "photoUrl" to member.profilePhotoPath?.let { "/api/users/${member.id}/photo" },
+    "location" to member.location,
+    "intro" to member.intro,
+    "joinedAt" to member.joinedAt,
+    "phone" to if (includePhone) member.phone?.let { PhoneNumbers.display(it) } else null,
+    "zaloUrl" to if (includePhone) member.phone?.let { PhoneNumbers.zaloUrl(it) } else null,
+)
+
+private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
+    "name" to place.name,
+    "address" to place.address,
+    "placeId" to place.placeId,
+    "lat" to place.lat,
+    "lng" to place.lng,
+    "recent" to place.recent,
 )
 
 private fun commentPayload(item: CommentItem) = mapOf(
@@ -993,6 +1141,32 @@ private fun cleanName(raw: String): String? {
     if (name.length !in 1..Limits.NAME_MAX) return null
     if (name.any { it.isISOControl() }) return null
     return name
+}
+
+private fun cleanPlaceId(raw: String): String? {
+    val id = raw.trim()
+    if (id.isEmpty()) return null
+    if (id.length > Limits.PLACE_ID_MAX) return null
+    if (id.any { !it.isLetterOrDigit() && it != '_' && it != '-' }) return null
+    return id
+}
+
+private fun parseEpoch(raw: String): Long? =
+    raw.trim().toLongOrNull()?.takeIf { it > 0 }
+
+private fun parseCoord(raw: String): Double? =
+    raw.trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+
+private fun parseVnd(raw: String): Long? {
+    val cleaned = raw.trim()
+        .replace("đ", "", ignoreCase = true)
+        .replace("₫", "")
+        .replace("vnd", "", ignoreCase = true)
+        .replace(Regex("[.,\\s]"), "")
+    if (cleaned.isEmpty()) return null
+    val value = cleaned.toLongOrNull() ?: throw TownException("invalid_event_price")
+    if (value < 0 || value > Limits.EVENT_PRICE_MAX) throw TownException("invalid_event_price")
+    return value.takeIf { it > 0 }
 }
 
 private fun cleanIntro(raw: String): String? {

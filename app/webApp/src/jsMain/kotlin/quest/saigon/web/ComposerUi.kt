@@ -114,6 +114,34 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
 
     val location = field(Town.t("location"), "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
+    val pickedPlace = PlacePick(name = me.location)
+    val mapBtn = el("button", "icon-btn location-map-btn")
+    mapBtn.setAttribute("type", "button")
+    mapBtn.setAttribute("aria-label", Town.t("pickLocation"))
+    mapBtn.textContent = "🗺️"
+    val locationRow = el("div", "location-input-row")
+    location.root.asDynamic().insertBefore(locationRow, location.input)
+    locationRow.appendChild(location.input)
+    locationRow.appendChild(mapBtn)
+    val event = composerEventFields()
+    mapBtn.onClick {
+        openLocationPicker(shell, communities.second.communityId, pickedPlace) { picked ->
+            pickedPlace.name = picked.name
+            pickedPlace.placeId = picked.placeId
+            pickedPlace.lat = picked.lat
+            pickedPlace.lng = picked.lng
+            location.input.asDynamic().value = picked.name
+        }
+    }
+    location.input.asDynamic().oninput = {
+        val typed = location.value().trim()
+        if (typed != pickedPlace.name) {
+            pickedPlace.placeId = null
+            pickedPlace.lat = null
+            pickedPlace.lng = null
+            pickedPlace.name = typed
+        }
+    }
 
     val avatarLabel = el("h3", text = Town.t("selectAvatar"))
     val avatarRow = el("div", "avatar-row")
@@ -220,6 +248,26 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 }
                 form.append("message", text)
                 form.append("location", place)
+                val selectedPlaceId = pickedPlace.placeId
+                if (!selectedPlaceId.isNullOrBlank()) form.append("placeId", selectedPlaceId)
+                val lat = pickedPlace.lat
+                val lng = pickedPlace.lng
+                if (lat != null && lng != null) {
+                    form.append("lat", lat.toString())
+                    form.append("lng", lng.toString())
+                }
+                if (event.enabled) {
+                    val start = event.startAt
+                    if (start == null) {
+                        post.removeAttribute("disabled")
+                        post.textContent = Town.t("postNow")
+                        show(error, Town.t("invalidEvent"))
+                        return@onClick
+                    }
+                    form.append("eventStartAt", start.toString())
+                    event.endAt?.let { form.append("eventEndAt", it.toString()) }
+                    event.price?.let { form.append("eventPrice", it.toString()) }
+                }
                 val avatarId = selectedAvatar
                 if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
@@ -255,6 +303,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(messageLabel)
     body.appendChild(communities.first)
     body.appendChild(location.root)
+    body.appendChild(event.root)
     body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)
     body.appendChild(avatarRow)

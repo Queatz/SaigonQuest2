@@ -55,6 +55,25 @@ internal data class PostCard(
     val communityName: String? = null,
     val communityEmoji: String? = null,
     val communityOnly: Boolean = false,
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val eventStartAt: Long? = null,
+    val eventEndAt: Long? = null,
+    val eventPrice: Long? = null,
+    val attendeeCount: Int = 0,
+    val joined: Boolean = false,
+    val attendees: List<EventPerson> = emptyList(),
+)
+
+internal data class EventPerson(
+    val id: String,
+    val name: String,
+    val photoUrl: String?,
+    val location: String = "",
+    val intro: String = "",
+    val phone: String? = null,
+    val zaloUrl: String? = null,
 )
 
 internal object Town {
@@ -116,7 +135,39 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     communityName = (node.communityName as? String)?.takeIf { it.isNotBlank() },
     communityEmoji = (node.communityEmoji as? String)?.takeIf { it.isNotBlank() },
     communityOnly = node.communityOnly == true,
+    placeId = (node.placeId as? String)?.takeIf { it.isNotBlank() },
+    lat = num(node.lat).takeIf { it != 0.0 },
+    lng = num(node.lng).takeIf { it != 0.0 },
+    eventStartAt = num(node.eventStartAt).toLong().takeIf { it > 0 },
+    eventEndAt = num(node.eventEndAt).toLong().takeIf { it > 0 },
+    eventPrice = num(node.eventPrice).toLong().takeIf { it > 0 },
+    attendeeCount = num(node.attendeeCount).toInt(),
+    joined = node.joined == true,
+    attendees = readEventPeople(node.attendees),
 )
+
+internal fun eventPersonFrom(node: dynamic): EventPerson = EventPerson(
+    id = (node.id as? String).orEmpty(),
+    name = (node.name as? String).orEmpty(),
+    photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
+    location = (node.location as? String).orEmpty(),
+    intro = (node.intro as? String).orEmpty(),
+    phone = (node.phone as? String)?.takeIf { it.isNotBlank() },
+    zaloUrl = (node.zaloUrl as? String)?.takeIf { it.isNotBlank() },
+)
+
+internal fun readEventPeople(node: dynamic): List<EventPerson> {
+    val items = mutableListOf<EventPerson>()
+    if (node == null || node == undefined) return items
+    val length = node.length as? Int ?: return items
+    for (i in 0 until length) {
+        val person = eventPersonFrom(node[i])
+        if (person.id.isNotBlank() || person.name.isNotBlank()) items += person
+    }
+    return items
+}
+
+internal val PostCard.hasEvent: Boolean get() = (eventStartAt ?: 0L) > 0
 
 internal fun commentFrom(node: dynamic): CommentCard = CommentCard(
     id = (node.id as? String).orEmpty(),

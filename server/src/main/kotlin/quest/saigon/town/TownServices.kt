@@ -11,6 +11,9 @@ import quest.saigon.ai.QuickReplyPipeline
 import quest.saigon.ai.QwenClient
 import quest.saigon.auth.RateLimiter
 import quest.saigon.auth.SessionTokens
+import quest.saigon.maps.GooglePlaces
+import quest.saigon.maps.NoPlaces
+import quest.saigon.maps.PlaceLookup
 import quest.saigon.media.ImageOps
 import quest.saigon.media.UploadStore
 import java.util.concurrent.Executor
@@ -31,6 +34,8 @@ class TownServices(
     val hub: NotificationHub = NotificationHub(),
     val replies: QuickReplyService = QuickReplyService(repo),
     val communities: CommunityService = CommunityService(repo, clock),
+    val places: PlaceLookup = NoPlaces,
+    val events: EventService = EventService(repo, hub, clock),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock)
 
@@ -40,6 +45,8 @@ class TownServices(
             val uploads = UploadStore(config.uploadDir).also { it.ensure() }
             val qwen = QwenClient.fromConfig(config)
             val clock: () -> Long = System::currentTimeMillis
+            val hub = NotificationHub()
+            val events = EventService(repo, hub, clock).also { it.start() }
             return TownServices(
                 repo = repo,
                 uploads = uploads,
@@ -47,8 +54,11 @@ class TownServices(
                 music = MusicService(repo, uploads, MusicPipeline(qwen), config.qwenConfigured),
                 config = config,
                 clock = clock,
+                hub = hub,
                 replies = QuickReplyService(repo, QuickReplyPipeline(qwen), config.qwenConfigured),
                 communities = CommunityService(repo, clock, communitySuggester(qwen, config.qwenConfigured)),
+                places = config.googleMapsApiKey?.takeIf { it.isNotBlank() }?.let(::GooglePlaces) ?: NoPlaces,
+                events = events,
             )
         }
     }

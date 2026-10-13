@@ -3,6 +3,7 @@ package quest.saigon.web
 import web.dom.ElementId
 import web.dom.document
 import web.navigator.navigator
+import web.window.window
 
 fun main() {
     val root = document.getElementById(ElementId("root"))
@@ -14,6 +15,7 @@ fun main() {
     }
     Town.applyLanguage()
     router.start()
+    listenForTabResume()
     registerServiceWorker()
     http("GET", "/api/me") { status, body ->
         if (status == 200) {
@@ -28,6 +30,19 @@ fun main() {
         refresh(router)
         recordAppVisit()
     }
+}
+
+private fun listenForTabResume() {
+    val resume = {
+        NotifyInbox.connect()
+        resumeFeedOnVisible()
+    }
+    document.asDynamic().addEventListener("visibilitychange", {
+        if (document.asDynamic().visibilityState == "visible") resume()
+    })
+    window.asDynamic().addEventListener("pageshow", { event: dynamic ->
+        if (event.persisted == true) resume()
+    })
 }
 
 private fun registerServiceWorker() {

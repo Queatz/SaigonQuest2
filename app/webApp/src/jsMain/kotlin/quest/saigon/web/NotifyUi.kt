@@ -13,7 +13,8 @@ internal object NotifyInbox {
             disconnect()
             return
         }
-        disconnect()
+        stopStream?.invoke()
+        stopStream = null
         refresh()
         stopStream = openNotificationStream { _ ->
             unread += 1
@@ -139,10 +140,16 @@ internal fun openNotifications(router: HistoryRouter, host: HTMLElement) {
             val read = note.read == true
             val item = el("button", if (read) "notify-item" else "notify-item unread")
             item.setAttribute("type", "button")
-            val title = if ((note.type as? String) == "thread_comment") {
-                Town.t("notificationThreadComment", mapOf("name" to (note.actorName as? String).orEmpty()))
-            } else {
-                Town.t("notificationPostComment", mapOf("name" to (note.actorName as? String).orEmpty()))
+            val actor = (note.actorName as? String).orEmpty()
+            val preview = (note.preview as? String).orEmpty()
+            val title = when (note.type as? String) {
+                "thread_comment" -> Town.t("notificationThreadComment", mapOf("name" to actor))
+                "event_joined" -> Town.t("notificationEventJoined", mapOf("name" to actor))
+                "event_left" -> Town.t("notificationEventLeft", mapOf("name" to actor))
+                "event_friend_joined" -> Town.t("notificationEventFriendJoined", mapOf("name" to actor))
+                "event_starting_soon" -> Town.t("notificationEventStartingSoon", mapOf("event" to preview))
+                "event_starting_now" -> Town.t("notificationEventStartingNow", mapOf("event" to preview))
+                else -> Town.t("notificationPostComment", mapOf("name" to actor))
             }
             item.appendChild(el("strong", text = title))
             item.appendChild(el("span", text = (note.preview as? String).orEmpty()))
@@ -180,43 +187,77 @@ internal fun playNotifySound() {
 
 internal fun openNotificationStream(onEvent: (dynamic) -> Unit): () -> Unit {
     var stopped = false
-    val abort = js("new AbortController()")
-    val init = js("({})")
-    init.method = "GET"
-    init.credentials = "include"
-    init.signal = abort.signal
-    val headers = js("({})")
-    headers["Accept"] = "text/event-stream"
-    init.headers = headers
-    window.asDynamic().fetch(prefixServerOrigin("/api/notifications/stream"), init).then({ response: dynamic ->
-        val reader = response.body?.getReader()
-        if (reader == null || reader == undefined) return@then
-        val decoder = js("new TextDecoder()")
-        var buffer = ""
-        fun pump() {
-            if (stopped) return
-            reader.read().then({ chunk: dynamic ->
-                if (chunk.done == true || stopped) return@then
-                buffer += decoder.decode(chunk.value) as String
-                val parts = buffer.split("\n\n")
-                buffer = parts.last()
-                for (i in 0 until parts.size - 1) {
-                    val block = parts[i]
-                    val line = block.lines().firstOrNull { it.startsWith("data:") } ?: continue
-                    val json = line.removePrefix("data:").trim()
-                    if (json.isBlank() || json == "{}") continue
-                    try {
-                        onEvent(parseJson(json))
-                    } catch (_: Throwable) {
-                    }
-                }
-                pump()
-            })
+    var abort = js("new AbortController()")
+    var retryTimer: dynamic = null
+    var start: () -> Unit = {}
+    fun clearRetry() {
+        if (retryTimer != null && retryTimer != undefined) {
+            window.asDynamic().clearTimeout(retryTimer)
         }
-        pump()
-    }, { _: dynamic -> })
+        retryTimer = null
+    }
+    fun retry() {
+        if (stopped) return
+        clearRetry()
+        retryTimer = window.asDynamic().setTimeout({
+            retryTimer = null
+            start()
+        }, 1200)
+    }
+    start = start@{
+        if (stopped) return@start
+        abort = js("new AbortController()")
+        val init = js("({})")
+        init.method = "GET"
+        init.credentials = "include"
+        init.signal = abort.signal
+        val headers = js("({})")
+        headers["Accept"] = "text/event-stream"
+        init.headers = headers
+        window.asDynamic().fetch(prefixServerOrigin("/api/notifications/stream"), init).then({ response: dynamic ->
+            if (stopped) return@then
+            if (response.ok != true) {
+                retry()
+                return@then
+            }
+            val reader = response.body?.getReader()
+            if (reader == null || reader == undefined) {
+                retry()
+                return@then
+            }
+            val decoder = js("new TextDecoder()")
+            var buffer = ""
+            fun pump() {
+                if (stopped) return
+                reader.read().then({ chunk: dynamic ->
+                    if (stopped) return@then
+                    if (chunk.done == true) {
+                        retry()
+                        return@then
+                    }
+                    buffer += decoder.decode(chunk.value) as String
+                    val parts = buffer.split("\n\n")
+                    buffer = parts.last()
+                    for (i in 0 until parts.size - 1) {
+                        val block = parts[i]
+                        val line = block.lines().firstOrNull { it.startsWith("data:") } ?: continue
+                        val json = line.removePrefix("data:").trim()
+                        if (json.isBlank() || json == "{}") continue
+                        try {
+                            onEvent(parseJson(json))
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    pump()
+                }, { _: dynamic -> retry() })
+            }
+            pump()
+        }, { _: dynamic -> retry() })
+    }
+    start()
     return {
         stopped = true
+        clearRetry()
         try {
             abort.abort()
         } catch (_: Throwable) {
