@@ -14,6 +14,9 @@ private const val COPY_ICON =
 private const val CHAT_ICON =
     """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>"""
 private var mapsApi: dynamic = null
+private var mapsLoadStarted = false
+private var mapsImporting = false
+private val mapsWaiters = mutableListOf<(Boolean) -> Unit>()
 
 internal class PlacePick(
     var name: String = "",
@@ -41,6 +44,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(mapBox)
     body.appendChild(split)
     shell.appendChild(body)
+    loadGoogleMaps { }
 
     http("GET", "/api/events") { status, text ->
         if (status != 200) {
@@ -123,19 +127,7 @@ internal fun eventCard(
         details.appendChild(priceRow)
         val faces = el("button", "event-faces")
         faces.setAttribute("type", "button")
-        val shown = current.attendees.take(5)
-        shown.forEach { person ->
-            if (!person.photoUrl.isNullOrBlank()) {
-                val img = el("img", "face event-face")
-                img.setAttribute("alt", "")
-                img.setAttribute("src", person.photoUrl)
-                faces.appendChild(img)
-            } else {
-                faces.appendChild(el("span", "face event-face initial", text = person.name.take(1).uppercase()))
-            }
-        }
-        val count = current.attendeeCount.coerceAtLeast(shown.size)
-        faces.appendChild(el("span", text = if (count > 0) "${Town.t("attendees")} · $count" else Town.t("attendees")))
+        fillAttendeeFaces(faces, current)
         faces.onClick { openAttendees(current, host, router) }
         details.appendChild(faces)
         card.appendChild(details)
@@ -572,6 +564,7 @@ private fun renderGroupedEvents(list: HTMLElement, events: List<PostCard>, route
         val copy = el("span", "event-row-copy")
         copy.appendChild(el("strong", text = post.message.ifBlank { post.location }))
         copy.appendChild(el("small", text = "${eventScheduleLabel(start, post.eventEndAt)} · ${post.location}"))
+        copy.appendChild(attendeeFaces(post))
         row.appendChild(copy)
         row.onClick { router.navigate("/p/${post.id}") }
         list.appendChild(row)
@@ -580,90 +573,111 @@ private fun renderGroupedEvents(list: HTMLElement, events: List<PostCard>, route
 
 private fun mountEventsMap(host: HTMLElement, events: List<PostCard>) {
     val marked = events.filter { it.lat != null && it.lng != null }
-    loadGoogleMaps { ready ->
-        if (!ready || host.asDynamic().isConnected == false) {
-            if (host.childElementCount == 0) host.appendChild(el("p", "hint", text = "📍 ${Town.t("events")}"))
-            return@loadGoogleMaps
+    fun tryMount() {
+        if (host.asDynamic().isConnected == false) {
+            window.asDynamic().requestAnimationFrame { tryMount() }
+            return
         }
-        val opts = js("{}")
-        opts.center = js("{lat:10.7769,lng:106.7009}")
-        opts.zoom = 12
-        opts.disableDefaultUI = true
-        opts.zoomControl = true
-        val map = googleMap(host, opts)
-        val bounds = googleBounds()
-        marked.forEach { post ->
-            val pos = js("{}")
-            pos.lat = post.lat
-            pos.lng = post.lng
-            val markerOpts = js("{}")
-            markerOpts.map = map
-            markerOpts.position = pos
-            markerOpts.title = post.message
-            val marker = googleMarker(markerOpts)
-            marker.addListener("click") {
-                window.asDynamic().location.assign("/p/${post.id}")
+        loadGoogleMaps { ready ->
+            if (!ready || host.asDynamic().isConnected == false) {
+                if (host.asDynamic().isConnected != false && host.childElementCount == 0) {
+                    host.appendChild(el("p", "hint", text = "📍 ${Town.t("events")}"))
+                }
+                return@loadGoogleMaps
             }
-            bounds.extend(pos)
-        }
-        fun fit() {
-            if (marked.size == 1) {
-                val only = js("{}")
-                only.lat = marked[0].lat
-                only.lng = marked[0].lng
-                map.setCenter(only)
-                map.setZoom(15)
-            } else if (marked.size > 1) {
-                map.fitBounds(bounds)
+            val opts = js("{}")
+            opts.center = js("{lat:10.7769,lng:106.7009}")
+            opts.zoom = 12
+            opts.disableDefaultUI = true
+            opts.zoomControl = true
+            val map = googleMap(host, opts)
+            val bounds = googleBounds()
+            marked.forEach { post ->
+                val pos = js("{}")
+                pos.lat = post.lat
+                pos.lng = post.lng
+                googleHtmlMarker(map, pos, eventMapBubble(post))
+                bounds.extend(pos)
             }
-        }
-        fit()
-        window.asDynamic().setTimeout({
-            val trigger = mapsApi?.event?.trigger
-            if (trigger != null && trigger != undefined) trigger(map, "resize")
+            fun fit() {
+                if (marked.size == 1) {
+                    val only = js("{}")
+                    only.lat = marked[0].lat
+                    only.lng = marked[0].lng
+                    map.setCenter(only)
+                    map.setZoom(15)
+                } else if (marked.size > 1) {
+                    map.fitBounds(bounds)
+                }
+            }
+            fun relayout() {
+                val trigger = mapsEvent()?.trigger
+                if (trigger != null && trigger != undefined) trigger(map, "resize")
+                fit()
+            }
             fit()
-        }, 80)
+            window.asDynamic().requestAnimationFrame { relayout() }
+            window.asDynamic().setTimeout({ relayout() }, 120)
+        }
     }
+    tryMount()
 }
 
 private fun loadGoogleMaps(done: (Boolean) -> Unit) {
-    var finished = false
-    fun complete(ok: Boolean) {
-        if (finished) return
-        finished = true
-        done(ok)
-    }
     fun capture(lib: dynamic = null): Boolean {
-        val fromLib = if (lib != null && lib != undefined && isJsFunction(lib.Map)) lib else null
         val fromWindow = window.asDynamic().google?.maps
-        val ns = fromLib ?: if (fromWindow != null && fromWindow != undefined && isJsFunction(fromWindow.Map)) fromWindow else null
+        val windowReady = fromWindow != null && fromWindow != undefined && isJsFunction(fromWindow.Map)
+        val fromLib = if (lib != null && lib != undefined && isJsFunction(lib.Map)) lib else null
+        val ns = if (windowReady) fromWindow else fromLib
         if (ns == null) return false
         mapsApi = ns
         return true
+    }
+    fun complete(ok: Boolean) {
+        if (mapsWaiters.isEmpty() && (ok || !mapsLoadStarted)) return
+        if (!ok) {
+            mapsLoadStarted = false
+            mapsImporting = false
+        }
+        val waiters = mapsWaiters.toList()
+        mapsWaiters.clear()
+        waiters.forEach { it(ok) }
     }
     fun finish() {
         if (capture()) {
             complete(true)
             return
         }
+        if (mapsImporting) return
         val maps = window.asDynamic().google?.maps
         val importer = maps?.importLibrary
-        if (importer == null || importer == undefined) {
-            complete(false)
-            return
+        if (importer == null || importer == undefined) return
+        mapsImporting = true
+        val onOk: (dynamic) -> Unit = { lib ->
+            mapsImporting = false
+            complete(capture(lib) || capture())
         }
-        val onOk: (dynamic) -> Unit = { lib -> complete(capture(lib) || capture()) }
-        val onErr: (dynamic) -> Unit = { complete(capture()) }
+        val onErr: (dynamic) -> Unit = {
+            mapsImporting = false
+            complete(capture())
+        }
         try {
             importer("maps").then(onOk, onErr)
         } catch (_: Throwable) {
-            complete(capture())
+            mapsImporting = false
+            window.asDynamic().setTimeout({ finish() }, 50)
         }
     }
     if (capture()) {
-        complete(true)
+        done(true)
         return
     }
+    mapsWaiters += done
+    if (mapsLoadStarted) {
+        finish()
+        return
+    }
+    mapsLoadStarted = true
     if (window.asDynamic().google?.maps != null && window.asDynamic().google.maps != undefined) {
         finish()
         return
@@ -682,14 +696,14 @@ private fun loadGoogleMaps(done: (Boolean) -> Unit) {
             mapsApi = null
             complete(false)
         }
+        window.asDynamic().__sqMapsReady = { finish() }
         val pending = document.asDynamic().querySelector("script[data-sq-maps]")
         if (pending != null && pending != undefined) {
             pending.addEventListener("load") { finish() }
             pending.addEventListener("error") { complete(false) }
-            if (window.asDynamic().google?.maps != null) finish()
+            finish()
             return@http
         }
-        window.asDynamic().__sqMapsReady = { finish() }
         val script = document.createElement("script")
         script.setAttribute("data-sq-maps", "1")
         script.setAttribute("async", "")
@@ -699,6 +713,12 @@ private fun loadGoogleMaps(done: (Boolean) -> Unit) {
         script.asDynamic().onerror = { complete(false) }
         document.asDynamic().head.appendChild(script)
     }
+}
+
+private fun mapsEvent(): dynamic {
+    val fromApi = mapsApi?.event
+    if (fromApi != null && fromApi != undefined) return fromApi
+    return window.asDynamic().google?.maps?.event
 }
 
 private fun isJsFunction(value: dynamic): Boolean {
@@ -711,9 +731,99 @@ private fun googleMap(element: HTMLElement, opts: dynamic): dynamic {
     return js("new ctor(element, opts)")
 }
 
+private fun eventMapBubble(post: PostCard): HTMLElement {
+    val bubble = el("button", "event-map-bubble")
+    bubble.setAttribute("type", "button")
+    val name = post.message.ifBlank { post.location }
+    bubble.setAttribute("aria-label", name)
+    val title = el("span", "event-map-bubble-title")
+    title.appendChild(el("span", "event-map-bubble-emoji", text = post.communityEmoji ?: EVENT_ICON))
+    title.appendChild(el("strong", text = name))
+    bubble.appendChild(title)
+    val start = post.eventStartAt
+    val price = post.eventPrice
+    val priceText = if (price != null && price > 0) formatVnd(price) else Town.t("free")
+    val meta = buildString {
+        if (start != null) {
+            append(formatEventClock(start))
+            append(" · ")
+        }
+        append(PRICE_ICON)
+        append(' ')
+        append(priceText)
+    }
+    bubble.appendChild(el("span", "event-map-bubble-meta", text = meta))
+    if (post.location.isNotBlank()) {
+        val place = el("span", "event-map-bubble-place")
+        place.appendChild(el("span", text = PLACE_ICON))
+        place.appendChild(el("span", text = post.location))
+        bubble.appendChild(place)
+    }
+    bubble.appendChild(attendeeFaces(post, "event-faces event-map-bubble-faces"))
+    bubble.onClick {
+        window.asDynamic().location.assign("/p/${post.id}")
+    }
+    return bubble
+}
+
+private fun attendeeFaces(post: PostCard, className: String = "event-faces"): HTMLElement {
+    val faces = el("span", className)
+    fillAttendeeFaces(faces, post)
+    return faces
+}
+
+private fun fillAttendeeFaces(host: HTMLElement, post: PostCard) {
+    val shown = post.attendees.take(5)
+    shown.forEach { person ->
+        if (!person.photoUrl.isNullOrBlank()) {
+            val img = el("img", "face event-face")
+            img.setAttribute("alt", "")
+            img.setAttribute("src", person.photoUrl)
+            host.appendChild(img)
+        } else {
+            host.appendChild(el("span", "face event-face initial", text = person.name.take(1).uppercase()))
+        }
+    }
+    val count = post.attendeeCount.coerceAtLeast(shown.size)
+    host.appendChild(el("span", text = if (count > 0) "${Town.t("attendees")} · $count" else Town.t("attendees")))
+}
+
+private fun googleHtmlMarker(map: dynamic, position: dynamic, content: HTMLElement): dynamic {
+    val overlay = googleOverlay()
+    overlay.onAdd = {
+        val panes = overlay.getPanes()
+        val pane = panes?.overlayMouseTarget ?: panes?.floatPane
+        if (pane != null && pane != undefined) pane.appendChild(content)
+        val prevent = mapsApi?.OverlayView?.preventMapHitsAndGesturesFrom
+            ?: window.asDynamic().google?.maps?.OverlayView?.preventMapHitsAndGesturesFrom
+        if (prevent != null && prevent != undefined) prevent(content)
+    }
+    overlay.draw = {
+        val projection = overlay.getProjection()
+        if (projection != null && projection != undefined) {
+            val point = projection.fromLatLngToDivPixel(position)
+            if (point != null && point != undefined) {
+                val style = content.asDynamic().style
+                style.left = "${num(point.x)}px"
+                style.top = "${num(point.y)}px"
+            }
+        }
+    }
+    overlay.onRemove = {
+        content.asDynamic().remove()
+    }
+    overlay.setMap(map)
+    return overlay
+}
+
 private fun googleMarker(opts: dynamic): dynamic {
     val ctor = if (isJsFunction(mapsApi.Marker)) mapsApi.Marker else window.asDynamic().google.maps.Marker
     return js("new ctor(opts)")
+}
+
+private fun googleOverlay(): dynamic {
+    val ctor = if (isJsFunction(mapsApi.OverlayView)) mapsApi.OverlayView else window.asDynamic().google.maps.OverlayView
+    return js("new ctor()")
 }
 
 private fun googleBounds(): dynamic {

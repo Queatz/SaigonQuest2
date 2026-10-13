@@ -50,8 +50,8 @@ internal fun feedScreen(
     if (communityId == null) {
         val brand = el("div", "feed-brand")
         brand.appendChild(location)
-        brand.appendChild(eventsSummaryButton(router))
         brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
+        brand.appendChild(eventsSummaryButton(router))
         top.appendChild(brand)
         val actions = el("div", "top-actions")
         if (Town.me != null) actions.appendChild(notificationButton(router, shell))

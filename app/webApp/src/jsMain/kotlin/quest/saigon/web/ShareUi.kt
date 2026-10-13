@@ -284,31 +284,38 @@ private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face
         ctx.strokeStyle = "#e6ddd2"
         ctx.lineWidth = 3.0
         ctx.stroke()
+        val joinLabel = Town.t("joinEvent")
+        ctx.font = "800 36px $SHARE_FONT"
+        val joinW = maxOf(220.0, num(ctx.measureText(joinLabel).width) + 72.0)
+        val joinH = 112.0
+        val joinX = eventX + eventW - 24.0 - joinW
+        val joinY = eventY + (eventH - joinH) / 2
+        val textMax = (joinX - eventX - 40.0).coerceAtLeast(120.0)
         ctx.fillStyle = "#2a241e"
         ctx.font = "800 32px $SHARE_FONT"
         ctx.textAlign = "left"
         ctx.textBaseline = "top"
         val schedule = "📅 ${eventScheduleLabel(eventStart, post.eventEndAt)}"
-        ctx.fillText(ellipsize(ctx, schedule, eventW - 48.0), eventX + 24.0, eventY + 16.0)
+        ctx.fillText(ellipsize(ctx, schedule, textMax), eventX + 24.0, eventY + 16.0)
         ctx.font = "600 28px $SHARE_FONT"
         ctx.fillStyle = "#746b62"
         var infoY = eventY + 56.0
         if (eventRelative != null) {
-            ctx.fillText(ellipsize(ctx, eventRelative, eventW - 48.0), eventX + 24.0, infoY)
+            ctx.fillText(ellipsize(ctx, eventRelative, textMax), eventX + 24.0, infoY)
             infoY += 34.0
         }
-        ctx.fillText(ellipsize(ctx, "$PLACE_ICON ${post.location}", eventW - 48.0), eventX + 24.0, infoY)
+        ctx.fillText(ellipsize(ctx, "$PLACE_ICON ${post.location}", textMax), eventX + 24.0, infoY)
         val price = post.eventPrice
         val priceText = if (price != null && price > 0) formatVnd(price) else Town.t("free")
-        ctx.fillText(ellipsize(ctx, "$PRICE_ICON $priceText", eventW - 48.0), eventX + 24.0, infoY + 34.0)
-        traceRound(ctx, eventX + eventW - 196.0, eventY + eventH - 64.0, 172.0, 48.0, 24.0)
+        ctx.fillText(ellipsize(ctx, "$PRICE_ICON $priceText", textMax), eventX + 24.0, infoY + 34.0)
+        traceRound(ctx, joinX, joinY, joinW, joinH, joinH / 2)
         ctx.fillStyle = "#e9897c"
         ctx.fill()
         ctx.fillStyle = "#ffffff"
-        ctx.font = "800 28px $SHARE_FONT"
+        ctx.font = "800 36px $SHARE_FONT"
         ctx.textAlign = "center"
         ctx.textBaseline = "middle"
-        ctx.fillText(Town.t("joinEvent"), eventX + eventW - 110.0, eventY + eventH - 40.0)
+        ctx.fillText(joinLabel, joinX + joinW / 2, joinY + joinH / 2)
     }
 
     val replyX = cardX + 28.0
