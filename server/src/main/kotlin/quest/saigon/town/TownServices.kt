@@ -32,12 +32,13 @@ class TownServices(
     val visitLimiter: RateLimiter = RateLimiter(60, 60_000, clock),
     val images: ImageOps = ImageOps(),
     val hub: NotificationHub = NotificationHub(),
+    val pusher: NotificationPusher = NoNotificationPush,
     val replies: QuickReplyService = QuickReplyService(repo),
     val communities: CommunityService = CommunityService(repo, clock),
     val places: PlaceLookup = NoPlaces,
-    val events: EventService = EventService(repo, hub, clock),
+    val events: EventService = EventService(repo, hub, clock, pusher),
 ) {
-    val comments: CommentService = CommentService(repo, hub, clock)
+    val comments: CommentService = CommentService(repo, hub, clock, pusher)
 
     companion object {
         fun open(config: AppConfig): TownServices {
@@ -46,7 +47,8 @@ class TownServices(
             val qwen = QwenClient.fromConfig(config)
             val clock: () -> Long = System::currentTimeMillis
             val hub = NotificationHub()
-            val events = EventService(repo, hub, clock).also { it.start() }
+            val pusher = WebPushService.fromConfig(config, repo, clock)
+            val events = EventService(repo, hub, clock, pusher).also { it.start() }
             return TownServices(
                 repo = repo,
                 uploads = uploads,
@@ -55,6 +57,7 @@ class TownServices(
                 config = config,
                 clock = clock,
                 hub = hub,
+                pusher = pusher,
                 replies = QuickReplyService(repo, QuickReplyPipeline(qwen), config.qwenConfigured),
                 communities = CommunityService(repo, clock, communitySuggester(qwen, config.qwenConfigured)),
                 places = config.googleMapsApiKey?.takeIf { it.isNotBlank() }?.let(::GooglePlaces) ?: NoPlaces,

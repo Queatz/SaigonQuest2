@@ -2595,6 +2595,7 @@ button.busy .avatar-spinner {
     border-radius: 16px;
     background: rgba(255, 255, 255, .72);
     color: var(--ink);
+    border: 1px solid var(--ink);
 }
 
 .event-details {

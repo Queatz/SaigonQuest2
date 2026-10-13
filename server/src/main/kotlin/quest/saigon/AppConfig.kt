@@ -19,9 +19,13 @@ data class AppConfig(
     val corsAllowedHosts: List<CorsAllowedHost> = defaultCorsHosts(),
     val cookieSameSite: String = "Lax",
     val googleMapsApiKey: String? = null,
+    val vapidPublicKey: String? = null,
+    val vapidPrivateKey: String? = null,
+    val vapidSubject: String = "mailto:hello@saigon.town",
 ) {
     val qwenConfigured: Boolean get() = !qwenApiKey.isNullOrBlank()
     val mapsConfigured: Boolean get() = !googleMapsApiKey.isNullOrBlank()
+    val webPushConfigured: Boolean get() = !vapidPublicKey.isNullOrBlank() && !vapidPrivateKey.isNullOrBlank()
 
     companion object {
         fun load(env: (String) -> String? = System::getenv, envFile: File = File(".env")): AppConfig {
@@ -45,6 +49,9 @@ data class AppConfig(
                 corsAllowedHosts = parseCorsAllowedHosts(value("CORS_ALLOWED_HOSTS")),
                 cookieSameSite = normalizeSameSite(value("COOKIE_SAMESITE")),
                 googleMapsApiKey = value("GOOGLE_MAPS_API_KEY"),
+                vapidPublicKey = value("VAPID_PUBLIC_KEY"),
+                vapidPrivateKey = value("VAPID_PRIVATE_KEY"),
+                vapidSubject = value("VAPID_SUBJECT") ?: "mailto:hello@saigon.town",
             )
         }
     }

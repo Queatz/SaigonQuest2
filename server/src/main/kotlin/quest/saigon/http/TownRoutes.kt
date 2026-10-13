@@ -27,7 +27,9 @@ import quest.saigon.AppConfig
 import quest.saigon.Limits
 import quest.saigon.MusicNames
 import quest.saigon.PhoneNumbers
+import quest.saigon.Language
 import quest.saigon.languagePreference
+import quest.saigon.resolveLanguage
 import quest.saigon.ai.AvatarPrompts
 import quest.saigon.media.ImageOps
 import quest.saigon.town.AdminPost
@@ -41,6 +43,7 @@ import quest.saigon.town.MusicRecord
 import quest.saigon.town.MusicStatus
 import quest.saigon.town.OwnedPost
 import quest.saigon.town.PostRecord
+import quest.saigon.town.PushSubscriptionRecord
 import quest.saigon.town.TownException
 import quest.saigon.town.SaigonDays
 import quest.saigon.town.TownServices
@@ -637,6 +640,44 @@ fun Route.townApi(services: TownServices) {
         }
     }
 
+    get("/push/vapid") {
+        call.user(services) ?: return@get call.fail("unauthorized")
+        val key = services.config.vapidPublicKey?.takeIf { services.config.webPushConfigured }
+            ?: return@get call.fail("unavailable")
+        call.respondJson(mapOf("publicKey" to key))
+    }
+
+    post("/push/subscribe") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (!services.config.webPushConfigured) return@post call.fail("unavailable")
+        val body = Jsons.parse(call.receiveText())
+        val endpoint = cleanPushEndpoint(Jsons.text(body, "endpoint")) ?: return@post call.fail("invalid_push")
+        val p256dh = cleanPushKey(Jsons.text(body.path("keys"), "p256dh").ifBlank { Jsons.text(body, "p256dh") })
+            ?: return@post call.fail("invalid_push")
+        val auth = cleanPushKey(Jsons.text(body.path("keys"), "auth").ifBlank { Jsons.text(body, "auth") })
+            ?: return@post call.fail("invalid_push")
+        val language = if (resolveLanguage(Jsons.text(body, "language"), user.language) == Language.VI) "vi" else "en"
+        services.repo.upsertPushSubscription(
+            PushSubscriptionRecord(
+                endpoint = endpoint,
+                userId = user.id,
+                p256dh = p256dh,
+                auth = auth,
+                language = language,
+                createdAt = services.clock(),
+            ),
+        )
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    delete("/push/subscribe") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val endpoint = cleanPushEndpoint(Jsons.text(Jsons.parse(call.receiveText()), "endpoint"))
+            ?: return@delete call.fail("invalid_push")
+        services.repo.deletePushSubscription(user.id, endpoint)
+        call.respondJson(mapOf("ok" to true))
+    }
+
     get("/posts/{id}/author-photo") {
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
         val author = services.repo.findUser(post.userId) ?: return@get call.fail("not_found")
@@ -1141,6 +1182,21 @@ private fun cleanName(raw: String): String? {
     if (name.length !in 1..Limits.NAME_MAX) return null
     if (name.any { it.isISOControl() }) return null
     return name
+}
+
+private fun cleanPushEndpoint(raw: String): String? {
+    val endpoint = raw.trim()
+    if (endpoint.length !in 8..Limits.PUSH_ENDPOINT_MAX) return null
+    if (!endpoint.startsWith("https://") && !endpoint.startsWith("http://")) return null
+    if (endpoint.any { it.isISOControl() || it.isWhitespace() }) return null
+    return endpoint
+}
+
+private fun cleanPushKey(raw: String): String? {
+    val key = raw.trim()
+    if (key.length !in 8..256) return null
+    if (key.any { !it.isLetterOrDigit() && it != '-' && it != '_' && it != '+' && it != '/' && it != '=' }) return null
+    return key
 }
 
 private fun cleanPlaceId(raw: String): String? {

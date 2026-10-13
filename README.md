@@ -28,6 +28,7 @@ options:
     - `POST /api/posts/{id}/contact` — returns a Zalo URL. Logged-out visitors can call it; it is rate-limited.
     - `GET /api/music` — search public ready music. `POST /api/music` generates mp3 with Fun-Music (`fun-music-v1`).
     - Copy [`.env.example`](./.env.example) to `.env` and set `QWEN_API_KEY` for avatar generation.
+    - Web push: set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (optional `VAPID_SUBJECT`). Generate with `npx web-push generate-vapid-keys --json`. Chrome allows push on [http://localhost:3000](http://localhost:3000); production needs HTTPS. Keep the same key pair across deploys.
     - The Compose file creates the Arango root user `root` / `saigonquest`. If `/api/health` is degraded, set `ARANGO_USER=root` or create the `saigonquest` user.
     - Optional: set `SPA_DIR` to a Kotlin/JS production output folder to serve the web app with History API fallback.
 - Web app: `./gradlew :app:webApp:jsBrowserDevelopmentRun`

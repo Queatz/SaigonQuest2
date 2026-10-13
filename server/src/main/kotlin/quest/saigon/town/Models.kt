@@ -269,6 +269,15 @@ object NotificationType {
     const val EVENT_STARTING_NOW = "event_starting_now"
 }
 
+data class PushSubscriptionRecord(
+    val endpoint: String,
+    val userId: String,
+    val p256dh: String,
+    val auth: String,
+    val language: String,
+    val createdAt: Long,
+)
+
 data class EventAttendee(
     val id: String,
     val name: String,

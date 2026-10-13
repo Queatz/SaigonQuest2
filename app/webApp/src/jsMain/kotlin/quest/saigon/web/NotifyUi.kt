@@ -1,5 +1,7 @@
 package quest.saigon.web
 
+import quest.saigon.Language
+import quest.saigon.NotificationCopy
 import web.html.HTMLElement
 import web.window.window
 
@@ -16,6 +18,7 @@ internal object NotifyInbox {
         stopStream?.invoke()
         stopStream = null
         refresh()
+        WebPush.enable()
         stopStream = openNotificationStream { _ ->
             unread += 1
             paintBadges()
@@ -28,6 +31,7 @@ internal object NotifyInbox {
         stopStream = null
         unread = 0
         paintBadges()
+        WebPush.disable()
     }
 
     fun refresh() {
@@ -142,24 +146,17 @@ internal fun openNotifications(router: HistoryRouter, host: HTMLElement) {
             item.setAttribute("type", "button")
             val actor = (note.actorName as? String).orEmpty()
             val preview = (note.preview as? String).orEmpty()
-            val title = when (note.type as? String) {
-                "thread_comment" -> Town.t("notificationThreadComment", mapOf("name" to actor))
-                "event_joined" -> Town.t("notificationEventJoined", mapOf("name" to actor))
-                "event_left" -> Town.t("notificationEventLeft", mapOf("name" to actor))
-                "event_friend_joined" -> Town.t("notificationEventFriendJoined", mapOf("name" to actor))
-                "event_starting_soon" -> Town.t("notificationEventStartingSoon", mapOf("event" to preview))
-                "event_starting_now" -> Town.t("notificationEventStartingNow", mapOf("event" to preview))
-                else -> Town.t("notificationPostComment", mapOf("name" to actor))
-            }
+            val type = (note.type as? String).orEmpty()
+            val title = NotificationCopy.title(Town.language, type, actor, preview)
             item.appendChild(el("strong", text = title))
-            item.appendChild(el("span", text = (note.preview as? String).orEmpty()))
+            item.appendChild(el("span", text = NotificationCopy.body(preview)))
             item.appendChild(el("em", text = relativeTime(num(note.createdAt).toLong())))
             item.onClick {
                 val id = note.id as String
                 val postId = note.postId as String
                 NotifyInbox.markRead(id) {
                     backdrop.asDynamic().remove()
-                    router.navigate("/p/$postId")
+                    router.navigate(NotificationCopy.path(postId))
                 }
             }
             list.appendChild(item)
@@ -262,5 +259,85 @@ internal fun openNotificationStream(onEvent: (dynamic) -> Unit): () -> Unit {
             abort.abort()
         } catch (_: Throwable) {
         }
+    }
+}
+
+internal object WebPush {
+    fun enable() {
+        if (Town.me == null) return
+        try {
+            val notification = window.asDynamic().Notification
+            val serviceWorker = web.navigator.navigator.asDynamic().serviceWorker
+            if (notification == null || notification == undefined) return
+            if (serviceWorker == null || serviceWorker == undefined) return
+            http("GET", "/api/push/vapid") { status, body ->
+                if (status != 200) return@http
+                val publicKey = (parseJson(body).publicKey as? String)?.takeIf { it.isNotBlank() } ?: return@http
+                requestPermissionThenSubscribe(publicKey)
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun disable() {
+        try {
+            val serviceWorker = web.navigator.navigator.asDynamic().serviceWorker
+            if (serviceWorker == null || serviceWorker == undefined) return
+            serviceWorker.ready.then({ registration: dynamic ->
+                registration.pushManager.getSubscription().then({ subscription: dynamic ->
+                    if (subscription == null || subscription == undefined) return@then
+                    val endpoint = (subscription.endpoint as? String).orEmpty()
+                    try {
+                        subscription.unsubscribe()
+                    } catch (_: Throwable) {
+                    }
+                    if (endpoint.isNotBlank()) {
+                        val payload = js("({})")
+                        payload.endpoint = endpoint
+                        http("DELETE", "/api/push/subscribe", jsonStringify(payload)) { _, _ -> }
+                    }
+                })
+            })
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun requestPermissionThenSubscribe(publicKey: String) {
+        val permission = window.asDynamic().Notification.permission as? String
+        if (permission == "denied") return
+        if (permission == "granted") {
+            subscribe(publicKey)
+            return
+        }
+        window.asDynamic().Notification.requestPermission().then({ result: dynamic ->
+            if (result == "granted") subscribe(publicKey)
+        })
+    }
+
+    private fun subscribe(publicKey: String) {
+        web.navigator.navigator.asDynamic().serviceWorker.ready.then({ registration: dynamic ->
+            val options = js("({})")
+            options.userVisibleOnly = true
+            options.applicationServerKey = vapidKeyBytes(publicKey)
+            registration.pushManager.subscribe(options).then({ subscription: dynamic ->
+                val json = subscription.toJSON()
+                val payload = js("({})")
+                payload.endpoint = json.endpoint
+                payload.keys = json.keys
+                payload.language = if (Town.language == Language.VI) "vi" else "en"
+                http("POST", "/api/push/subscribe", jsonStringify(payload)) { _, _ -> }
+            })
+        })
+    }
+
+    private fun vapidKeyBytes(key: String): dynamic {
+        var value = key.replace("-", "+").replace("_", "/")
+        while (value.length % 4 != 0) value += "="
+        val raw = window.asDynamic().atob(value) as String
+        val bytes = js("new Uint8Array(raw.length)")
+        for (i in 0 until raw.length) {
+            bytes[i] = raw.asDynamic().charCodeAt(i)
+        }
+        return bytes
     }
 }

@@ -6,6 +6,7 @@ class EventService(
     private val repo: TownRepository,
     private val hub: NotificationHub,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val pusher: NotificationPusher = NoNotificationPush,
 ) {
     fun join(actor: UserRecord, postId: String): FeedItem {
         val post = repo.findPost(postId) ?: throw TownException("not_found")
@@ -85,6 +86,7 @@ class EventService(
             ),
         )
         hub.publish(userId, Jsons.write(CommentService.notificationPayload(notification)))
+        pusher.notify(userId, notification)
     }
 
     companion object {

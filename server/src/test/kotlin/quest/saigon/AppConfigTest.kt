@@ -50,4 +50,19 @@ class AppConfigTest {
         assertEquals(true, config.cookieSecure)
         assertEquals(true, config.trustProxy)
     }
+
+    @Test
+    fun loadReadsVapidKeysForLocalAndProd() {
+        val env = mapOf(
+            "VAPID_PUBLIC_KEY" to "BNpublic",
+            "VAPID_PRIVATE_KEY" to "privateKey",
+            "VAPID_SUBJECT" to "mailto:town@example.com",
+        )
+        val config = AppConfig.load(env::get, File("missing.env"))
+        assertEquals("BNpublic", config.vapidPublicKey)
+        assertEquals("privateKey", config.vapidPrivateKey)
+        assertEquals("mailto:town@example.com", config.vapidSubject)
+        assertEquals(true, config.webPushConfigured)
+        assertEquals(false, AppConfig.load({ null }, File("missing.env")).webPushConfigured)
+    }
 }

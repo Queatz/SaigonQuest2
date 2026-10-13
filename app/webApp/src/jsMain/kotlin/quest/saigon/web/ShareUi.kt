@@ -298,7 +298,7 @@ private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face
         val schedule = "📅 ${eventScheduleLabel(eventStart, post.eventEndAt)}"
         ctx.fillText(ellipsize(ctx, schedule, textMax), eventX + 24.0, eventY + 16.0)
         ctx.font = "600 28px $SHARE_FONT"
-        ctx.fillStyle = "#746b62"
+        ctx.fillStyle = "#2a241e"
         var infoY = eventY + 56.0
         if (eventRelative != null) {
             ctx.fillText(ellipsize(ctx, eventRelative, textMax), eventX + 24.0, infoY)
@@ -307,6 +307,7 @@ private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face
         ctx.fillText(ellipsize(ctx, "$PLACE_ICON ${post.location}", textMax), eventX + 24.0, infoY)
         val price = post.eventPrice
         val priceText = if (price != null && price > 0) formatVnd(price) else Town.t("free")
+        ctx.fillStyle = "#e9897c"
         ctx.fillText(ellipsize(ctx, "$PRICE_ICON $priceText", textMax), eventX + 24.0, infoY + 34.0)
         traceRound(ctx, joinX, joinY, joinW, joinH, joinH / 2)
         ctx.fillStyle = "#e9897c"

@@ -125,6 +125,45 @@ class TownRulesTest {
     }
 
     @Test
+    fun notificationCopyMatchesInboxTextAndPostPath() {
+        assertEquals(
+            "Minh commented on your post",
+            NotificationCopy.title(Language.EN, "post_comment", "Minh", "I'm down"),
+        )
+        assertEquals(
+            "Minh đã bình luận bài của bạn",
+            NotificationCopy.title(Language.VI, "post_comment", "Minh", "I'm down"),
+        )
+        assertEquals(
+            "Minh also commented",
+            NotificationCopy.title(Language.EN, "thread_comment", "Minh", "Same"),
+        )
+        assertEquals(
+            "Minh joined your event",
+            NotificationCopy.title(Language.EN, "event_joined", "Minh", "Minh"),
+        )
+        assertEquals(
+            "Minh left your event",
+            NotificationCopy.title(Language.EN, "event_left", "Minh", "Minh"),
+        )
+        assertEquals(
+            "Minh joined an event you're going to",
+            NotificationCopy.title(Language.EN, "event_friend_joined", "Minh", "Minh"),
+        )
+        assertEquals(
+            "Coffee is starting in an hour",
+            NotificationCopy.title(Language.EN, "event_starting_soon", "", "Coffee"),
+        )
+        assertEquals(
+            "Coffee is starting now",
+            NotificationCopy.title(Language.EN, "event_starting_now", "", "Coffee"),
+        )
+        assertEquals("I'm down", NotificationCopy.body("I'm down"))
+        assertEquals("/p/abc123", NotificationCopy.path("abc123"))
+        assertEquals(AppRoute.Post("abc123"), matchAppRoute(NotificationCopy.path("abc123")))
+    }
+
+    @Test
     fun musicNamesPreferLyricsThenPrompt() {
         assertEquals("Sáng sớm trời mưa", MusicNames.fromPrompt("Sáng sớm trời mưa"))
         assertEquals(

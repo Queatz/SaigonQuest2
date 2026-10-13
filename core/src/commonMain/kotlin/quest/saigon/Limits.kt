@@ -27,4 +27,5 @@ object Limits {
     const val QUICK_REPLY_COUNT = 5
     const val PHOTOS_MAX = 20
     const val PHOTO_PEEK_MILLIS = 750
+    const val PUSH_ENDPOINT_MAX = 2048
 }

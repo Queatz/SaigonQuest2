@@ -15,7 +15,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
-            NOTIFICATIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
+            NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -39,6 +39,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(COMMENT_WATCHES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(NOTIFICATIONS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(NOTIFICATIONS).ensurePersistentIndex(listOf("userKey", "readAt"), PersistentIndexOptions())
+        db.collection(PUSH_SUBSCRIPTIONS).ensurePersistentIndex(listOf("endpoint"), PersistentIndexOptions().unique(true))
+        db.collection(PUSH_SUBSCRIPTIONS).ensurePersistentIndex(listOf("userKey"), PersistentIndexOptions())
     }
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -1615,6 +1617,81 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     }
 
+    override fun upsertPushSubscription(subscription: PushSubscriptionRecord) {
+        val existing = first(
+            "FOR s IN $PUSH_SUBSCRIPTIONS FILTER s.endpoint == @endpoint LIMIT 1 RETURN s",
+            mapOf("endpoint" to subscription.endpoint),
+        )
+        if (existing != null) {
+            writePushSubscription(existing.key, subscription)
+            return
+        }
+        val doc = pushDocument(null, subscription)
+        try {
+            db.collection(PUSH_SUBSCRIPTIONS).insertDocument(doc)
+        } catch (error: ArangoDBException) {
+            if (error.errorNum != 1210) throw error
+            val again = first(
+                "FOR s IN $PUSH_SUBSCRIPTIONS FILTER s.endpoint == @endpoint LIMIT 1 RETURN s",
+                mapOf("endpoint" to subscription.endpoint),
+            ) ?: throw error
+            writePushSubscription(again.key, subscription)
+        }
+    }
+
+    override fun deletePushSubscription(userId: String, endpoint: String) {
+        exec(
+            """
+            FOR s IN $PUSH_SUBSCRIPTIONS
+              FILTER s.userKey == @userKey AND s.endpoint == @endpoint
+              REMOVE s IN $PUSH_SUBSCRIPTIONS
+              RETURN OLD
+            """.trimIndent(),
+            mapOf("userKey" to userId, "endpoint" to endpoint),
+        )
+    }
+
+    override fun deletePushSubscriptionByEndpoint(endpoint: String) {
+        exec(
+            """
+            FOR s IN $PUSH_SUBSCRIPTIONS
+              FILTER s.endpoint == @endpoint
+              REMOVE s IN $PUSH_SUBSCRIPTIONS
+              RETURN OLD
+            """.trimIndent(),
+            mapOf("endpoint" to endpoint),
+        )
+    }
+
+    override fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord> = queryList(
+        "FOR s IN $PUSH_SUBSCRIPTIONS FILTER s.userKey == @userKey RETURN s",
+        mapOf("userKey" to userId),
+    ).map(::pushFrom)
+
+    private fun writePushSubscription(key: String, subscription: PushSubscriptionRecord) {
+        db.collection(PUSH_SUBSCRIPTIONS).replaceDocument(key, pushDocument(key, subscription))
+    }
+
+    private fun pushDocument(key: String?, subscription: PushSubscriptionRecord): BaseDocument {
+        val doc = if (key == null) BaseDocument() else BaseDocument(key)
+        doc.addAttribute("userKey", subscription.userId)
+        doc.addAttribute("endpoint", subscription.endpoint)
+        doc.addAttribute("p256dh", subscription.p256dh)
+        doc.addAttribute("auth", subscription.auth)
+        doc.addAttribute("language", subscription.language)
+        doc.addAttribute("createdAt", subscription.createdAt)
+        return doc
+    }
+
+    private fun pushFrom(doc: BaseDocument) = PushSubscriptionRecord(
+        endpoint = string(doc, "endpoint"),
+        userId = string(doc, "userKey"),
+        p256dh = string(doc, "p256dh"),
+        auth = string(doc, "auth"),
+        language = string(doc, "language").ifBlank { "en" },
+        createdAt = long(doc, "createdAt"),
+    )
+
     private fun joinedIds(userId: String?): Set<String> {
         if (userId.isNullOrBlank()) return emptySet()
         return queryList(
@@ -1838,6 +1915,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val COMMENTS = "comments"
         private const val COMMENT_WATCHES = "commentWatches"
         private const val NOTIFICATIONS = "notifications"
+        private const val PUSH_SUBSCRIPTIONS = "pushSubscriptions"
         private const val ADMINS = "admins"
         private const val DAY_STATS = "dayStats"
         private const val COMMUNITIES = "communities"

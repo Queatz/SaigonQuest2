@@ -14,6 +14,7 @@ class InMemoryTownRepository : TownRepository {
     private val comments = ConcurrentHashMap<String, CommentRecord>()
     private val watches = ConcurrentHashMap<String, Boolean>()
     private val notifications = ConcurrentHashMap<String, NotificationRecord>()
+    private val pushSubscriptions = ConcurrentHashMap<String, PushSubscriptionRecord>()
     private val admins = ConcurrentHashMap<String, AdminRecord>()
     private val communities = ConcurrentHashMap<String, CommunityRecord>()
     private val memberships = ConcurrentHashMap<String, Membership>()
@@ -783,6 +784,22 @@ class InMemoryTownRepository : TownRepository {
             eventNowNotified = post.eventNowNotified || nowFlag,
         )
     }
+
+    override fun upsertPushSubscription(subscription: PushSubscriptionRecord) {
+        pushSubscriptions[subscription.endpoint] = subscription
+    }
+
+    override fun deletePushSubscription(userId: String, endpoint: String) {
+        val current = pushSubscriptions[endpoint] ?: return
+        if (current.userId == userId) pushSubscriptions.remove(endpoint)
+    }
+
+    override fun deletePushSubscriptionByEndpoint(endpoint: String) {
+        pushSubscriptions.remove(endpoint)
+    }
+
+    override fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord> =
+        pushSubscriptions.values.filter { it.userId == userId }
 
     private fun previewAttendees(postId: String): List<EventAttendee> =
         attendances.values

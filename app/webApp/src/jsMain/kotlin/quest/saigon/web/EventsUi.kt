@@ -73,22 +73,27 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
 }
 
 internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
-    val button = el("button", "pill-btn events-summary", text = Town.t("noUpcomingEvents"))
+    val button = el("button", "pill-btn events-summary")
     button.setAttribute("type", "button")
     button.setAttribute("aria-label", Town.t("openEvents"))
+    button.setAttribute("hidden", "hidden")
     button.onClick { router.navigate("/events") }
     http("GET", "/api/events/summary") { status, body ->
-        if (status != 200) return@http
-        val parsed = parseJson(body)
-        val today = num(parsed.today).toInt()
-        val tomorrow = num(parsed.tomorrow).toInt()
-        button.textContent = when {
-            today == 1 -> Town.t("eventToday")
-            today > 1 -> Town.t("eventsToday", mapOf("count" to today.toString()))
-            tomorrow == 1 -> Town.t("eventTomorrow")
-            tomorrow > 1 -> Town.t("eventsTomorrow", mapOf("count" to tomorrow.toString()))
-            else -> Town.t("noUpcomingEvents")
+        button.textContent = if (status == 200) {
+            val parsed = parseJson(body)
+            val today = num(parsed.today).toInt()
+            val tomorrow = num(parsed.tomorrow).toInt()
+            when {
+                today == 1 -> Town.t("eventToday")
+                today > 1 -> Town.t("eventsToday", mapOf("count" to today.toString()))
+                tomorrow == 1 -> Town.t("eventTomorrow")
+                tomorrow > 1 -> Town.t("eventsTomorrow", mapOf("count" to tomorrow.toString()))
+                else -> Town.t("noUpcomingEvents")
+            }
+        } else {
+            Town.t("noUpcomingEvents")
         }
+        button.removeAttribute("hidden")
     }
     return button
 }

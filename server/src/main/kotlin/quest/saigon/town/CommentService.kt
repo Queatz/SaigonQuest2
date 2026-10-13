@@ -7,6 +7,7 @@ class CommentService(
     private val repo: TownRepository,
     private val hub: NotificationHub,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val pusher: NotificationPusher = NoNotificationPush,
 ) {
     fun add(actor: UserRecord, postId: String, text: String, replyToId: String?): CommentItem {
         val post = repo.findPost(postId) ?: throw TownException("not_found")
@@ -78,6 +79,7 @@ class CommentService(
             ),
         )
         hub.publish(userId, Jsons.write(notificationPayload(notification)))
+        pusher.notify(userId, notification)
     }
 
     companion object {
