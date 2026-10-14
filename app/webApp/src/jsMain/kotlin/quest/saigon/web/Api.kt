@@ -86,6 +86,7 @@ internal fun errorText(body: String, status: Int): String {
         "unauthorized" -> "needSignInToPost"
         "invalid_comment" -> "invalidComment"
         "invalid_community" -> "invalidCommunity"
+        "invalid_description" -> "invalidDescription"
         "invalid_event" -> "invalidEvent"
         "invalid_event_price" -> "invalidEventPrice"
         "account_paused" -> "accountPaused"

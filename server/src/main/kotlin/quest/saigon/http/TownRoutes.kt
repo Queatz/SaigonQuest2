@@ -769,6 +769,16 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(communityPayload(community, user != null && services.repo.isMember(community.id, user.id)))
     }
 
+    patch("/communities/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val community = services.repo.findCommunity(call.parameters["id"].orEmpty()) ?: return@patch call.fail("not_found")
+        if (!services.repo.isMember(community.id, user.id)) return@patch call.fail("forbidden")
+        val description = cleanDescription(Jsons.text(Jsons.parse(call.receiveText()), "description"))
+            ?: return@patch call.fail("invalid_description")
+        val updated = services.repo.updateCommunityDescription(community.id, description) ?: return@patch call.fail("not_found")
+        call.respondJson(communityPayload(updated, true))
+    }
+
     post("/communities/{id}/join") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
         val community = services.repo.findCommunity(call.parameters["id"].orEmpty()) ?: return@post call.fail("not_found")
@@ -1085,6 +1095,7 @@ private fun communityPayload(community: quest.saigon.town.CommunityRecord, joine
     "id" to community.id,
     "name" to community.name,
     "emoji" to community.emoji,
+    "description" to community.description,
     "memberCount" to community.memberCount,
     "joined" to joined,
     "createdAt" to community.createdAt,
@@ -1225,11 +1236,15 @@ private fun parseVnd(raw: String): Long? {
     return value.takeIf { it > 0 }
 }
 
-private fun cleanIntro(raw: String): String? {
-    val intro = raw.replace("\r\n", "\n").trim()
-    if (intro.length > Limits.INTRO_MAX) return null
-    if (intro.any { it.isISOControl() && it != '\n' }) return null
-    return intro
+private fun cleanIntro(raw: String): String? = cleanMultiline(raw, Limits.INTRO_MAX)
+
+private fun cleanDescription(raw: String): String? = cleanMultiline(raw, Limits.COMMUNITY_DESCRIPTION_MAX)
+
+private fun cleanMultiline(raw: String, max: Int): String? {
+    val text = raw.replace("\r\n", "\n").trim()
+    if (text.length > max) return null
+    if (text.any { it.isISOControl() && it != '\n' }) return null
+    return text
 }
 
 private fun clientIp(call: ApplicationCall, trustProxy: Boolean): String {

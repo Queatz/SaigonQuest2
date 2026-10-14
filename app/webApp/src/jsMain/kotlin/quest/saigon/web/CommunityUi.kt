@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.Limits
 import web.html.HTMLElement
 import web.window.window
 
@@ -9,6 +10,7 @@ internal data class CommunityCard(
     val emoji: String,
     val memberCount: Int = 0,
     val joined: Boolean = false,
+    val description: String = "",
 )
 
 internal class CommunityChoice {
@@ -22,6 +24,7 @@ internal fun communityFrom(node: dynamic): CommunityCard = CommunityCard(
     emoji = (node.emoji as? String).orEmpty().ifBlank { "✨" },
     memberCount = num(node.memberCount).toInt(),
     joined = node.joined == true,
+    description = (node.description as? String).orEmpty(),
 )
 
 internal fun readCommunities(node: dynamic): List<CommunityCard> {
@@ -233,12 +236,9 @@ private fun paintChooser(
         return
     }
     items.forEach { community ->
-        val row = el("button", if (community.id == current?.id) "chooser-row selected" else "chooser-row")
-        row.setAttribute("type", "button")
-        row.appendChild(el("span", text = communityLabel(community)))
-        if (community.memberCount > 0) row.appendChild(el("small", text = community.memberCount.toString()))
-        row.onClick { onPick(community) }
-        results.appendChild(row)
+        results.appendChild(
+            communityChooserRow(community, selected = community.id == current?.id) { onPick(it) },
+        )
     }
 }
 
@@ -429,7 +429,12 @@ internal fun bindCommunityBar(
         }
         val community = communityFrom(parseJson(body))
         paintCommunityBar(title, members, join, community)
-        members.onClick { openMembersDialog(host, router, community) }
+        members.onClick {
+            http("GET", "/api/communities/${encodeQuery(communityId)}") { status, fresh ->
+                val current = if (status == 200) communityFrom(parseJson(fresh)) else community
+                openMembersDialog(host, router, current)
+            }
+        }
         join.onClick { toggleMembership(host, communityId, title, members, join) }
         onReady()
     }
@@ -440,6 +445,9 @@ internal fun openMembersDialog(host: HTMLElement, router: HistoryRouter, communi
     val backdrop = el("div", "dialog-backdrop members-backdrop")
     val card = el("div", "dialog")
     card.appendChild(el("h2", text = communityLabel(community)))
+    card.appendChild(el("h3", text = Town.t("communityDescription")))
+    card.appendChild(communityDescriptionEditor(host, community))
+    card.appendChild(el("h3", text = Town.t("communityMembers")))
     val list = el("div", "member-list")
     card.appendChild(list)
     card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
@@ -566,6 +574,89 @@ private fun paintCommunityBar(
     join.setAttribute("data-joined", if (community.joined) "1" else "0")
 }
 
+private fun communityDescriptionEditor(host: HTMLElement, initial: CommunityCard): HTMLElement {
+    val box = el("div", "community-about")
+    var community = initial
+    var editing = false
+    fun paint() {
+        box.clear()
+        box.asDynamic().hidden = false
+        if (editing) {
+            val input = el("textarea", "community-description-input")
+            input.setAttribute("maxlength", Limits.COMMUNITY_DESCRIPTION_MAX.toString())
+            input.setAttribute("placeholder", Town.t("communityDescriptionHint"))
+            input.setAttribute("aria-label", Town.t("communityDescription"))
+            input.asDynamic().value = community.description
+            val actions = el("div", "community-description-actions")
+            val save = el("button", "primary", text = Town.t("save"))
+            save.setAttribute("type", "button")
+            val cancel = el("button", "text-button", text = Town.t("cancel"))
+            cancel.setAttribute("type", "button")
+            save.onClick {
+                val payload = js("{}")
+                payload.description = (input.asDynamic().value as? String).orEmpty()
+                save.setAttribute("disabled", "disabled")
+                http("PATCH", "/api/communities/${encodeQuery(community.id)}", jsonStringify(payload)) { status, body ->
+                    save.removeAttribute("disabled")
+                    if (status != 200) {
+                        toast(host, errorText(body, status))
+                        return@http
+                    }
+                    community = communityFrom(parseJson(body))
+                    editing = false
+                    paint()
+                }
+            }
+            cancel.onClick {
+                editing = false
+                paint()
+            }
+            actions.appendChild(save)
+            actions.appendChild(cancel)
+            box.appendChild(input)
+            box.appendChild(actions)
+            window.asDynamic().setTimeout({ input.asDynamic().focus() }, 30)
+            return
+        }
+        if (community.description.isNotBlank()) {
+            box.appendChild(linkedParagraph(community.description, "community-description"))
+        }
+        if (community.joined) {
+            val label = Town.t(if (community.description.isBlank()) "addDescription" else "edit")
+            box.appendChild(el("button", "text-button", text = label) { button ->
+                button.setAttribute("type", "button")
+                button.onClick {
+                    editing = true
+                    paint()
+                }
+            })
+        }
+        box.asDynamic().hidden = box.childNodes.length == 0
+    }
+    paint()
+    return box
+}
+
+private fun communityChooserRow(
+    community: CommunityCard,
+    selected: Boolean = false,
+    onPick: (CommunityCard) -> Unit,
+): HTMLElement {
+    val row = el("button", if (selected) "chooser-row selected" else "chooser-row")
+    row.setAttribute("type", "button")
+    val copy = el("div", "chooser-copy")
+    copy.appendChild(el("span", text = communityLabel(community)))
+    if (community.description.isNotBlank()) {
+        copy.appendChild(linkedParagraph(community.description, "community-description"))
+    }
+    row.appendChild(copy)
+    if (community.memberCount > 0) {
+        row.appendChild(el("small", text = community.memberCount.toString()))
+    }
+    row.onClick { onPick(community) }
+    return row
+}
+
 private fun communityActionRow(
     host: HTMLElement,
     router: HistoryRouter,
@@ -574,7 +665,9 @@ private fun communityActionRow(
     onDone: () -> Unit,
 ): HTMLElement {
     val row = el("div", "community-row")
-    row.appendChild(communityChip(router, community))
+    row.appendChild(
+        communityChooserRow(community) { router.navigate("/c/${community.id}") },
+    )
     val button = el(
         "button",
         if (leaving) "tiny danger community-action" else "tiny community-action",

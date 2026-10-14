@@ -575,6 +575,13 @@ class InMemoryTownRepository : TownRepository {
     override fun findCommunityBySlug(slug: String): CommunityRecord? =
         communities.values.firstOrNull { it.slug == slug }
 
+    override fun updateCommunityDescription(id: String, description: String): CommunityRecord? {
+        val current = communities[id] ?: return null
+        val updated = current.copy(description = description)
+        communities[id] = updated
+        return updated
+    }
+
     override fun searchCommunities(query: String, userId: String?, limit: Int): List<CommunityView> {
         val needle = query.trim().lowercase()
         return communities.values

@@ -59,6 +59,28 @@ class TownRulesTest {
     }
 
     @Test
+    fun textLinksTurnUrlsIntoPieces() {
+        val pieces = TextLinks.pieces("Meet at https://saigon.town/c/1, tonight")
+        assertEquals(3, pieces.size)
+        assertEquals("Meet at ", pieces[0].text)
+        assertEquals(null, pieces[0].href)
+        assertEquals("https://saigon.town/c/1", pieces[1].text)
+        assertEquals("https://saigon.town/c/1", pieces[1].href)
+        assertEquals(", tonight", pieces[2].text)
+        val bare = TextLinks.pieces("Meet at saigon.town/c/1 tonight")
+        assertEquals(3, bare.size)
+        assertEquals("Meet at ", bare[0].text)
+        assertEquals("saigon.town/c/1", bare[1].text)
+        assertEquals("https://saigon.town/c/1", bare[1].href)
+        assertEquals(" tonight", bare[2].text)
+        val www = TextLinks.pieces("see www.example.com.")
+        assertEquals("www.example.com", www[1].text)
+        assertEquals("https://www.example.com", www[1].href)
+        assertEquals(emptyList(), TextLinks.pieces(""))
+        assertEquals(listOf(TextLinks.Piece("no links here", null)), TextLinks.pieces("no links here"))
+    }
+
+    @Test
     fun bothLanguagesCoverTheSameCopy() {
         Copy.keys().forEach { key ->
             assertTrue(Copy.text(Language.EN, key).isNotBlank())

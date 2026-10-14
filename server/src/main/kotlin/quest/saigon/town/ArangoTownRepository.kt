@@ -1193,6 +1193,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("createdBy", community.createdBy)
         doc.addAttribute("createdAt", community.createdAt)
         doc.addAttribute("memberCount", community.memberCount)
+        doc.addAttribute("description", community.description)
         val key = try {
             db.collection(COMMUNITIES).insertDocument(doc).key
         } catch (error: ArangoDBException) {
@@ -1208,6 +1209,16 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     override fun findCommunityBySlug(slug: String): CommunityRecord? = first(
         "FOR c IN $COMMUNITIES FILTER c.slug == @slug LIMIT 1 RETURN c",
         mapOf("slug" to slug),
+    )?.let(::communityFrom)
+
+    override fun updateCommunityDescription(id: String, description: String): CommunityRecord? = first(
+        """
+        FOR c IN $COMMUNITIES
+          FILTER c._key == @id
+          UPDATE c WITH { description: @description } IN $COMMUNITIES
+          RETURN NEW
+        """.trimIndent(),
+        mapOf("id" to id, "description" to description),
     )?.let(::communityFrom)
 
     override fun searchCommunities(query: String, userId: String?, limit: Int): List<CommunityView> {
@@ -1708,6 +1719,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         createdBy = string(doc, "createdBy"),
         createdAt = long(doc, "createdAt"),
         memberCount = long(doc, "memberCount"),
+        description = string(doc, "description"),
     )
 
     private fun first(query: String, bind: Map<String, Any?>): BaseDocument? =

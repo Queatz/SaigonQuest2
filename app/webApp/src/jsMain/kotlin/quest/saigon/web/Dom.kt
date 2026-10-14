@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.TextLinks
 import web.dom.document
 import web.events.EventHandler
 import web.html.HTMLElement
@@ -38,6 +39,26 @@ internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
     asDynamic().addEventListener("click", { event: dynamic ->
         if (event.target == event.currentTarget) onClose()
     })
+}
+
+internal fun linkedParagraph(text: String, className: String? = null): HTMLElement {
+    val node = el("p", className)
+    TextLinks.pieces(text).forEach { piece ->
+        val href = piece.href
+        if (href == null) {
+            node.asDynamic().append(piece.text)
+        } else {
+            val link = el("a", text = piece.text)
+            link.setAttribute("href", href)
+            link.setAttribute("target", "_blank")
+            link.setAttribute("rel", "noopener noreferrer")
+            link.asDynamic().addEventListener("click", { event: dynamic ->
+                event.stopPropagation()
+            })
+            node.appendChild(link)
+        }
+    }
+    return node
 }
 
 internal fun routeLink(router: HistoryRouter, path: String, label: String, active: Boolean): HTMLElement =

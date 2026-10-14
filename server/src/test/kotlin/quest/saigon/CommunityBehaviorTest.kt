@@ -5,6 +5,7 @@ import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -150,6 +151,94 @@ class CommunityBehaviorTest {
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Nowhere", null, exclusive = true).status)
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Missing", "nope", exclusive = false).status)
         assertEquals(HttpStatusCode.NotFound, linh.get("/api/communities/missing").status)
+    }
+
+    @Test
+    fun membersCanEditACommunityDescription() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        val minh = createClient { install(HttpCookies) }
+        val guest = createClient { install(HttpCookies) }
+        linh.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0904440011","password":"secretpass"}""")
+        }
+        minh.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Minh","phone":"0904440012","password":"secretpass"}""")
+        }
+        guest.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Guest","phone":"0904440013","password":"secretpass"}""")
+        }
+
+        val created = linh.post("/api/communities") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Vegans","emoji":"🌱"}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        val community = mapper.readTree(created.bodyAsText())
+        val communityId = community.path("id").asText()
+        assertEquals("", community.path("description").asText())
+
+        val note = "Lunch crew in D1 https://saigon.town/vegans"
+        val saved = linh.patch("/api/communities/$communityId") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"description":"$note"}""")
+        }
+        assertEquals(HttpStatusCode.OK, saved.status)
+        assertEquals(note, mapper.readTree(saved.bodyAsText()).path("description").asText())
+        assertEquals(note, mapper.readTree(linh.get("/api/communities/$communityId").bodyAsText()).path("description").asText())
+        assertEquals(note, mapper.readTree(linh.get("/api/me/communities").bodyAsText()).path("communities").path(0).path("description").asText())
+        assertEquals(note, mapper.readTree(linh.get("/api/communities?q=veg").bodyAsText()).path("communities").path(0).path("description").asText())
+
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            minh.patch("/api/communities/$communityId") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"description":"nope"}""")
+            }.status,
+        )
+        minh.post("/api/communities/$communityId/join")
+        val asMember = minh.patch("/api/communities/$communityId") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"description":"Members welcome"}""")
+        }
+        assertEquals(HttpStatusCode.OK, asMember.status)
+        assertEquals("Members welcome", mapper.readTree(asMember.bodyAsText()).path("description").asText())
+
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            guest.patch("/api/communities/$communityId") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"description":"nope"}""")
+            }.status,
+        )
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            createClient { }.patch("/api/communities/$communityId") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"description":"nope"}""")
+            }.status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            linh.patch("/api/communities/$communityId") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"description":"${"x".repeat(Limits.COMMUNITY_DESCRIPTION_MAX + 1)}"}""")
+            }.status,
+        )
+        val cleared = linh.patch("/api/communities/$communityId") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"description":"  "}""")
+        }
+        assertEquals(HttpStatusCode.OK, cleared.status)
+        assertEquals("", mapper.readTree(cleared.bodyAsText()).path("description").asText())
+        assertEquals(HttpStatusCode.NotFound, linh.patch("/api/communities/missing") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"description":"nope"}""")
+        }.status)
     }
 
     private suspend fun post(

@@ -315,6 +315,7 @@ data class CommunityRecord(
     val createdBy: String,
     val createdAt: Long,
     val memberCount: Long = 0,
+    val description: String = "",
 )
 
 data class CommunityView(

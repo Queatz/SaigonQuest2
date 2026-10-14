@@ -75,6 +75,7 @@ interface TownRepository {
     fun insertCommunity(community: CommunityRecord): CommunityRecord
     fun findCommunity(id: String): CommunityRecord?
     fun findCommunityBySlug(slug: String): CommunityRecord?
+    fun updateCommunityDescription(id: String, description: String): CommunityRecord?
     fun searchCommunities(query: String, userId: String?, limit: Int): List<CommunityView>
     fun communitiesForUser(userId: String): List<CommunityRecord>
     fun joinCommunity(communityId: String, userId: String, joinedAt: Long): Boolean
