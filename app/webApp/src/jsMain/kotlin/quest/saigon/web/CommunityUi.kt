@@ -445,7 +445,6 @@ internal fun openMembersDialog(host: HTMLElement, router: HistoryRouter, communi
     val backdrop = el("div", "dialog-backdrop members-backdrop")
     val card = el("div", "dialog")
     card.appendChild(el("h2", text = communityLabel(community)))
-    card.appendChild(el("h3", text = Town.t("communityDescription")))
     card.appendChild(communityDescriptionEditor(host, community))
     card.appendChild(el("h3", text = Town.t("communityMembers")))
     val list = el("div", "member-list")

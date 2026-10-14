@@ -85,7 +85,8 @@ internal fun musicPicker(host: HTMLElement, onSelect: (String?) -> Unit): HTMLEl
                 button.onClick { toggleMusicPreview(audioUrl, button) }
             })
         }
-        results.appendChild(wrap)
+        if (select) results.asDynamic().insertBefore(wrap, results.firstChild)
+        else results.appendChild(wrap)
         if (select) markSelected(id)
         return wrap
     }
@@ -120,7 +121,9 @@ internal fun musicPicker(host: HTMLElement, onSelect: (String?) -> Unit): HTMLEl
         pending.appendChild(el("span", "avatar-spinner"))
         results.asDynamic().insertBefore(pending, results.firstChild)
         pollMusic(created.id as String) { track ->
+            val stillHere = pending.asDynamic().isConnected == true
             pending.asDynamic().remove()
+            if (!stillHere) return@pollMusic
             if (track.status == "ready") {
                 val wrap = addTrack(track, select = true)
                 val url = (track.audioUrl as? String)?.let(::prefixServerOrigin)
