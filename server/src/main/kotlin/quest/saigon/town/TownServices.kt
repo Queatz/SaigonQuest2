@@ -37,6 +37,7 @@ class TownServices(
     val communities: CommunityService = CommunityService(repo, clock),
     val places: PlaceLookup = NoPlaces,
     val events: EventService = EventService(repo, hub, clock, pusher),
+    val polls: PollService = PollService(repo, hub, clock, pusher),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock, pusher)
 

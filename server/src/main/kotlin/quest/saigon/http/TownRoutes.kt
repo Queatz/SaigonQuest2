@@ -374,6 +374,12 @@ fun Route.townApi(services: TownServices) {
         if (eventEndAt != null && eventStartAt == null) return@post call.fail("invalid_event")
         if (eventPrice != null && eventStartAt == null) return@post call.fail("invalid_event")
         if (eventStartAt != null && eventEndAt != null && eventEndAt < eventStartAt) return@post call.fail("invalid_event")
+        val pollRaw = (0 until Limits.POLL_OPTIONS_MAX).map { form.text("pollOption$it") }
+        val pollOptions = if (pollRaw.all { it.isBlank() }) {
+            emptyList()
+        } else {
+            quest.saigon.PollNames.clean(pollRaw) ?: return@post call.fail("invalid_poll")
+        }
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
@@ -405,6 +411,7 @@ fun Route.townApi(services: TownServices) {
                 eventStartAt = eventStartAt,
                 eventEndAt = eventEndAt,
                 eventPrice = eventPrice,
+                pollOptions = pollOptions,
             ),
         )
         if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
@@ -439,6 +446,9 @@ fun Route.townApi(services: TownServices) {
                     eventPrice = post.eventPrice,
                     attendeeCount = 1,
                     joined = true,
+                    pollOptions = pollOptions.mapIndexed { index, text ->
+                        quest.saigon.town.PollOptionView(index, text)
+                    },
                 ),
             ),
             HttpStatusCode.Created,
@@ -469,6 +479,25 @@ fun Route.townApi(services: TownServices) {
             return@post call.fail(error.code)
         }
         call.respondJson(postPayload(item))
+    }
+
+    post("/posts/{id}/poll/{index}") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val index = call.parameters["index"]?.toIntOrNull() ?: return@post call.fail("invalid_poll")
+        val item = try {
+            services.polls.vote(user, call.parameters["id"].orEmpty(), index)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(postPayload(item))
+    }
+
+    get("/posts/{id}/voters") {
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        if (post.pollOptions.isEmpty()) return@get call.fail("not_found")
+        val viewer = call.user(services)
+        val options = services.repo.pollOptions(post.id, viewer?.id, 200)
+        call.respondJson(mapOf("options" to options.map { pollOptionPayload(it, includePhone = false) }))
     }
 
     get("/posts/{id}/attendees") {
@@ -1089,6 +1118,7 @@ private fun postPayload(item: FeedItem) = mapOf(
     "attendeeCount" to item.attendeeCount,
     "joined" to item.joined,
     "attendees" to item.attendees.map { attendeePayload(it, includePhone = false) },
+    "pollOptions" to item.pollOptions.map { pollOptionPayload(it, includePhone = false) },
 )
 
 private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(
@@ -1108,6 +1138,14 @@ private fun memberPayload(member: quest.saigon.town.CommunityMember) = mapOf(
     "location" to member.location,
     "intro" to member.intro,
     "joinedAt" to member.joinedAt,
+)
+
+private fun pollOptionPayload(option: quest.saigon.town.PollOptionView, includePhone: Boolean) = mapOf(
+    "index" to option.index,
+    "text" to option.text,
+    "voteCount" to option.voteCount,
+    "voted" to option.voted,
+    "voters" to option.voters.map { attendeePayload(it, includePhone) },
 )
 
 private fun attendeePayload(member: quest.saigon.town.EventAttendee, includePhone: Boolean) = mapOf(

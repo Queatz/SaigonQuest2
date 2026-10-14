@@ -19,6 +19,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     var selectedMusicId: String? = null
 
     val photosWrap = el("div", "composer-photos")
+    val stage = el("div", "composer-photo-stage")
     val upload = el("button", "upload")
     upload.setAttribute("type", "button")
     val preview = el("img", "upload-preview")
@@ -27,6 +28,10 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val label = el("span", "upload-label", text = Town.t("uploadPrompt1"))
     upload.appendChild(label)
     rotateUploadPrompts(label)
+    val remove = el("button", "icon-btn composer-photo-remove", text = "🗑️")
+    remove.setAttribute("type", "button")
+    remove.setAttribute("aria-label", Town.t("removePhoto"))
+    remove.asDynamic().hidden = true
     val thumbs = el("div", "photo-thumbs")
     thumbs.asDynamic().hidden = true
     val picker = el("input")
@@ -34,7 +39,9 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     picker.setAttribute("accept", "image/*")
     picker.setAttribute("multiple", "multiple")
     picker.asDynamic().hidden = true
-    photosWrap.appendChild(upload)
+    stage.appendChild(upload)
+    stage.appendChild(remove)
+    photosWrap.appendChild(stage)
     photosWrap.appendChild(thumbs)
 
     fun refreshPhotos() {
@@ -42,6 +49,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
             preview.removeAttribute("src")
             preview.asDynamic().hidden = true
             label.asDynamic().hidden = false
+            remove.asDynamic().hidden = true
             thumbs.asDynamic().hidden = true
             thumbs.clear()
             selectedPhoto = 0
@@ -51,6 +59,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
         preview.setAttribute("src", photos[selectedPhoto].url)
         preview.asDynamic().hidden = false
         label.asDynamic().hidden = true
+        remove.asDynamic().hidden = false
         thumbs.asDynamic().hidden = false
         renderPhotoThumbs(thumbs, photos, selectedPhoto, photos.size < Limits.PHOTOS_MAX, { index ->
             selectedPhoto = index
@@ -64,6 +73,14 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
         }, {
             picker.asDynamic().click()
         })
+    }
+
+    fun removeSelectedPhoto() {
+        if (selectedPhoto !in photos.indices) return
+        val gone = photos.removeAt(selectedPhoto)
+        window.asDynamic().URL.revokeObjectURL(gone.url)
+        if (selectedPhoto > photos.lastIndex) selectedPhoto = photos.lastIndex.coerceAtLeast(0)
+        refreshPhotos()
     }
 
     fun addPhotoFiles(list: dynamic) {
@@ -99,6 +116,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     }
 
     upload.onClick { if (photos.isEmpty()) picker.asDynamic().click() }
+    remove.onClick { removeSelectedPhoto() }
     picker.asDynamic().onchange = {
         addPhotoFiles(picker.asDynamic().files)
         picker.asDynamic().value = ""
@@ -124,6 +142,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     locationRow.appendChild(location.input)
     locationRow.appendChild(mapBtn)
     val event = composerEventFields()
+    val poll = composerPollFields()
     mapBtn.onClick {
         openLocationPicker(shell, communities.second.communityId, pickedPlace) { picked ->
             pickedPlace.name = picked.name
@@ -268,6 +287,18 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                     event.endAt?.let { form.append("eventEndAt", it.toString()) }
                     event.price?.let { form.append("eventPrice", it.toString()) }
                 }
+                if (poll.enabled) {
+                    val options = poll.options()
+                    if (options.size < Limits.POLL_OPTIONS_MIN) {
+                        post.removeAttribute("disabled")
+                        post.textContent = Town.t("postNow")
+                        show(error, Town.t("invalidPoll"))
+                        return@onClick
+                    }
+                    options.forEachIndexed { index, option ->
+                        form.append("pollOption$index", option)
+                    }
+                }
                 val avatarId = selectedAvatar
                 if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
@@ -304,6 +335,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(communities.first)
     body.appendChild(location.root)
     body.appendChild(event.root)
+    body.appendChild(poll.root)
     body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)
     body.appendChild(avatarRow)

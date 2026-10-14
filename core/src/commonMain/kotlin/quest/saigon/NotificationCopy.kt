@@ -8,6 +8,7 @@ object NotificationCopy {
             mapOf(
                 "name" to actorName,
                 "event" to preview,
+                "poll" to preview,
             ),
         )
 
@@ -22,6 +23,7 @@ object NotificationCopy {
         "event_friend_joined" -> "notificationEventFriendJoined"
         "event_starting_soon" -> "notificationEventStartingSoon"
         "event_starting_now" -> "notificationEventStartingNow"
+        "poll_voted" -> "notificationPollVoted"
         else -> "notificationPostComment"
     }
 }

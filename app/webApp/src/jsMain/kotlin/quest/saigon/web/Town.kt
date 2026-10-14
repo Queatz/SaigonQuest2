@@ -64,6 +64,15 @@ internal data class PostCard(
     val attendeeCount: Int = 0,
     val joined: Boolean = false,
     val attendees: List<EventPerson> = emptyList(),
+    val pollOptions: List<PollChoice> = emptyList(),
+)
+
+internal data class PollChoice(
+    val index: Int,
+    val text: String,
+    val voteCount: Int = 0,
+    val voted: Boolean = false,
+    val voters: List<EventPerson> = emptyList(),
 )
 
 internal data class EventPerson(
@@ -144,6 +153,7 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     attendeeCount = num(node.attendeeCount).toInt(),
     joined = node.joined == true,
     attendees = readEventPeople(node.attendees),
+    pollOptions = readPollOptions(node.pollOptions),
 )
 
 internal fun eventPersonFrom(node: dynamic): EventPerson = EventPerson(
@@ -168,6 +178,27 @@ internal fun readEventPeople(node: dynamic): List<EventPerson> {
 }
 
 internal val PostCard.hasEvent: Boolean get() = (eventStartAt ?: 0L) > 0
+
+internal val PostCard.hasPoll: Boolean get() = pollOptions.isNotEmpty()
+
+internal fun readPollOptions(node: dynamic): List<PollChoice> {
+    val items = mutableListOf<PollChoice>()
+    if (node == null || node == undefined) return items
+    val length = node.length as? Int ?: return items
+    for (i in 0 until length) {
+        val option = node[i]
+        val text = (option.text as? String).orEmpty()
+        if (text.isBlank()) continue
+        items += PollChoice(
+            index = num(option.index).toInt().takeIf { it >= 0 } ?: i,
+            text = text,
+            voteCount = num(option.voteCount).toInt(),
+            voted = option.voted == true,
+            voters = readEventPeople(option.voters),
+        )
+    }
+    return items
+}
 
 internal fun commentFrom(node: dynamic): CommentCard = CommentCard(
     id = (node.id as? String).orEmpty(),

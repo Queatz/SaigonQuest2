@@ -19,6 +19,7 @@ class InMemoryTownRepository : TownRepository {
     private val communities = ConcurrentHashMap<String, CommunityRecord>()
     private val memberships = ConcurrentHashMap<String, Membership>()
     private val attendances = ConcurrentHashMap<String, Attendance>()
+    private val pollVotes = ConcurrentHashMap<String, PollVote>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -253,6 +254,7 @@ class InMemoryTownRepository : TownRepository {
         comments.values.filter { it.postId == id }.forEach { comments.remove(it.id) }
         watches.keys.filter { it.startsWith("$id:") }.forEach { watches.remove(it) }
         attendances.keys.filter { it.startsWith("${id}_") || attendances[it]?.postId == id }.forEach { attendances.remove(it) }
+        pollVotes.keys.filter { it.startsWith("${id}_") || pollVotes[it]?.postId == id }.forEach { pollVotes.remove(it) }
     }
 
     override fun insertComment(comment: CommentRecord): CommentRecord {
@@ -390,6 +392,7 @@ class InMemoryTownRepository : TownRepository {
             attendeeCount = post.attendeeCount,
             joined = viewerId != null && isAttending(post.id, viewerId),
             attendees = previewAttendees(post.id),
+            pollOptions = pollViews(post, viewerId),
         )
     }
 
@@ -792,6 +795,24 @@ class InMemoryTownRepository : TownRepository {
         )
     }
 
+    override fun findPollVote(postId: String, userId: String): PollVote? =
+        pollVotes[membershipKey(postId, userId)]
+
+    override fun castPollVote(postId: String, userId: String, optionIndex: Int, votedAt: Long): Boolean {
+        val post = posts[postId] ?: return false
+        if (optionIndex !in post.pollOptions.indices) return false
+        pollVotes[membershipKey(postId, userId)] = PollVote(postId, optionIndex, userId, votedAt)
+        return true
+    }
+
+    override fun removePollVote(postId: String, userId: String): Boolean =
+        pollVotes.remove(membershipKey(postId, userId)) != null
+
+    override fun pollOptions(postId: String, viewerId: String?, voterLimit: Int): List<PollOptionView> {
+        val post = posts[postId] ?: return emptyList()
+        return pollViews(post, viewerId, voterLimit)
+    }
+
     override fun upsertPushSubscription(subscription: PushSubscriptionRecord) {
         pushSubscriptions[subscription.endpoint] = subscription
     }
@@ -807,6 +828,31 @@ class InMemoryTownRepository : TownRepository {
 
     override fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord> =
         pushSubscriptions.values.filter { it.userId == userId }
+
+    private fun pollViews(post: PostRecord, viewerId: String?, voterLimit: Int = 5): List<PollOptionView> {
+        if (post.pollOptions.isEmpty()) return emptyList()
+        val votes = pollVotes.values.filter { it.postId == post.id }
+        return post.pollOptions.mapIndexed { index, text ->
+            val optionVotes = votes.filter { it.optionIndex == index }.sortedByDescending { it.votedAt }
+            PollOptionView(
+                index = index,
+                text = text,
+                voteCount = optionVotes.size.toLong(),
+                voted = viewerId != null && optionVotes.any { it.userId == viewerId },
+                voters = optionVotes.take(voterLimit.coerceAtLeast(0)).mapNotNull { vote ->
+                    val user = users[vote.userId] ?: return@mapNotNull null
+                    EventAttendee(
+                        id = user.id,
+                        name = user.name,
+                        profilePhotoPath = user.profilePhotoPath,
+                        location = user.location,
+                        intro = user.intro,
+                        joinedAt = vote.votedAt,
+                    )
+                },
+            )
+        }
+    }
 
     private fun previewAttendees(postId: String): List<EventAttendee> =
         attendances.values

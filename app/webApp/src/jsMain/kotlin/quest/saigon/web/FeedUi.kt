@@ -610,6 +610,7 @@ private fun buildSlide(
     }
     card.appendChild(message)
     if (post.hasEvent) card.appendChild(eventCard(post, host, router, onUpdate))
+    if (post.hasPoll) card.appendChild(pollCard(post, host, router, onUpdate))
     card.appendChild(collapsedChat(post, host, router, onUpdate))
     stack.appendChild(card)
     slide.appendChild(stack)

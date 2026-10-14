@@ -118,9 +118,17 @@ class TownRulesTest {
         assertEquals(20, Limits.PHOTOS_MAX)
         assertEquals("Add photo", Copy.text(Language.EN, "addPhoto"))
         assertEquals("Thêm ảnh", Copy.text(Language.VI, "addPhoto"))
+        assertEquals("Remove photo", Copy.text(Language.EN, "removePhoto"))
+        assertEquals("Xóa ảnh", Copy.text(Language.VI, "removePhoto"))
         assertEquals("2 events today", Copy.text(Language.EN, "eventsToday", mapOf("count" to "2")))
         assertEquals("2 sự kiện hôm nay", Copy.text(Language.VI, "eventsToday", mapOf("count" to "2")))
         assertEquals(100_000_000, Limits.EVENT_PRICE_MAX)
+        assertEquals("📊 Poll", Copy.text(Language.EN, "poll"))
+        assertEquals("📊 Bình chọn", Copy.text(Language.VI, "poll"))
+        assertEquals(5, Limits.POLL_OPTIONS_MAX)
+        assertEquals(2, Limits.POLL_OPTIONS_MIN)
+        assertEquals(listOf("Pho", "Banh mi"), PollNames.clean(listOf(" Pho ", "Banh mi", "Pho")))
+        assertEquals(null, PollNames.clean(listOf("Only one")))
         assertEquals("Nice ✨", Copy.quickReplies(Language.EN).first())
         assertEquals("Hay quá ✨", Copy.quickReplies(Language.VI).first())
         assertEquals(5, Copy.quickReplies(Language.EN).distinct().size)
@@ -179,6 +187,14 @@ class TownRulesTest {
         assertEquals(
             "Coffee is starting now",
             NotificationCopy.title(Language.EN, "event_starting_now", "", "Coffee"),
+        )
+        assertEquals(
+            "Minh voted in Lunch?",
+            NotificationCopy.title(Language.EN, "poll_voted", "Minh", "Lunch?"),
+        )
+        assertEquals(
+            "Minh đã bình chọn trong Lunch?",
+            NotificationCopy.title(Language.VI, "poll_voted", "Minh", "Lunch?"),
         )
         assertEquals("I'm down", NotificationCopy.body("I'm down"))
         assertEquals("/p/abc123", NotificationCopy.path("abc123"))

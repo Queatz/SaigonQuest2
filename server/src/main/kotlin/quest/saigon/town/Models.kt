@@ -116,6 +116,7 @@ data class PostRecord(
     val attendeeCount: Long = 0,
     val eventHourNotified: Boolean = false,
     val eventNowNotified: Boolean = false,
+    val pollOptions: List<String> = emptyList(),
 )
 
 data class FeedItem(
@@ -149,6 +150,7 @@ data class FeedItem(
     val attendeeCount: Long = 0,
     val joined: Boolean = false,
     val attendees: List<EventAttendee> = emptyList(),
+    val pollOptions: List<PollOptionView> = emptyList(),
 )
 
 data class FeedPage(
@@ -267,6 +269,7 @@ object NotificationType {
     const val EVENT_FRIEND_JOINED = "event_friend_joined"
     const val EVENT_STARTING_SOON = "event_starting_soon"
     const val EVENT_STARTING_NOW = "event_starting_now"
+    const val POLL_VOTED = "poll_voted"
 }
 
 data class PushSubscriptionRecord(
@@ -291,6 +294,21 @@ data class EventAttendee(
 data class EventAttendeePage(
     val items: List<EventAttendee>,
     val nextCursor: String?,
+)
+
+data class PollVote(
+    val postId: String,
+    val optionIndex: Int,
+    val userId: String,
+    val votedAt: Long,
+)
+
+data class PollOptionView(
+    val index: Int,
+    val text: String,
+    val voteCount: Long = 0,
+    val voted: Boolean = false,
+    val voters: List<EventAttendee> = emptyList(),
 )
 
 data class EventSummary(

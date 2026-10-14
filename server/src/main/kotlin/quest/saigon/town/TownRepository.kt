@@ -94,6 +94,10 @@ interface TownRepository {
     fun people(cursor: String?, limit: Int): CommunityMemberPage
     fun eventPostsBetween(from: Long, to: Long): List<PostRecord>
     fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean)
+    fun findPollVote(postId: String, userId: String): PollVote?
+    fun castPollVote(postId: String, userId: String, optionIndex: Int, votedAt: Long): Boolean
+    fun removePollVote(postId: String, userId: String): Boolean
+    fun pollOptions(postId: String, viewerId: String?, voterLimit: Int = 5): List<PollOptionView>
     fun upsertPushSubscription(subscription: PushSubscriptionRecord)
     fun deletePushSubscription(userId: String, endpoint: String)
     fun deletePushSubscriptionByEndpoint(endpoint: String)

@@ -16,6 +16,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
+            POLL_VOTES,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -33,6 +34,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("communityKey", "joinedAt"), PersistentIndexOptions())
         db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "joinedAt"), PersistentIndexOptions())
+        db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "optionIndex", "votedAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -272,6 +275,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("attendeeCount", post.attendeeCount)
         doc.addAttribute("eventHourNotified", post.eventHourNotified)
         doc.addAttribute("eventNowNotified", post.eventNowNotified)
+        doc.addAttribute("pollOptions", post.pollOptions)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -371,7 +375,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                       intro: person.intro,
                       joinedAt: a.joinedAt
                     }
-                )
+                ),
+                ${pollOptionsAql()}
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -409,6 +414,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 attendeeCount = long(doc, "attendeeCount"),
                 eventHourNotified = boolean(doc, "eventHourNotified"),
                 eventNowNotified = boolean(doc, "eventNowNotified"),
+                pollOptions = stringList(doc, "pollOptions"),
             )
         }
 
@@ -495,7 +501,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                       intro: person.intro,
                       joinedAt: a.joinedAt
                     }
-                )
+                ),
+                ${pollOptionsAql()}
               }
         """.trimIndent()
         val row = first(query, bind) ?: return null
@@ -589,6 +596,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         exec("FOR c IN $COMMENTS FILTER c.postKey == @id REMOVE c IN $COMMENTS RETURN OLD", mapOf("id" to id))
         exec("FOR w IN $COMMENT_WATCHES FILTER w.postKey == @id REMOVE w IN $COMMENT_WATCHES RETURN OLD", mapOf("id" to id))
         exec("FOR a IN $EVENT_ATTENDANCES FILTER a.postKey == @id REMOVE a IN $EVENT_ATTENDANCES RETURN OLD", mapOf("id" to id))
+        exec("FOR v IN $POLL_VOTES FILTER v.postKey == @id REMOVE v IN $POLL_VOTES RETURN OLD", mapOf("id" to id))
         db.collection(POSTS).deleteDocument(id)
     }
 
@@ -1499,7 +1507,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                       intro: person.intro,
                       joinedAt: a.joinedAt
                     }
-                )
+                ),
+                ${pollOptionsAql()}
               }
         """.trimIndent()
         return queryList(query, bind).map(::feedItemFrom)
@@ -1612,6 +1621,97 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         """.trimIndent(),
         mapOf("from" to from, "to" to to),
     ).mapNotNull { doc -> findPost(doc.key) }
+
+    override fun findPollVote(postId: String, userId: String): PollVote? {
+        val doc = db.collection(POLL_VOTES).getDocument(membershipKey(postId, userId), BaseDocument::class.java)
+            ?: return null
+        return PollVote(
+            postId = string(doc, "postKey").ifBlank { postId },
+            optionIndex = long(doc, "optionIndex").toInt(),
+            userId = string(doc, "userKey").ifBlank { userId },
+            votedAt = long(doc, "votedAt"),
+        )
+    }
+
+    override fun castPollVote(postId: String, userId: String, optionIndex: Int, votedAt: Long): Boolean {
+        val post = findPost(postId) ?: return false
+        if (optionIndex !in post.pollOptions.indices) return false
+        val key = membershipKey(postId, userId)
+        val doc = BaseDocument(key)
+        doc.addAttribute("postKey", postId)
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("optionIndex", optionIndex)
+        doc.addAttribute("votedAt", votedAt)
+        if (db.collection(POLL_VOTES).documentExists(key)) {
+            db.collection(POLL_VOTES).replaceDocument(key, doc)
+        } else {
+            try {
+                db.collection(POLL_VOTES).insertDocument(doc)
+            } catch (_: ArangoDBException) {
+                return false
+            }
+        }
+        return true
+    }
+
+    override fun removePollVote(postId: String, userId: String): Boolean {
+        val key = membershipKey(postId, userId)
+        if (!db.collection(POLL_VOTES).documentExists(key)) return false
+        db.collection(POLL_VOTES).deleteDocument(key)
+        return true
+    }
+
+    override fun pollOptions(postId: String, viewerId: String?, voterLimit: Int): List<PollOptionView> {
+        val post = findPost(postId) ?: return emptyList()
+        if (post.pollOptions.isEmpty()) return emptyList()
+        val rows = queryList(
+            """
+            LET options = @options
+            FOR optionIndex IN 0..${Limits.POLL_OPTIONS_MAX - 1}
+              FILTER optionIndex < LENGTH(options)
+              LET votes = (
+                FOR v IN $POLL_VOTES
+                  FILTER v.postKey == @postKey AND v.optionIndex == optionIndex
+                  SORT v.votedAt DESC
+                  LET person = DOCUMENT("$USERS", v.userKey)
+                  FILTER person != null
+                  LIMIT @voterLimit
+                  RETURN {
+                    id: person._key,
+                    name: person.name,
+                    profilePhotoPath: person.profilePhotoPath,
+                    location: person.location,
+                    intro: person.intro,
+                    joinedAt: v.votedAt
+                  }
+              )
+              LET voteCount = LENGTH(
+                FOR v IN $POLL_VOTES
+                  FILTER v.postKey == @postKey AND v.optionIndex == optionIndex
+                  RETURN 1
+              )
+              RETURN {
+                index: optionIndex,
+                text: options[optionIndex],
+                voteCount: voteCount,
+                voted: @viewerId != "" && LENGTH(
+                  FOR v IN $POLL_VOTES
+                    FILTER v.postKey == @postKey AND v.optionIndex == optionIndex AND v.userKey == @viewerId
+                    LIMIT 1
+                    RETURN 1
+                ) > 0,
+                voters: votes
+              }
+            """.trimIndent(),
+            mapOf(
+                "postKey" to postId,
+                "options" to post.pollOptions,
+                "viewerId" to viewerId.orEmpty(),
+                "voterLimit" to voterLimit.coerceAtLeast(0),
+            ),
+        )
+        return rows.mapNotNull(::pollOptionFrom)
+    }
 
     override fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean) {
         exec(
@@ -1810,10 +1910,48 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         attendeeCount = long(row, "attendeeCount"),
         joined = boolean(row, "joined"),
         attendees = attendeeList(row, "attendees"),
+        pollOptions = pollOptionList(row, "pollOptions"),
     )
 
-    private fun attendeeList(doc: BaseDocument, name: String): List<EventAttendee> {
+    private fun attendeeList(doc: BaseDocument, name: String): List<EventAttendee> =
+        attendeeListFrom(doc.getAttribute(name))
+
+    private fun pollOptionList(doc: BaseDocument, name: String): List<PollOptionView> {
         val raw = doc.getAttribute(name) ?: return emptyList()
+        val rows = when (raw) {
+            is Collection<*> -> raw
+            is Array<*> -> raw.toList()
+            else -> return emptyList()
+        }
+        return rows.mapNotNull(::pollOptionFromAny)
+    }
+
+    private fun pollOptionFrom(doc: BaseDocument): PollOptionView? = pollOptionFromAny(doc)
+
+    private fun pollOptionFromAny(row: Any?): PollOptionView? {
+        if (row == null) return null
+        fun read(field: String): Any? = when (row) {
+            is BaseDocument -> row.getAttribute(field)
+            is Map<*, *> -> row[field]
+            else -> null
+        }
+        val text = read("text")?.toString()?.takeIf { it.isNotBlank() && it != "null" } ?: return null
+        val index = (read("index") as? Number)?.toInt() ?: return null
+        return PollOptionView(
+            index = index,
+            text = text,
+            voteCount = (read("voteCount") as? Number)?.toLong() ?: 0L,
+            voted = when (val raw = read("voted")) {
+                is Boolean -> raw
+                is Number -> raw.toInt() != 0
+                is String -> raw.equals("true", true)
+                else -> false
+            },
+            voters = attendeeListFrom(read("voters")),
+        )
+    }
+
+    private fun attendeeListFrom(raw: Any?): List<EventAttendee> {
         val rows = when (raw) {
             is Collection<*> -> raw
             is Array<*> -> raw.toList()
@@ -1838,6 +1976,41 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             )
         }
     }
+
+    private fun pollOptionsAql(): String = """
+        pollOptions: (
+          LET options = p.pollOptions == null ? [] : p.pollOptions
+          FOR optionIndex IN 0..${Limits.POLL_OPTIONS_MAX - 1}
+            FILTER optionIndex < LENGTH(options)
+            LET votes = (
+              FOR v IN $POLL_VOTES
+                FILTER v.postKey == p._key AND v.optionIndex == optionIndex
+                SORT v.votedAt DESC
+                LET person = DOCUMENT("$USERS", v.userKey)
+                FILTER person != null
+                RETURN {
+                  id: person._key,
+                  name: person.name,
+                  profilePhotoPath: person.profilePhotoPath,
+                  location: person.location,
+                  intro: person.intro,
+                  joinedAt: v.votedAt
+                }
+            )
+            RETURN {
+              index: optionIndex,
+              text: options[optionIndex],
+              voteCount: LENGTH(votes),
+              voted: @viewerId != "" && LENGTH(
+                FOR v IN $POLL_VOTES
+                  FILTER v.postKey == p._key AND v.optionIndex == optionIndex AND v.userKey == @viewerId
+                  LIMIT 1
+                  RETURN 1
+              ) > 0,
+              voters: SLICE(votes, 0, 5)
+            }
+        )
+    """.trimIndent()
 
     private fun notificationFrom(doc: BaseDocument) = NotificationRecord(
         id = doc.key,
@@ -1933,6 +2106,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val COMMUNITIES = "communities"
         private const val MEMBERSHIPS = "memberships"
         private const val EVENT_ATTENDANCES = "eventAttendances"
+        private const val POLL_VOTES = "pollVotes"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 
         fun open(config: AppConfig): ArangoTownRepository {

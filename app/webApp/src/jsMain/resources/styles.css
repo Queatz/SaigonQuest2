@@ -768,6 +768,28 @@ small, .hint { color: var(--muted); font-size: 13px; }
     padding: 0;
 }
 
+.composer-photo-stage {
+    position: relative;
+    width: min(100%, 220px);
+    margin: 8px auto 16px;
+}
+
+.composer-photo-stage .upload {
+    width: 100%;
+    margin: 0;
+}
+
+.composer-photo-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+}
+
 .upload-preview {
     width: 100%;
     height: 100%;
@@ -2641,6 +2663,117 @@ button.busy .avatar-spinner {
 .event-composer { margin: 8px 0 16px; }
 
 .event-fields { display: grid; gap: 0; }
+
+.poll-composer { margin: 8px 0 16px; }
+
+.poll-fields { display: grid; gap: 0; }
+
+.poll-option-fields { display: grid; gap: 0; }
+
+.poll-option-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.poll-option-row .field { margin: 8px 0; }
+
+.poll-option-remove {
+    width: 44px;
+    height: 44px;
+    margin: 0 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.poll-card {
+    display: grid;
+    gap: 10px;
+    margin: 10px 0 4px;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .72);
+    color: var(--ink);
+    border: 1px solid var(--ink);
+}
+
+.poll-title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.poll-choice {
+    display: block;
+}
+
+.poll-option {
+    position: relative;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    width: 100%;
+    margin: 0;
+    border: 1px solid var(--ink);
+    border-radius: 12px;
+    background: transparent;
+    padding: 10px 12px;
+    font: inherit;
+    font-weight: 700;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+}
+
+.poll-option-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(233, 137, 124, .28);
+    pointer-events: none;
+}
+
+.poll-option.voted { border-color: var(--accent); }
+
+.poll-option-copy {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-width: 0;
+}
+
+.poll-faces {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    margin-left: 8px;
+    gap: 0;
+    min-height: 28px;
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.poll-faces .face + .face { margin-left: -8px; }
+
+.poll-voter-group {
+    margin: 12px 0 6px;
+    font-size: 15px;
+}
 
 .event-card {
     display: grid;

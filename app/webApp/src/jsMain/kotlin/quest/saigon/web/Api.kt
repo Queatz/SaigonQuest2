@@ -89,6 +89,7 @@ internal fun errorText(body: String, status: Int): String {
         "invalid_description" -> "invalidDescription"
         "invalid_event" -> "invalidEvent"
         "invalid_event_price" -> "invalidEventPrice"
+        "invalid_poll" -> "invalidPoll"
         "account_paused" -> "accountPaused"
         else -> if (status == 0) "unavailable" else "errorGeneric"
     }
