@@ -27,6 +27,10 @@ object Limits {
     const val COMMENT_MAX = 280
     const val COMMENT_PAGE_SIZE = 50
     const val COMMENT_PREVIEW = 12
+    const val CHAT_NAME_MAX = 40
+    const val CHAT_MESSAGE_MAX = 2000
+    const val CHAT_MESSAGE_PAGE_SIZE = 50
+    const val CHAT_REACTION_MAX = 8
     const val COMMENT_CYCLE_MILLIS = 2000
     const val QUICK_REPLY_COUNT = 5
     const val PHOTOS_MAX = 20

@@ -102,4 +102,34 @@ interface TownRepository {
     fun deletePushSubscription(userId: String, endpoint: String)
     fun deletePushSubscriptionByEndpoint(endpoint: String)
     fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord>
+    fun insertChat(chat: ChatRecord): ChatRecord
+    fun updateChat(chat: ChatRecord)
+    fun findChat(id: String): ChatRecord?
+    fun findDirectChat(userA: String, userB: String): ChatRecord?
+    fun deleteChat(id: String)
+    fun chatsFor(userId: String, cursor: String?, limit: Int): ChatPage
+    fun chatSummary(chatId: String, viewerId: String): ChatSummary?
+    fun upsertChatMember(member: ChatMemberRecord)
+    fun findChatMember(chatId: String, userId: String): ChatMemberRecord?
+    fun deleteChatMember(chatId: String, userId: String)
+    fun chatMemberIds(chatId: String): List<String>
+    fun chatMembers(chatId: String): List<ChatMemberView>
+    fun insertChatMessage(message: ChatMessageRecord): ChatMessageRecord
+    fun findChatMessage(id: String): ChatMessageRecord?
+    fun deleteChatMessage(id: String)
+    fun chatMessages(chatId: String, cursor: String?, limit: Int, viewerId: String): ChatMessagePage
+    fun chatMessageItem(id: String, viewerId: String): ChatMessageItem?
+    fun chatPhotoPaths(chatId: String): List<String>
+    fun incrementChatUnread(chatId: String, exceptUserId: String)
+    fun markChatRead(chatId: String, userId: String, readAt: Long)
+    fun insertChatReaction(reaction: ChatReactionRecord): ChatReactionRecord
+    fun findChatReaction(messageId: String, userId: String, emoji: String): ChatReactionRecord?
+    fun deleteChatReaction(id: String)
+    fun chatReactionDetails(messageId: String, viewerId: String): List<ReactionDetail>
+    fun chatReactionCounts(messageId: String, viewerId: String): List<ReactionCount>
+    fun topChatReactions(chatId: String, limit: Int): List<String>
+    fun searchPeople(query: String, excludeIds: Set<String>, limit: Int): List<EventAttendee>
+    fun markChatNotificationsRead(userId: String, chatId: String, readAt: Long)
+    fun markChatNoticeTypesRead(userId: String, types: Collection<String>, readAt: Long)
+    fun unreadChatNotificationCount(userId: String): Long
 }

@@ -253,6 +253,7 @@ data class NotificationRecord(
     val preview: String,
     val createdAt: Long,
     val readAt: Long? = null,
+    val chatId: String = "",
 )
 
 data class NotificationPage(
@@ -270,7 +271,129 @@ object NotificationType {
     const val EVENT_STARTING_SOON = "event_starting_soon"
     const val EVENT_STARTING_NOW = "event_starting_now"
     const val POLL_VOTED = "poll_voted"
+    const val CHAT_MESSAGE = "chat_message"
+    const val CHAT_ADDED = "chat_added"
+    const val CHAT_REMOVED = "chat_removed"
+    const val CHAT_DELETED = "chat_deleted"
+
+    fun isChat(type: String): Boolean = type == CHAT_MESSAGE || type == CHAT_ADDED ||
+        type == CHAT_REMOVED || type == CHAT_DELETED
 }
+
+object ChatType {
+    const val DIRECT = "direct"
+    const val GROUP = "group"
+}
+
+data class ChatRecord(
+    val id: String,
+    val type: String,
+    val name: String,
+    val createdBy: String,
+    val createdAt: Long,
+    val lastMessageAt: Long,
+    val lastMessageId: String = "",
+    val lastMessageText: String = "",
+    val lastMessageSenderId: String = "",
+    val lastMessageSenderName: String = "",
+    val pairKey: String = "",
+)
+
+data class ChatMemberRecord(
+    val chatId: String,
+    val userId: String,
+    val owner: Boolean,
+    val joinedAt: Long,
+    val lastReadAt: Long = 0,
+    val unreadCount: Long = 0,
+)
+
+data class ChatMessageRecord(
+    val id: String,
+    val chatId: String,
+    val userId: String,
+    val text: String,
+    val photoPaths: List<String> = emptyList(),
+    val createdAt: Long,
+)
+
+data class ChatReactionRecord(
+    val id: String,
+    val chatId: String,
+    val messageId: String,
+    val userId: String,
+    val emoji: String,
+    val createdAt: Long,
+)
+
+data class ChatFace(
+    val userId: String,
+    val name: String,
+    val photoPath: String?,
+)
+
+data class ChatSummary(
+    val id: String,
+    val type: String,
+    val name: String,
+    val photos: List<ChatFace>,
+    val lastMessageSenderName: String,
+    val lastMessageText: String,
+    val lastMessageAt: Long,
+    val unreadCount: Long,
+    val peerId: String? = null,
+    val owner: Boolean = false,
+    val memberCount: Int = 0,
+)
+
+data class ChatPage(
+    val items: List<ChatSummary>,
+    val nextCursor: String?,
+    val unreadCount: Long,
+)
+
+data class ReactionCount(
+    val emoji: String,
+    val count: Int,
+    val mine: Boolean = false,
+)
+
+data class ReactionDetail(
+    val id: String,
+    val emoji: String,
+    val userId: String,
+    val name: String,
+    val photoPath: String?,
+    val mine: Boolean,
+)
+
+data class ChatMessageItem(
+    val id: String,
+    val chatId: String,
+    val userId: String,
+    val authorName: String,
+    val authorPhotoPath: String?,
+    val text: String,
+    val photoPaths: List<String>,
+    val createdAt: Long,
+    val reactions: List<ReactionCount> = emptyList(),
+)
+
+data class ChatMessagePage(
+    val items: List<ChatMessageItem>,
+    val nextCursor: String?,
+)
+
+data class ChatMemberView(
+    val id: String,
+    val name: String,
+    val profilePhotoPath: String?,
+    val location: String = "",
+    val intro: String = "",
+    val phone: String? = null,
+    val owner: Boolean = false,
+    val joinedAt: Long = 0,
+)
 
 data class PushSubscriptionRecord(
     val endpoint: String,

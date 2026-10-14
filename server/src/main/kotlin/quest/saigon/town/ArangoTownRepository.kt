@@ -16,7 +16,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
-            POLL_VOTES,
+            POLL_VOTES, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -44,6 +44,14 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(NOTIFICATIONS).ensurePersistentIndex(listOf("userKey", "readAt"), PersistentIndexOptions())
         db.collection(PUSH_SUBSCRIPTIONS).ensurePersistentIndex(listOf("endpoint"), PersistentIndexOptions().unique(true))
         db.collection(PUSH_SUBSCRIPTIONS).ensurePersistentIndex(listOf("userKey"), PersistentIndexOptions())
+        db.collection(CHATS).ensurePersistentIndex(listOf("pairKey"), PersistentIndexOptions().unique(true).sparse(true))
+        db.collection(CHATS).ensurePersistentIndex(listOf("lastMessageAt"), PersistentIndexOptions())
+        db.collection(CHAT_MEMBERS).ensurePersistentIndex(listOf("chatKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(CHAT_MEMBERS).ensurePersistentIndex(listOf("userKey"), PersistentIndexOptions())
+        db.collection(CHAT_MESSAGES).ensurePersistentIndex(listOf("chatKey", "createdAt"), PersistentIndexOptions())
+        db.collection(CHAT_REACTIONS).ensurePersistentIndex(listOf("messageKey", "userKey", "emoji"), PersistentIndexOptions().unique(true))
+        db.collection(CHAT_REACTIONS).ensurePersistentIndex(listOf("chatKey"), PersistentIndexOptions())
+        db.collection(CHAT_REACTIONS).ensurePersistentIndex(listOf("messageKey"), PersistentIndexOptions())
     }
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -791,6 +799,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("preview", notification.preview)
         doc.addAttribute("createdAt", notification.createdAt)
         doc.addAttribute("readAt", notification.readAt)
+        doc.addAttribute("chatKey", notification.chatId)
         val key = db.collection(NOTIFICATIONS).insertDocument(doc).key
         return notification.copy(id = key)
     }
@@ -808,6 +817,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             """
             FOR n IN $NOTIFICATIONS
               FILTER n.userKey == @userKey
+              FILTER n.type != "chat_message" AND n.type != "chat_added" AND n.type != "chat_removed" AND n.type != "chat_deleted"
               FILTER @hasCursor == false OR n.createdAt < @cursorAt OR (n.createdAt == @cursorAt AND n._key < @cursorKey)
               SORT n.createdAt DESC, n._key DESC
               LIMIT @limit
@@ -828,6 +838,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             """
             FOR n IN $NOTIFICATIONS
               FILTER n.userKey == @userKey AND n.readAt == null
+              FILTER n.type != "chat_message" AND n.type != "chat_added" AND n.type != "chat_removed" AND n.type != "chat_deleted"
               UPDATE n WITH { readAt: @readAt } IN $NOTIFICATIONS
               RETURN NEW
             """.trimIndent(),
@@ -850,6 +861,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("preview", updated.preview)
         doc.addAttribute("createdAt", updated.createdAt)
         doc.addAttribute("readAt", updated.readAt)
+        doc.addAttribute("chatKey", updated.chatId)
         db.collection(NOTIFICATIONS).replaceDocument(id, doc)
         return updated
     }
@@ -859,6 +871,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             """
             FOR n IN $NOTIFICATIONS
               FILTER n.userKey == @userKey AND n.readAt == null
+              FILTER n.type != "chat_message" AND n.type != "chat_added" AND n.type != "chat_removed" AND n.type != "chat_deleted"
               COLLECT WITH COUNT INTO total
               RETURN { total }
             """.trimIndent(),
@@ -1779,6 +1792,375 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         mapOf("userKey" to userId),
     ).map(::pushFrom)
 
+    override fun insertChat(chat: ChatRecord): ChatRecord {
+        val doc = chatDocument(null, chat)
+        val key = db.collection(CHATS).insertDocument(doc).key
+        return chat.copy(id = key)
+    }
+
+    override fun updateChat(chat: ChatRecord) {
+        db.collection(CHATS).replaceDocument(chat.id, chatDocument(chat.id, chat))
+    }
+
+    override fun findChat(id: String): ChatRecord? =
+        db.collection(CHATS).getDocument(id, BaseDocument::class.java)?.let(::chatFrom)
+
+    override fun findDirectChat(userA: String, userB: String): ChatRecord? = first(
+        "FOR c IN $CHATS FILTER c.pairKey == @pair LIMIT 1 RETURN c",
+        mapOf("pair" to ChatService.pairKey(userA, userB)),
+    )?.let(::chatFrom)
+
+    override fun deleteChat(id: String) {
+        exec(
+            """
+            FOR r IN $CHAT_REACTIONS FILTER r.chatKey == @chatKey REMOVE r IN $CHAT_REACTIONS RETURN OLD
+            """.trimIndent(),
+            mapOf("chatKey" to id),
+        )
+        exec(
+            """
+            FOR m IN $CHAT_MESSAGES FILTER m.chatKey == @chatKey REMOVE m IN $CHAT_MESSAGES RETURN OLD
+            """.trimIndent(),
+            mapOf("chatKey" to id),
+        )
+        exec(
+            """
+            FOR m IN $CHAT_MEMBERS FILTER m.chatKey == @chatKey REMOVE m IN $CHAT_MEMBERS RETURN OLD
+            """.trimIndent(),
+            mapOf("chatKey" to id),
+        )
+        db.collection(CHATS).deleteDocument(id)
+    }
+
+    override fun chatsFor(userId: String, cursor: String?, limit: Int): ChatPage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR m IN $CHAT_MEMBERS
+              FILTER m.userKey == @userKey
+              FOR c IN $CHATS
+                FILTER c._key == m.chatKey
+                FILTER @hasCursor == false OR c.lastMessageAt < @cursorAt OR (c.lastMessageAt == @cursorAt AND c._key < @cursorKey)
+                SORT c.lastMessageAt DESC, c._key DESC
+                LIMIT @limit
+                RETURN c
+            """.trimIndent(),
+            mapOf(
+                "userKey" to userId,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+                "limit" to limit + 1,
+            ),
+        )
+        val page = rows.take(limit).map(::chatFrom)
+        val items = page.mapNotNull { chatSummary(it.id, userId) }
+        val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(it.lastMessageAt, it.id) } else null
+        return ChatPage(items, next, unreadChatNotificationCount(userId))
+    }
+
+    override fun chatSummary(chatId: String, viewerId: String): ChatSummary? {
+        val chat = findChat(chatId) ?: return null
+        val member = findChatMember(chatId, viewerId) ?: return null
+        val members = queryList(
+            "FOR m IN $CHAT_MEMBERS FILTER m.chatKey == @chatKey RETURN m",
+            mapOf("chatKey" to chatId),
+        ).map(::chatMemberFrom)
+        val faces = arangoChatFaces(chat, members, viewerId)
+        val peer = if (chat.type == ChatType.DIRECT) members.firstOrNull { it.userId != viewerId }?.userId else null
+        val displayName = when {
+            chat.type == ChatType.DIRECT -> peer?.let { findUser(it)?.name }.orEmpty().ifBlank { chat.name }
+            chat.name.isNotBlank() -> chat.name
+            else -> members.mapNotNull { findUser(it.userId)?.name }.filter { it.isNotBlank() }.take(3).joinToString(", ")
+        }
+        return ChatSummary(
+            id = chat.id,
+            type = chat.type,
+            name = displayName,
+            photos = faces,
+            lastMessageSenderName = chat.lastMessageSenderName,
+            lastMessageText = chat.lastMessageText,
+            lastMessageAt = chat.lastMessageAt,
+            unreadCount = member.unreadCount,
+            peerId = peer,
+            owner = member.owner,
+            memberCount = members.size,
+        )
+    }
+
+    override fun upsertChatMember(member: ChatMemberRecord) {
+        val existing = first(
+            "FOR m IN $CHAT_MEMBERS FILTER m.chatKey == @chatKey AND m.userKey == @userKey LIMIT 1 RETURN m",
+            mapOf("chatKey" to member.chatId, "userKey" to member.userId),
+        )
+        val doc = BaseDocument()
+        if (existing != null) doc.key = existing.key
+        doc.addAttribute("chatKey", member.chatId)
+        doc.addAttribute("userKey", member.userId)
+        doc.addAttribute("owner", member.owner)
+        doc.addAttribute("joinedAt", member.joinedAt)
+        doc.addAttribute("lastReadAt", member.lastReadAt)
+        doc.addAttribute("unreadCount", member.unreadCount)
+        if (existing != null) {
+            db.collection(CHAT_MEMBERS).replaceDocument(existing.key, doc)
+        } else {
+            db.collection(CHAT_MEMBERS).insertDocument(doc)
+        }
+    }
+
+    override fun findChatMember(chatId: String, userId: String): ChatMemberRecord? = first(
+        "FOR m IN $CHAT_MEMBERS FILTER m.chatKey == @chatKey AND m.userKey == @userKey LIMIT 1 RETURN m",
+        mapOf("chatKey" to chatId, "userKey" to userId),
+    )?.let(::chatMemberFrom)
+
+    override fun deleteChatMember(chatId: String, userId: String) {
+        exec(
+            """
+            FOR m IN $CHAT_MEMBERS
+              FILTER m.chatKey == @chatKey AND m.userKey == @userKey
+              REMOVE m IN $CHAT_MEMBERS
+              RETURN OLD
+            """.trimIndent(),
+            mapOf("chatKey" to chatId, "userKey" to userId),
+        )
+    }
+
+    override fun chatMemberIds(chatId: String): List<String> = queryList(
+        "FOR m IN $CHAT_MEMBERS FILTER m.chatKey == @chatKey RETURN m",
+        mapOf("chatKey" to chatId),
+    ).map { string(it, "userKey") }.filter { it.isNotBlank() }
+
+    override fun chatMembers(chatId: String): List<ChatMemberView> {
+        val members = queryList(
+            "FOR m IN $CHAT_MEMBERS FILTER m.chatKey == @chatKey SORT m.joinedAt ASC RETURN m",
+            mapOf("chatKey" to chatId),
+        ).map(::chatMemberFrom)
+        return members.mapNotNull { member ->
+            val user = findUser(member.userId) ?: return@mapNotNull null
+            ChatMemberView(
+                id = user.id,
+                name = user.name,
+                profilePhotoPath = user.profilePhotoPath,
+                location = user.location,
+                intro = user.intro,
+                phone = user.phone,
+                owner = member.owner,
+                joinedAt = member.joinedAt,
+            )
+        }
+    }
+
+    override fun insertChatMessage(message: ChatMessageRecord): ChatMessageRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("chatKey", message.chatId)
+        doc.addAttribute("userKey", message.userId)
+        doc.addAttribute("text", message.text)
+        doc.addAttribute("photoPaths", message.photoPaths)
+        doc.addAttribute("createdAt", message.createdAt)
+        val key = db.collection(CHAT_MESSAGES).insertDocument(doc).key
+        return message.copy(id = key)
+    }
+
+    override fun findChatMessage(id: String): ChatMessageRecord? =
+        db.collection(CHAT_MESSAGES).getDocument(id, BaseDocument::class.java)?.let(::chatMessageFrom)
+
+    override fun deleteChatMessage(id: String) {
+        exec(
+            """
+            FOR r IN $CHAT_REACTIONS FILTER r.messageKey == @id REMOVE r IN $CHAT_REACTIONS RETURN OLD
+            """.trimIndent(),
+            mapOf("id" to id),
+        )
+        db.collection(CHAT_MESSAGES).deleteDocument(id)
+    }
+
+    override fun chatMessages(chatId: String, cursor: String?, limit: Int, viewerId: String): ChatMessagePage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR m IN $CHAT_MESSAGES
+              FILTER m.chatKey == @chatKey
+              FILTER @hasCursor == false OR m.createdAt < @cursorAt OR (m.createdAt == @cursorAt AND m._key < @cursorKey)
+              SORT m.createdAt DESC, m._key DESC
+              LIMIT @limit
+              RETURN m
+            """.trimIndent(),
+            mapOf(
+                "chatKey" to chatId,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+                "limit" to limit + 1,
+            ),
+        )
+        val newestFirst = rows.take(limit).map(::chatMessageFrom)
+        val items = newestFirst.asReversed().map { toChatMessageItem(it, viewerId) }
+        val next = if (rows.size > limit) newestFirst.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return ChatMessagePage(items, next)
+    }
+
+    override fun chatMessageItem(id: String, viewerId: String): ChatMessageItem? =
+        findChatMessage(id)?.let { toChatMessageItem(it, viewerId) }
+
+    override fun chatPhotoPaths(chatId: String): List<String> = queryList(
+        "FOR m IN $CHAT_MESSAGES FILTER m.chatKey == @chatKey RETURN m",
+        mapOf("chatKey" to chatId),
+    ).flatMap { stringList(it, "photoPaths") }
+
+    override fun incrementChatUnread(chatId: String, exceptUserId: String) {
+        exec(
+            """
+            FOR m IN $CHAT_MEMBERS
+              FILTER m.chatKey == @chatKey AND m.userKey != @except
+              UPDATE m WITH { unreadCount: m.unreadCount + 1 } IN $CHAT_MEMBERS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("chatKey" to chatId, "except" to exceptUserId),
+        )
+    }
+
+    override fun markChatRead(chatId: String, userId: String, readAt: Long) {
+        exec(
+            """
+            FOR m IN $CHAT_MEMBERS
+              FILTER m.chatKey == @chatKey AND m.userKey == @userKey
+              UPDATE m WITH { unreadCount: 0, lastReadAt: @readAt } IN $CHAT_MEMBERS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("chatKey" to chatId, "userKey" to userId, "readAt" to readAt),
+        )
+    }
+
+    override fun insertChatReaction(reaction: ChatReactionRecord): ChatReactionRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("chatKey", reaction.chatId)
+        doc.addAttribute("messageKey", reaction.messageId)
+        doc.addAttribute("userKey", reaction.userId)
+        doc.addAttribute("emoji", reaction.emoji)
+        doc.addAttribute("createdAt", reaction.createdAt)
+        val key = db.collection(CHAT_REACTIONS).insertDocument(doc).key
+        return reaction.copy(id = key)
+    }
+
+    override fun findChatReaction(messageId: String, userId: String, emoji: String): ChatReactionRecord? = first(
+        """
+        FOR r IN $CHAT_REACTIONS
+          FILTER r.messageKey == @messageKey AND r.userKey == @userKey AND r.emoji == @emoji
+          LIMIT 1
+          RETURN r
+        """.trimIndent(),
+        mapOf("messageKey" to messageId, "userKey" to userId, "emoji" to emoji),
+    )?.let(::chatReactionFrom)
+
+    override fun deleteChatReaction(id: String) {
+        db.collection(CHAT_REACTIONS).deleteDocument(id)
+    }
+
+    override fun chatReactionDetails(messageId: String, viewerId: String): List<ReactionDetail> =
+        queryList(
+            "FOR r IN $CHAT_REACTIONS FILTER r.messageKey == @messageKey SORT r.createdAt ASC RETURN r",
+            mapOf("messageKey" to messageId),
+        ).map(::chatReactionFrom).mapNotNull { reaction ->
+            val user = findUser(reaction.userId) ?: return@mapNotNull null
+            ReactionDetail(
+                id = reaction.id,
+                emoji = reaction.emoji,
+                userId = user.id,
+                name = user.name,
+                photoPath = user.profilePhotoPath,
+                mine = user.id == viewerId,
+            )
+        }
+
+    override fun chatReactionCounts(messageId: String, viewerId: String): List<ReactionCount> =
+        chatReactionDetails(messageId, viewerId)
+            .groupBy { it.emoji }
+            .map { (emoji, group) ->
+                ReactionCount(emoji = emoji, count = group.size, mine = group.any { it.mine })
+            }
+            .sortedWith(compareByDescending<ReactionCount> { it.count }.thenBy { it.emoji })
+
+    override fun topChatReactions(chatId: String, limit: Int): List<String> {
+        val rows = queryList(
+            """
+            FOR r IN $CHAT_REACTIONS
+              FILTER r.chatKey == @chatKey
+              COLLECT emoji = r.emoji WITH COUNT INTO total
+              SORT total DESC, emoji ASC
+              LIMIT @limit
+              RETURN { emoji, total }
+            """.trimIndent(),
+            mapOf("chatKey" to chatId, "limit" to limit),
+        )
+        return rows.map { string(it, "emoji") }.filter { it.isNotBlank() }
+    }
+
+    override fun searchPeople(query: String, excludeIds: Set<String>, limit: Int): List<EventAttendee> {
+        val needle = query.trim().lowercase()
+        val rows = queryList(
+            """
+            FOR u IN $USERS
+              FILTER u._key NOT IN @exclude
+              FILTER @needle == "" OR CONTAINS(LOWER(u.name), @needle)
+              SORT u.lastActiveAt DESC, u._key DESC
+              LIMIT @limit
+              RETURN u
+            """.trimIndent(),
+            mapOf(
+                "exclude" to excludeIds.toList(),
+                "needle" to needle,
+                "limit" to limit,
+            ),
+        )
+        return rows.map(::userFrom).map { user ->
+            EventAttendee(
+                id = user.id,
+                name = user.name,
+                profilePhotoPath = user.profilePhotoPath,
+                location = user.location,
+                intro = user.intro,
+            )
+        }
+    }
+
+    override fun markChatNotificationsRead(userId: String, chatId: String, readAt: Long) {
+        exec(
+            """
+            FOR n IN $NOTIFICATIONS
+              FILTER n.userKey == @userKey AND n.chatKey == @chatKey AND n.readAt == null
+              UPDATE n WITH { readAt: @readAt } IN $NOTIFICATIONS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("userKey" to userId, "chatKey" to chatId, "readAt" to readAt),
+        )
+    }
+
+    override fun markChatNoticeTypesRead(userId: String, types: Collection<String>, readAt: Long) {
+        exec(
+            """
+            FOR n IN $NOTIFICATIONS
+              FILTER n.userKey == @userKey AND n.readAt == null AND n.type IN @types
+              UPDATE n WITH { readAt: @readAt } IN $NOTIFICATIONS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("userKey" to userId, "types" to types.toList(), "readAt" to readAt),
+        )
+    }
+
+    override fun unreadChatNotificationCount(userId: String): Long {
+        val row = first(
+            """
+            FOR n IN $NOTIFICATIONS
+              FILTER n.userKey == @userKey AND n.readAt == null
+              FILTER n.type == "chat_message" OR n.type == "chat_added" OR n.type == "chat_removed" OR n.type == "chat_deleted"
+              COLLECT WITH COUNT INTO total
+              RETURN { total }
+            """.trimIndent(),
+            mapOf("userKey" to userId),
+        )
+        return long(row, "total")
+    }
+
     private fun writePushSubscription(key: String, subscription: PushSubscriptionRecord) {
         db.collection(PUSH_SUBSCRIPTIONS).replaceDocument(key, pushDocument(key, subscription))
     }
@@ -2023,7 +2405,102 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         preview = string(doc, "preview"),
         createdAt = long(doc, "createdAt"),
         readAt = doc.getAttribute("readAt")?.let { value -> (value as? Number)?.toLong() },
+        chatId = string(doc, "chatKey"),
     )
+
+    private fun chatDocument(key: String?, chat: ChatRecord): BaseDocument {
+        val doc = if (key == null) BaseDocument() else BaseDocument(key)
+        doc.addAttribute("type", chat.type)
+        doc.addAttribute("name", chat.name)
+        doc.addAttribute("createdBy", chat.createdBy)
+        doc.addAttribute("createdAt", chat.createdAt)
+        doc.addAttribute("lastMessageAt", chat.lastMessageAt)
+        doc.addAttribute("lastMessageId", chat.lastMessageId)
+        doc.addAttribute("lastMessageText", chat.lastMessageText)
+        doc.addAttribute("lastMessageSenderId", chat.lastMessageSenderId)
+        doc.addAttribute("lastMessageSenderName", chat.lastMessageSenderName)
+        if (chat.pairKey.isNotBlank()) doc.addAttribute("pairKey", chat.pairKey)
+        return doc
+    }
+
+    private fun chatFrom(doc: BaseDocument) = ChatRecord(
+        id = doc.key,
+        type = string(doc, "type"),
+        name = string(doc, "name"),
+        createdBy = string(doc, "createdBy"),
+        createdAt = long(doc, "createdAt"),
+        lastMessageAt = long(doc, "lastMessageAt"),
+        lastMessageId = string(doc, "lastMessageId"),
+        lastMessageText = string(doc, "lastMessageText"),
+        lastMessageSenderId = string(doc, "lastMessageSenderId"),
+        lastMessageSenderName = string(doc, "lastMessageSenderName"),
+        pairKey = string(doc, "pairKey"),
+    )
+
+    private fun chatMemberFrom(doc: BaseDocument) = ChatMemberRecord(
+        chatId = string(doc, "chatKey"),
+        userId = string(doc, "userKey"),
+        owner = boolean(doc, "owner"),
+        joinedAt = long(doc, "joinedAt"),
+        lastReadAt = long(doc, "lastReadAt"),
+        unreadCount = long(doc, "unreadCount"),
+    )
+
+    private fun chatMessageFrom(doc: BaseDocument) = ChatMessageRecord(
+        id = doc.key,
+        chatId = string(doc, "chatKey"),
+        userId = string(doc, "userKey"),
+        text = string(doc, "text"),
+        photoPaths = stringList(doc, "photoPaths"),
+        createdAt = long(doc, "createdAt"),
+    )
+
+    private fun chatReactionFrom(doc: BaseDocument) = ChatReactionRecord(
+        id = doc.key,
+        chatId = string(doc, "chatKey"),
+        messageId = string(doc, "messageKey"),
+        userId = string(doc, "userKey"),
+        emoji = string(doc, "emoji"),
+        createdAt = long(doc, "createdAt"),
+    )
+
+    private fun arangoChatFaces(chat: ChatRecord, members: List<ChatMemberRecord>, viewerId: String): List<ChatFace> {
+        if (chat.type == ChatType.DIRECT) {
+            val peer = members.firstOrNull { it.userId != viewerId } ?: members.firstOrNull()
+            val user = peer?.let { findUser(it.userId) } ?: return emptyList()
+            return listOf(ChatFace(user.id, user.name, user.profilePhotoPath))
+        }
+        val recent = queryList(
+            """
+            FOR m IN $CHAT_MESSAGES
+              FILTER m.chatKey == @chatKey
+              SORT m.createdAt DESC, m._key DESC
+              LIMIT 20
+              RETURN m
+            """.trimIndent(),
+            mapOf("chatKey" to chat.id),
+        ).map { string(it, "userKey") }.filter { it.isNotBlank() }.distinct()
+        val ordered = (recent + members.sortedByDescending { it.joinedAt }.map { it.userId }).distinct()
+        return ordered.take(2).mapNotNull { userId ->
+            val user = findUser(userId) ?: return@mapNotNull null
+            ChatFace(user.id, user.name, user.profilePhotoPath)
+        }
+    }
+
+    private fun toChatMessageItem(message: ChatMessageRecord, viewerId: String): ChatMessageItem {
+        val author = findUser(message.userId)
+        return ChatMessageItem(
+            id = message.id,
+            chatId = message.chatId,
+            userId = message.userId,
+            authorName = author?.name.orEmpty(),
+            authorPhotoPath = author?.profilePhotoPath,
+            text = message.text,
+            photoPaths = message.photoPaths,
+            createdAt = message.createdAt,
+            reactions = chatReactionCounts(message.id, viewerId),
+        )
+    }
 
     private fun stringList(doc: BaseDocument, name: String): List<String> {
         val raw = doc.getAttribute(name) ?: return emptyList()
@@ -2107,6 +2584,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val MEMBERSHIPS = "memberships"
         private const val EVENT_ATTENDANCES = "eventAttendances"
         private const val POLL_VOTES = "pollVotes"
+        private const val CHATS = "chats"
+        private const val CHAT_MEMBERS = "chatMembers"
+        private const val CHAT_MESSAGES = "chatMessages"
+        private const val CHAT_REACTIONS = "chatReactions"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 
         fun open(config: AppConfig): ArangoTownRepository {

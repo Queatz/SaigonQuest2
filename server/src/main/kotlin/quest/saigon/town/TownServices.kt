@@ -38,6 +38,8 @@ class TownServices(
     val places: PlaceLookup = NoPlaces,
     val events: EventService = EventService(repo, hub, clock, pusher),
     val polls: PollService = PollService(repo, hub, clock, pusher),
+    val chatHub: NotificationHub = NotificationHub(),
+    val chats: ChatService = ChatService(repo, chatHub, clock, pusher),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock, pusher)
 
@@ -48,6 +50,7 @@ class TownServices(
             val qwen = QwenClient.fromConfig(config)
             val clock: () -> Long = System::currentTimeMillis
             val hub = NotificationHub()
+            val chatHub = NotificationHub()
             val pusher = WebPushService.fromConfig(config, repo, clock)
             val events = EventService(repo, hub, clock, pusher).also { it.start() }
             return TownServices(
@@ -63,6 +66,8 @@ class TownServices(
                 communities = CommunityService(repo, clock, communitySuggester(qwen, config.qwenConfigured)),
                 places = config.googleMapsApiKey?.takeIf { it.isNotBlank() }?.let(::GooglePlaces) ?: NoPlaces,
                 events = events,
+                chatHub = chatHub,
+                chats = ChatService(repo, chatHub, clock, pusher),
             )
         }
     }

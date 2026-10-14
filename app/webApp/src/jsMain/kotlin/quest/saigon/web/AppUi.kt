@@ -5,6 +5,7 @@ import web.html.HTMLElement
 
 internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute) {
     clearFeedKeys()
+    clearChatScreen()
     stopMusicPreview()
     clearStatsPoll()
     root.clear()
@@ -14,7 +15,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         return
     }
     val loggedOutGate = Town.signedOut && (
-        route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts
+        route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts ||
+            route == AppRoute.Messages || route is AppRoute.Chat
         )
     val page = when {
         loggedOutGate || route == AppRoute.Home || route is AppRoute.Post ->
@@ -25,6 +27,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.Stats -> statsScreen(router)
         route == AppRoute.Admin -> adminScreen(router)
         route == AppRoute.Events -> eventsScreen(router)
+        route == AppRoute.Messages -> messagesScreen(router)
+        route is AppRoute.Chat -> chatScreen(router, route.id)
         route is AppRoute.Community -> feedScreen(router, communityId = route.id)
         else -> missingScreen(router)
     }
@@ -33,6 +37,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         val next = when (route) {
             AppRoute.Profile -> "/profile"
             AppRoute.MyPosts -> "/profile/posts"
+            AppRoute.Messages -> "/messages"
+            is AppRoute.Chat -> "/messages/${route.id}"
             else -> "/new"
         }
         showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })

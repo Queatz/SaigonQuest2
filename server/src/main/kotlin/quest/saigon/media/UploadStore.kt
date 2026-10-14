@@ -9,6 +9,7 @@ class UploadStore(val root: File) {
         File(root, "avatars").mkdirs()
         File(root, "music").mkdirs()
         File(root, "private").mkdirs()
+        File(root, "chats").mkdirs()
     }
 
     fun writePost(jpeg: ByteArray): String = write("posts", "jpg", jpeg)
@@ -18,6 +19,8 @@ class UploadStore(val root: File) {
     fun writeMusic(mp3: ByteArray): String = write("music", "mp3", mp3)
 
     fun writeProfile(jpeg: ByteArray): String = write("private", "jpg", jpeg)
+
+    fun writeChat(jpeg: ByteArray): String = write("chats", "jpg", jpeg)
 
     fun read(relative: String): ByteArray {
         val file = resolve(relative) ?: throw IllegalArgumentException("not_found")

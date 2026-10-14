@@ -56,7 +56,7 @@ class WebPushService(
                 mapOf(
                     "title" to NotificationCopy.title(language, notification.type, notification.actorName, notification.preview),
                     "body" to NotificationCopy.body(notification.preview),
-                    "url" to NotificationCopy.path(notification.postId),
+                    "url" to NotificationCopy.path(notification.type, notification.postId, notification.chatId),
                     "id" to notification.id,
                     "postId" to notification.postId,
                     "type" to notification.type,

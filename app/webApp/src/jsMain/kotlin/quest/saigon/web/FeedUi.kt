@@ -54,7 +54,10 @@ internal fun feedScreen(
         brand.appendChild(eventsSummaryButton(router))
         top.appendChild(brand)
         val actions = el("div", "top-actions")
-        if (Town.me != null) actions.appendChild(notificationButton(router, shell))
+        if (Town.me != null) {
+            actions.appendChild(messagesButton(router))
+            actions.appendChild(notificationButton(router, shell))
+        }
         actions.appendChild(viewerButton(router, toComposer = true))
         top.appendChild(actions)
     } else {
@@ -765,6 +768,15 @@ internal fun openMiniProfile(
                 row.appendChild(communityChip(router, community) { backdrop.asDynamic().remove() })
             }
         }
+    }
+    if (router != null && userId.isNotBlank() && userId != Town.me?.id) {
+        card.appendChild(el("button", "primary", text = Town.t("message")) { button ->
+            button.setAttribute("type", "button")
+            button.onClick {
+                backdrop.asDynamic().remove()
+                openDirectChat(host, router, userId, name)
+            }
+        })
     }
     card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
         button.setAttribute("type", "button")

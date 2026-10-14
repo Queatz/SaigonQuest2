@@ -41,7 +41,9 @@ internal fun collapsedChat(
     val input = el("button", "comment-input")
     input.setAttribute("type", "button")
     row.appendChild(input)
-    row.appendChild(zaloButton(post.id, host))
+    if (post.authorId.isNotBlank() && post.authorId != Town.me?.id) {
+        row.appendChild(messagePostButton(post, host, router))
+    }
     row.appendChild(shareButton(post, host))
     box.appendChild(preview)
     box.appendChild(chips)
@@ -559,35 +561,17 @@ internal fun openCommentsSheet(
     }
 }
 
-internal fun zaloButton(postId: String, host: HTMLElement): HTMLElement =
+internal fun messagePostButton(post: PostCard, host: HTMLElement, router: HistoryRouter): HTMLElement =
     el("button", "zalo-btn") { button ->
         button.setAttribute("type", "button")
-        button.setAttribute("aria-label", Town.t("zaloReply"))
+        button.setAttribute("aria-label", Town.t("message"))
         button.asDynamic().innerHTML = """
             <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M4.2 4.2h15.6A1.8 1.8 0 0 1 21.6 6v9.2a1.8 1.8 0 0 1-1.8 1.8H8.4L4 21.2V6a1.8 1.8 0 0 1 1.8-1.8H4.2z"/>
             </svg>
         """.trimIndent()
-        button.onClick {
-            val popup = window.asDynamic().open("", "_blank")
-            contactAuthor(postId, host, button, popup)
-        }
+        button.onClick { openDirectChat(host, router, post.authorId, post.authorName) }
     }
-
-private fun contactAuthor(postId: String, host: HTMLElement, button: HTMLElement, popup: dynamic) {
-    button.setAttribute("disabled", "disabled")
-    http("POST", "/api/posts/$postId/contact", "{}") { status, body ->
-        button.removeAttribute("disabled")
-        if (status == 200) {
-            val url = parseJson(body).zaloUrl as String
-            if (popup != null && popup.closed != true) popup.location.href = url
-            else window.asDynamic().location.assign(url)
-        } else {
-            if (popup != null) popup.close()
-            toast(host, errorText(body, status))
-        }
-    }
-}
 
 internal fun relativeTime(createdAt: Long): String {
     val delta = (num(js("Date.now()")) - createdAt.toDouble()).coerceAtLeast(0.0)

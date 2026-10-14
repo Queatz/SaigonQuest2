@@ -36,6 +36,8 @@ import quest.saigon.town.AdminPost
 import quest.saigon.town.AdminUser
 import quest.saigon.town.AvatarRecord
 import quest.saigon.town.AvatarStatus
+import quest.saigon.town.ChatMemberView
+import quest.saigon.town.ChatService
 import quest.saigon.town.CommentItem
 import quest.saigon.town.CommentService
 import quest.saigon.town.FeedItem
@@ -955,6 +957,292 @@ fun Route.townApi(services: TownServices) {
         }
         call.respondJson(mapOf("ok" to true))
     }
+
+    get("/chats") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50
+        val page = services.chats.list(user, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "chats" to page.items.map(ChatService::chatPayload),
+                "nextCursor" to page.nextCursor,
+                "unreadCount" to page.unreadCount,
+            ),
+        )
+    }
+
+    get("/chats/stream") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        call.response.cacheControl(CacheControl.NoCache(null))
+        call.response.headers.append(HttpHeaders.Connection, "keep-alive")
+        call.response.headers.append("X-Accel-Buffering", "no")
+        val queue = java.util.concurrent.LinkedBlockingQueue<String>()
+        val cancel = services.chatHub.subscribe(user.id) { json -> queue.offer(json) }
+        try {
+            call.respondBytesWriter(contentType = ContentType.parse("text/event-stream")) {
+                writeStringUtf8("event: ready\ndata: {}\n\n")
+                flush()
+                var idle = 0
+                while (!isClosedForWrite) {
+                    val event = queue.poll()
+                    if (event != null) {
+                        idle = 0
+                        writeStringUtf8("data: $event\n\n")
+                        flush()
+                    } else {
+                        delay(400)
+                        idle += 400
+                        if (idle >= 15_000) {
+                            writeStringUtf8(": ping\n\n")
+                            flush()
+                            idle = 0
+                        }
+                    }
+                }
+            }
+        } finally {
+            cancel()
+        }
+    }
+
+    get("/chats/direct/{userId}") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val chat = services.chats.findDirect(user, call.parameters["userId"].orEmpty())
+            ?: return@get call.fail("not_found")
+        call.respondJson(ChatService.chatPayload(chat))
+    }
+
+    post("/chats") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val item = try {
+            val otherId = Jsons.text(body, "userId")
+            if (otherId.isNotBlank()) {
+                services.chats.createDirect(user, otherId, Jsons.text(body, "text"))
+            } else {
+                services.chats.createGroup(user, Jsons.text(body, "name"))
+            }
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(item), HttpStatusCode.Created)
+    }
+
+    get("/chats/{id}") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val chat = try {
+            services.chats.get(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        val payload = ChatService.chatPayload(chat).toMutableMap()
+        payload["defaultReactions"] = services.chats.defaultReactions(chat.id)
+        call.respondJson(payload)
+    }
+
+    post("/chats/{id}/read") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        try {
+            services.chats.read(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true, "unreadCount" to services.repo.unreadChatNotificationCount(user.id)))
+    }
+
+    post("/chats/{id}/leave") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val photos = try {
+            services.chats.leave(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        photos.forEach { services.uploads.delete(it) }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    delete("/chats/{id}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val photos = try {
+            services.chats.deleteGroup(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        photos.forEach { services.uploads.delete(it) }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    get("/chats/{id}/members") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val members = try {
+            services.chats.members(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(mapOf("members" to members.map(::chatMemberPayload)))
+    }
+
+    post("/chats/{id}/members") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val chat = try {
+            services.chats.addMember(user, call.parameters["id"].orEmpty(), Jsons.text(body, "userId"))
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(chat))
+    }
+
+    delete("/chats/{id}/members/{userId}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val chat = try {
+            services.chats.removeMember(user, call.parameters["id"].orEmpty(), call.parameters["userId"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(chat))
+    }
+
+    post("/chats/{id}/members/{userId}/owner") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val chat = try {
+            services.chats.makeOwner(user, call.parameters["id"].orEmpty(), call.parameters["userId"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(chat))
+    }
+
+    get("/chats/{id}/messages") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, Limits.CHAT_MESSAGE_PAGE_SIZE)
+            ?: Limits.CHAT_MESSAGE_PAGE_SIZE
+        val page = try {
+            services.chats.messages(user, call.parameters["id"].orEmpty(), call.request.queryParameters["cursor"], limit)
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(
+            mapOf(
+                "messages" to page.items.map(ChatService::messagePayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    post("/chats/{id}/messages") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val contentType = call.request.headers[HttpHeaders.ContentType].orEmpty()
+        val text: String
+        val photos: List<ByteArray>
+        if (contentType.contains("multipart", ignoreCase = true)) {
+            val form = call.formParts()
+            text = form.text("text")
+            photos = form.files("photo")
+        } else {
+            text = Jsons.text(Jsons.parse(call.receiveText()), "text")
+            photos = emptyList()
+        }
+        if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
+        val paths = mutableListOf<String>()
+        for (photo in photos) {
+            val jpeg = try {
+                services.images.preparePostPhoto(photo)
+            } catch (_: Exception) {
+                return@post call.fail("invalid_photo")
+            }
+            paths += services.uploads.writeChat(jpeg)
+        }
+        val item = try {
+            services.chats.send(user, call.parameters["id"].orEmpty(), text, paths)
+        } catch (error: TownException) {
+            paths.forEach { services.uploads.delete(it) }
+            return@post call.fail(error.code)
+        }
+        call.respondJson(ChatService.messagePayload(item), HttpStatusCode.Created)
+    }
+
+    delete("/chats/{id}/messages/{messageId}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val photos = try {
+            services.chats.deleteMessage(user, call.parameters["id"].orEmpty(), call.parameters["messageId"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        photos.forEach { services.uploads.delete(it) }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    get("/chats/{id}/messages/{messageId}/reactions") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val details = try {
+            services.chats.reactionDetails(user, call.parameters["id"].orEmpty(), call.parameters["messageId"].orEmpty())
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(mapOf("reactions" to details.map(ChatService::reactionDetailPayload)))
+    }
+
+    post("/chats/{id}/messages/{messageId}/reactions") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val emoji = Jsons.text(Jsons.parse(call.receiveText()), "emoji")
+        val counts = try {
+            services.chats.react(user, call.parameters["id"].orEmpty(), call.parameters["messageId"].orEmpty(), emoji)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("reactions" to counts.map(ChatService::reactionPayload)))
+    }
+
+    delete("/chats/{id}/messages/{messageId}/reactions") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val emoji = Jsons.text(Jsons.parse(call.receiveText()), "emoji")
+        val counts = try {
+            services.chats.unreact(user, call.parameters["id"].orEmpty(), call.parameters["messageId"].orEmpty(), emoji)
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("reactions" to counts.map(ChatService::reactionPayload)))
+    }
+
+    post("/chats/{id}/typing") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        try {
+            services.chats.typing(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    get("/chats/{id}/media/{name}") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val chatId = call.parameters["id"].orEmpty()
+        try {
+            services.chats.get(user, chatId)
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        val name = call.parameters["name"].orEmpty()
+        if (name.length !in 1..80 || name.any { !it.isLetterOrDigit() && it != '.' && it != '_' && it != '-' } || name.contains("..")) {
+            return@get call.fail("not_found")
+        }
+        val file = services.uploads.resolve("chats/$name") ?: return@get call.fail("not_found")
+        call.response.headers.append("Cache-Control", "private, max-age=300")
+        call.respondBytes(file.readBytes(), ContentType.Image.JPEG)
+    }
+
+    get("/people") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val people = services.chats.searchPeople(user, call.request.queryParameters["q"].orEmpty(), emptySet(), 20)
+        call.respondJson(mapOf("people" to people.map { attendeePayload(it, includePhone = false) }))
+    }
+
+    post("/chats/notices/read") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        services.chats.markListNoticesRead(user)
+        call.respondJson(mapOf("ok" to true, "unreadCount" to services.repo.unreadChatNotificationCount(user.id)))
+    }
 }
 
 fun Route.mediaRoutes(services: TownServices) {
@@ -1146,6 +1434,18 @@ private fun pollOptionPayload(option: quest.saigon.town.PollOptionView, includeP
     "voteCount" to option.voteCount,
     "voted" to option.voted,
     "voters" to option.voters.map { attendeePayload(it, includePhone) },
+)
+
+private fun chatMemberPayload(member: ChatMemberView) = mapOf(
+    "id" to member.id,
+    "name" to member.name,
+    "photoUrl" to member.profilePhotoPath?.let { "/api/users/${member.id}/photo" },
+    "location" to member.location,
+    "intro" to member.intro,
+    "joinedAt" to member.joinedAt,
+    "owner" to member.owner,
+    "phone" to member.phone?.let { PhoneNumbers.display(it) },
+    "zaloUrl" to member.phone?.let { PhoneNumbers.zaloUrl(it) },
 )
 
 private fun attendeePayload(member: quest.saigon.town.EventAttendee, includePhone: Boolean) = mapOf(

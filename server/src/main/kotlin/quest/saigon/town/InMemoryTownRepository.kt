@@ -20,6 +20,10 @@ class InMemoryTownRepository : TownRepository {
     private val memberships = ConcurrentHashMap<String, Membership>()
     private val attendances = ConcurrentHashMap<String, Attendance>()
     private val pollVotes = ConcurrentHashMap<String, PollVote>()
+    private val chats = ConcurrentHashMap<String, ChatRecord>()
+    private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
+    private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
+    private val chatReactions = ConcurrentHashMap<String, ChatReactionRecord>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -322,7 +326,7 @@ class InMemoryTownRepository : TownRepository {
     override fun notificationsFor(userId: String, cursor: String?, limit: Int): NotificationPage {
         val parsed = Cursors.parse(cursor)
         val sorted = notifications.values
-            .filter { it.userId == userId }
+            .filter { it.userId == userId && !NotificationType.isChat(it.type) }
             .sortedWith(compareByDescending<NotificationRecord> { it.createdAt }.thenByDescending { it.id })
         val filtered = if (parsed == null) {
             sorted
@@ -340,7 +344,9 @@ class InMemoryTownRepository : TownRepository {
 
     override fun markAllNotificationsRead(userId: String, readAt: Long): Long {
         notifications.entries.forEach { (id, item) ->
-            if (item.userId == userId && item.readAt == null) notifications[id] = item.copy(readAt = readAt)
+            if (item.userId == userId && item.readAt == null && !NotificationType.isChat(item.type)) {
+                notifications[id] = item.copy(readAt = readAt)
+            }
         }
         return unreadNotificationCount(userId)
     }
@@ -354,7 +360,7 @@ class InMemoryTownRepository : TownRepository {
     }
 
     override fun unreadNotificationCount(userId: String): Long =
-        notifications.values.count { it.userId == userId && it.readAt == null }.toLong()
+        notifications.values.count { it.userId == userId && it.readAt == null && !NotificationType.isChat(it.type) }.toLong()
 
     private fun toFeedItem(post: PostRecord, viewerId: String? = null): FeedItem {
         val author = users[post.userId]
@@ -829,6 +835,248 @@ class InMemoryTownRepository : TownRepository {
     override fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord> =
         pushSubscriptions.values.filter { it.userId == userId }
 
+    override fun insertChat(chat: ChatRecord): ChatRecord {
+        val stored = if (chat.id.isBlank()) chat.copy(id = newId()) else chat
+        chats[stored.id] = stored
+        return stored
+    }
+
+    override fun updateChat(chat: ChatRecord) {
+        chats[chat.id] = chat
+    }
+
+    override fun findChat(id: String): ChatRecord? = chats[id]
+
+    override fun findDirectChat(userA: String, userB: String): ChatRecord? {
+        val key = ChatService.pairKey(userA, userB)
+        return chats.values.firstOrNull { it.type == ChatType.DIRECT && it.pairKey == key }
+    }
+
+    override fun deleteChat(id: String) {
+        chats.remove(id)
+        chatMembers.keys.filter { it.startsWith("$id:") }.forEach { chatMembers.remove(it) }
+        chatMessages.values.filter { it.chatId == id }.forEach { message ->
+            chatMessages.remove(message.id)
+            chatReactions.values.filter { it.messageId == message.id }.forEach { chatReactions.remove(it.id) }
+        }
+    }
+
+    override fun chatsFor(userId: String, cursor: String?, limit: Int): ChatPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = chatMembers.values
+            .filter { it.userId == userId }
+            .mapNotNull { chats[it.chatId] }
+            .sortedWith(compareByDescending<ChatRecord> { it.lastMessageAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (at, id) = parsed
+            sorted.filter { it.lastMessageAt < at || (it.lastMessageAt == at && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).mapNotNull { chatSummary(it.id, userId) }
+        val next = if (page.size > limit) page.take(limit).lastOrNull()?.let { Cursors.encode(it.lastMessageAt, it.id) } else null
+        return ChatPage(items, next, unreadChatNotificationCount(userId))
+    }
+
+    override fun chatSummary(chatId: String, viewerId: String): ChatSummary? {
+        val chat = chats[chatId] ?: return null
+        val member = chatMembers[chatKey(chatId, viewerId)] ?: return null
+        val members = chatMembers.values.filter { it.chatId == chatId }
+        val faces = chatFaces(chat, members, viewerId)
+        val peer = if (chat.type == ChatType.DIRECT) {
+            members.firstOrNull { it.userId != viewerId }?.userId
+        } else {
+            null
+        }
+        val displayName = when {
+            chat.type == ChatType.DIRECT -> peer?.let { users[it]?.name }.orEmpty().ifBlank { chat.name }
+            chat.name.isNotBlank() -> chat.name
+            else -> members.mapNotNull { users[it.userId]?.name }.filter { it.isNotBlank() }.take(3).joinToString(", ")
+        }
+        return ChatSummary(
+            id = chat.id,
+            type = chat.type,
+            name = displayName,
+            photos = faces,
+            lastMessageSenderName = chat.lastMessageSenderName,
+            lastMessageText = chat.lastMessageText,
+            lastMessageAt = chat.lastMessageAt,
+            unreadCount = member.unreadCount,
+            peerId = peer,
+            owner = member.owner,
+            memberCount = members.size,
+        )
+    }
+
+    override fun upsertChatMember(member: ChatMemberRecord) {
+        chatMembers[chatKey(member.chatId, member.userId)] = member
+    }
+
+    override fun findChatMember(chatId: String, userId: String): ChatMemberRecord? =
+        chatMembers[chatKey(chatId, userId)]
+
+    override fun deleteChatMember(chatId: String, userId: String) {
+        chatMembers.remove(chatKey(chatId, userId))
+    }
+
+    override fun chatMemberIds(chatId: String): List<String> =
+        chatMembers.values.filter { it.chatId == chatId }.map { it.userId }
+
+    override fun chatMembers(chatId: String): List<ChatMemberView> =
+        chatMembers.values
+            .filter { it.chatId == chatId }
+            .sortedBy { it.joinedAt }
+            .mapNotNull { member ->
+                val user = users[member.userId] ?: return@mapNotNull null
+                ChatMemberView(
+                    id = user.id,
+                    name = user.name,
+                    profilePhotoPath = user.profilePhotoPath,
+                    location = user.location,
+                    intro = user.intro,
+                    phone = user.phone,
+                    owner = member.owner,
+                    joinedAt = member.joinedAt,
+                )
+            }
+
+    override fun insertChatMessage(message: ChatMessageRecord): ChatMessageRecord {
+        val stored = if (message.id.isBlank()) message.copy(id = newId()) else message
+        chatMessages[stored.id] = stored
+        return stored
+    }
+
+    override fun findChatMessage(id: String): ChatMessageRecord? = chatMessages[id]
+
+    override fun deleteChatMessage(id: String) {
+        chatMessages.remove(id)
+        chatReactions.values.filter { it.messageId == id }.forEach { chatReactions.remove(it.id) }
+    }
+
+    override fun chatMessages(chatId: String, cursor: String?, limit: Int, viewerId: String): ChatMessagePage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = chatMessages.values
+            .filter { it.chatId == chatId }
+            .sortedWith(compareByDescending<ChatMessageRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val newestFirst = page.take(limit)
+        val items = newestFirst.asReversed().map { toChatMessageItem(it, viewerId) }
+        val next = if (page.size > limit) newestFirst.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return ChatMessagePage(items, next)
+    }
+
+    override fun chatMessageItem(id: String, viewerId: String): ChatMessageItem? =
+        chatMessages[id]?.let { toChatMessageItem(it, viewerId) }
+
+    override fun chatPhotoPaths(chatId: String): List<String> =
+        chatMessages.values.filter { it.chatId == chatId }.flatMap { it.photoPaths }
+
+    override fun incrementChatUnread(chatId: String, exceptUserId: String) {
+        chatMembers.values.filter { it.chatId == chatId && it.userId != exceptUserId }.forEach { member ->
+            chatMembers[chatKey(member.chatId, member.userId)] = member.copy(unreadCount = member.unreadCount + 1)
+        }
+    }
+
+    override fun markChatRead(chatId: String, userId: String, readAt: Long) {
+        val member = chatMembers[chatKey(chatId, userId)] ?: return
+        chatMembers[chatKey(chatId, userId)] = member.copy(unreadCount = 0, lastReadAt = readAt)
+    }
+
+    override fun insertChatReaction(reaction: ChatReactionRecord): ChatReactionRecord {
+        val stored = if (reaction.id.isBlank()) reaction.copy(id = newId()) else reaction
+        chatReactions[stored.id] = stored
+        return stored
+    }
+
+    override fun findChatReaction(messageId: String, userId: String, emoji: String): ChatReactionRecord? =
+        chatReactions.values.firstOrNull { it.messageId == messageId && it.userId == userId && it.emoji == emoji }
+
+    override fun deleteChatReaction(id: String) {
+        chatReactions.remove(id)
+    }
+
+    override fun chatReactionDetails(messageId: String, viewerId: String): List<ReactionDetail> =
+        chatReactions.values
+            .filter { it.messageId == messageId }
+            .sortedBy { it.createdAt }
+            .mapNotNull { reaction ->
+                val user = users[reaction.userId] ?: return@mapNotNull null
+                ReactionDetail(
+                    id = reaction.id,
+                    emoji = reaction.emoji,
+                    userId = user.id,
+                    name = user.name,
+                    photoPath = user.profilePhotoPath,
+                    mine = user.id == viewerId,
+                )
+            }
+
+    override fun chatReactionCounts(messageId: String, viewerId: String): List<ReactionCount> =
+        chatReactions.values
+            .filter { it.messageId == messageId }
+            .groupBy { it.emoji }
+            .map { (emoji, group) ->
+                ReactionCount(
+                    emoji = emoji,
+                    count = group.size,
+                    mine = group.any { it.userId == viewerId },
+                )
+            }
+            .sortedWith(compareByDescending<ReactionCount> { it.count }.thenBy { it.emoji })
+
+    override fun topChatReactions(chatId: String, limit: Int): List<String> =
+        chatReactions.values
+            .filter { it.chatId == chatId }
+            .groupBy { it.emoji }
+            .map { it.key to it.value.size }
+            .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+            .take(limit)
+            .map { it.first }
+
+    override fun searchPeople(query: String, excludeIds: Set<String>, limit: Int): List<EventAttendee> {
+        val needle = query.trim().lowercase()
+        return users.values
+            .filter { it.id !in excludeIds }
+            .filter { needle.isBlank() || it.name.lowercase().contains(needle) }
+            .sortedWith(compareByDescending<UserRecord> { maxOf(it.lastActiveAt, it.createdAt) }.thenByDescending { it.id })
+            .take(limit)
+            .map { user ->
+                EventAttendee(
+                    id = user.id,
+                    name = user.name,
+                    profilePhotoPath = user.profilePhotoPath,
+                    location = user.location,
+                    intro = user.intro,
+                )
+            }
+    }
+
+    override fun markChatNotificationsRead(userId: String, chatId: String, readAt: Long) {
+        notifications.entries.forEach { (id, item) ->
+            if (item.userId == userId && item.chatId == chatId && item.readAt == null && NotificationType.isChat(item.type)) {
+                notifications[id] = item.copy(readAt = readAt)
+            }
+        }
+    }
+
+    override fun markChatNoticeTypesRead(userId: String, types: Collection<String>, readAt: Long) {
+        notifications.entries.forEach { (id, item) ->
+            if (item.userId == userId && item.readAt == null && item.type in types) {
+                notifications[id] = item.copy(readAt = readAt)
+            }
+        }
+    }
+
+    override fun unreadChatNotificationCount(userId: String): Long =
+        notifications.values.count { it.userId == userId && it.readAt == null && NotificationType.isChat(it.type) }.toLong()
+
     private fun pollViews(post: PostRecord, viewerId: String?, voterLimit: Int = 5): List<PollOptionView> {
         if (post.pollOptions.isEmpty()) return emptyList()
         val votes = pollVotes.values.filter { it.postId == post.id }
@@ -869,6 +1117,41 @@ class InMemoryTownRepository : TownRepository {
                     joinedAt = attendance.joinedAt,
                 )
             }
+
+    private fun chatKey(chatId: String, userId: String): String = "$chatId:$userId"
+
+    private fun chatFaces(chat: ChatRecord, members: List<ChatMemberRecord>, viewerId: String): List<ChatFace> {
+        if (chat.type == ChatType.DIRECT) {
+            val peer = members.firstOrNull { it.userId != viewerId } ?: members.firstOrNull()
+            val user = peer?.let { users[it.userId] } ?: return emptyList()
+            return listOf(ChatFace(user.id, user.name, user.profilePhotoPath))
+        }
+        val recentSenders = chatMessages.values
+            .filter { it.chatId == chat.id }
+            .sortedWith(compareByDescending<ChatMessageRecord> { it.createdAt }.thenByDescending { it.id })
+            .map { it.userId }
+            .distinct()
+        val ordered = (recentSenders + members.sortedByDescending { it.joinedAt }.map { it.userId }).distinct()
+        return ordered.take(2).mapNotNull { userId ->
+            val user = users[userId] ?: return@mapNotNull null
+            ChatFace(user.id, user.name, user.profilePhotoPath)
+        }
+    }
+
+    private fun toChatMessageItem(message: ChatMessageRecord, viewerId: String): ChatMessageItem {
+        val author = users[message.userId]
+        return ChatMessageItem(
+            id = message.id,
+            chatId = message.chatId,
+            userId = message.userId,
+            authorName = author?.name.orEmpty(),
+            authorPhotoPath = author?.profilePhotoPath,
+            text = message.text,
+            photoPaths = message.photoPaths,
+            createdAt = message.createdAt,
+            reactions = chatReactionCounts(message.id, viewerId),
+        )
+    }
 
     private fun newId(): String = UUID.randomUUID().toString().replace("-", "")
 

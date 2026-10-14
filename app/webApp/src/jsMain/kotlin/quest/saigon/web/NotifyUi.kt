@@ -19,6 +19,7 @@ internal object NotifyInbox {
         stopStream = null
         refresh()
         WebPush.enable()
+        ChatInbox.connect()
         stopStream = openNotificationStream { _ ->
             unread += 1
             paintBadges()
@@ -31,6 +32,7 @@ internal object NotifyInbox {
         stopStream = null
         unread = 0
         paintBadges()
+        ChatInbox.disconnect()
         WebPush.disable()
     }
 
@@ -182,7 +184,10 @@ internal fun playNotifySound() {
     }
 }
 
-internal fun openNotificationStream(onEvent: (dynamic) -> Unit): () -> Unit {
+internal fun openNotificationStream(
+    path: String = "/api/notifications/stream",
+    onEvent: (dynamic) -> Unit,
+): () -> Unit {
     var stopped = false
     var abort = js("new AbortController()")
     var retryTimer: dynamic = null
@@ -211,7 +216,7 @@ internal fun openNotificationStream(onEvent: (dynamic) -> Unit): () -> Unit {
         val headers = js("({})")
         headers["Accept"] = "text/event-stream"
         init.headers = headers
-        window.asDynamic().fetch(prefixServerOrigin("/api/notifications/stream"), init).then({ response: dynamic ->
+        window.asDynamic().fetch(prefixServerOrigin(path), init).then({ response: dynamic ->
             if (stopped) return@then
             if (response.ok != true) {
                 retry()

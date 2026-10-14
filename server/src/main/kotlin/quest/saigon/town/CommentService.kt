@@ -95,6 +95,7 @@ class CommentService(
             "type" to item.type,
             "postId" to item.postId,
             "commentId" to item.commentId,
+            "chatId" to item.chatId,
             "actorName" to item.actorName,
             "preview" to item.preview,
             "createdAt" to item.createdAt,

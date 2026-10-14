@@ -25,6 +25,10 @@ class AppRouteTest {
         assertEquals(AppRoute.Admin, matchAppRoute("/admin/"))
         assertEquals(AppRoute.Events, matchAppRoute("/events"))
         assertEquals(AppRoute.Events, matchAppRoute("/events/"))
+        assertEquals(AppRoute.Messages, matchAppRoute("/messages"))
+        assertEquals(AppRoute.Messages, matchAppRoute("/messages/"))
+        assertEquals(AppRoute.Chat("abc123"), matchAppRoute("/messages/abc123"))
+        assertEquals(AppRoute.Chat("abc123"), matchAppRoute("/messages/abc123/"))
     }
 
     @Test
