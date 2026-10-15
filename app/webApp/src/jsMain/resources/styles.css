@@ -2033,7 +2033,14 @@ button.busy .avatar-spinner {
     align-items: baseline;
 }
 .comment-time { color: var(--muted); font-size: 12px; }
-.comment-text { margin: 2px 0 0; font-size: 14px; line-height: 1.35; }
+.comment-text { margin: 2px 0 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.comment-text a,
+.comment-quote a,
+.chat-text a,
+.admin-comment-text a {
+    color: var(--accent);
+    font-weight: 700;
+}
 .comment-quote {
     margin: 4px 0;
     padding: 6px 8px;

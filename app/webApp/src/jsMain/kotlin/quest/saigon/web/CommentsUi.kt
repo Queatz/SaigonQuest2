@@ -347,11 +347,11 @@ internal fun openCommentsSheet(
         meta.appendChild(el("span", "comment-time", text = relativeTime(comment.createdAt)))
         body.appendChild(meta)
         if (!comment.replyToText.isNullOrBlank()) {
-            body.appendChild(
-                el("div", "comment-quote", text = "@${comment.replyToAuthorName}: ${comment.replyToText}"),
-            )
+            val quote = el("div", "comment-quote")
+            appendLinkedText(quote, "@${comment.replyToAuthorName}: ${comment.replyToText}")
+            body.appendChild(quote)
         }
-        body.appendChild(el("p", "comment-text", text = comment.text))
+        body.appendChild(linkedParagraph(comment.text, "comment-text"))
         item.appendChild(body)
         item.appendChild(el("button", "comment-reply", text = Town.t("reply")) { button ->
             button.setAttribute("type", "button")
@@ -368,7 +368,7 @@ internal fun openCommentsSheet(
         if (canDelete(comment)) {
             item.asDynamic().addEventListener("click", { event: dynamic ->
                 val tag = (event.target.tagName as? String)?.lowercase()
-                if (tag == "button" || tag == "img") return@addEventListener
+                if (tag == "button" || tag == "img" || tag == "a") return@addEventListener
                 askDelete(comment)
             })
         }

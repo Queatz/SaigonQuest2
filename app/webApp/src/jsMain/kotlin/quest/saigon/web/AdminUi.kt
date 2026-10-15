@@ -254,9 +254,11 @@ private fun adminCommentRow(comment: dynamic, shell: HTMLElement): HTMLElement {
     title.appendChild(el("span", "comment-time", text = relativeTime(card.createdAt)))
     copy.appendChild(title)
     if (!card.replyToText.isNullOrBlank()) {
-        copy.appendChild(el("div", "comment-quote", text = "@${card.replyToAuthorName}: ${card.replyToText}"))
+        val quote = el("div", "comment-quote")
+        appendLinkedText(quote, "@${card.replyToAuthorName}: ${card.replyToText}")
+        copy.appendChild(quote)
     }
-    copy.appendChild(el("p", "admin-comment-text", text = card.text))
+    copy.appendChild(linkedParagraph(card.text, "admin-comment-text"))
     if (!card.postText.isNullOrBlank()) {
         val preview = el("div", "admin-comment-post")
         preview.appendChild(el("strong", text = Town.t("onPost")))

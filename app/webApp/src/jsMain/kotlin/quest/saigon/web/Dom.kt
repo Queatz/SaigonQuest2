@@ -78,10 +78,15 @@ internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
 
 internal fun linkedParagraph(text: String, className: String? = null): HTMLElement {
     val node = el("p", className)
+    appendLinkedText(node, text)
+    return node
+}
+
+internal fun appendLinkedText(host: HTMLElement, text: String) {
     TextLinks.pieces(text).forEach { piece ->
         val href = piece.href
         if (href == null) {
-            node.asDynamic().append(piece.text)
+            host.asDynamic().append(piece.text)
         } else {
             val link = el("a", text = piece.text)
             link.setAttribute("href", href)
@@ -90,10 +95,9 @@ internal fun linkedParagraph(text: String, className: String? = null): HTMLEleme
             link.asDynamic().addEventListener("click", { event: dynamic ->
                 event.stopPropagation()
             })
-            node.appendChild(link)
+            host.appendChild(link)
         }
     }
-    return node
 }
 
 internal fun routeLink(router: HistoryRouter, path: String, label: String, active: Boolean): HTMLElement =
