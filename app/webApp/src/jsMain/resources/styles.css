@@ -360,7 +360,8 @@ button { cursor: pointer; }
     display: flex;
     flex-direction: column;
     align-items: center;
-    max-width: 68%;
+    max-width: calc(100% - 10rem);
+    min-width: 0;
 }
 
 .location {
@@ -373,9 +374,14 @@ button { cursor: pointer; }
     text-align: center;
     background: none;
     border: 0;
-    padding: 0;
+    padding: 0 4px;
     cursor: pointer;
     pointer-events: auto;
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .feed-app-name {
@@ -386,6 +392,11 @@ button { cursor: pointer; }
     opacity: .82;
     text-shadow: 0 1px 4px rgba(0, 0, 0, .85), 0 1px 8px rgba(0, 0, 0, .45);
     margin-top: 2px;
+    padding: 0 4px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 @media (max-width: 539px) {
@@ -402,6 +413,7 @@ button { cursor: pointer; }
     .location,
     .feed-app-name {
         text-align: left;
+        padding-left: 0;
         max-width: calc(100% - 10rem);
     }
 }
@@ -1231,7 +1243,7 @@ button.busy .avatar-spinner {
 }
 
 .share-preview {
-    width: min(100%, 440px, max(180px, calc(100dvh - 270px)));
+    width: min(100%, 440px, max(180px, calc(100dvh - 330px)));
     aspect-ratio: 1;
     align-self: center;
     border-radius: 18px;
@@ -2258,6 +2270,7 @@ button.busy .avatar-spinner {
 .community-brand .location {
     font-size: 14px;
     text-align: left;
+    padding-left: 0;
 }
 
 .community-title {
@@ -2908,7 +2921,11 @@ span.event-face {
     cursor: pointer;
 }
 
-.event-join.is-leave { background: var(--danger); }
+.event-join.is-leave {
+    background: none;
+    color: var(--accent);
+    opacity: 1;
+}
 
 .tiny.primary-lite {
     background: var(--accent);

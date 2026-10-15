@@ -85,9 +85,23 @@ internal fun openShare(post: PostCard, host: HTMLElement) {
             }
         }
     }
+    val copyLink = el("button", "secondary", text = Town.t("copyPostLink")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick {
+            val origin = (window.asDynamic().location.origin as? String).orEmpty().trimEnd('/')
+            val link = "$origin/p/${post.id}"
+            try {
+                window.asDynamic().navigator.clipboard.writeText(link)
+                toast(host, Town.t("linkCopied"))
+            } catch (_: Throwable) {
+                toast(host, Town.t("copyLinkFailed"))
+            }
+        }
+    }
     panel.appendChild(preview)
     panel.appendChild(download)
     panel.appendChild(copy)
+    panel.appendChild(copyLink)
     panel.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
         button.setAttribute("type", "button")
         button.onClick { dismiss() }
