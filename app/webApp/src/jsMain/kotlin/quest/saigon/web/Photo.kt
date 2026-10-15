@@ -36,7 +36,7 @@ internal fun preparePhoto(file: dynamic, crop916: Boolean, done: (dynamic) -> Un
             }
             var outW = cropW
             var outH = cropH
-            val maxEdge = if (crop916) Limits.PHOTO_MAX_EDGE else 1600
+            val maxEdge = Limits.PHOTO_MAX_EDGE
             val edge = maxOf(outW, outH)
             if (edge > maxEdge) {
                 val scale = maxEdge.toDouble() / edge

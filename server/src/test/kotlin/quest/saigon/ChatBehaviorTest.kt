@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -21,6 +22,7 @@ import quest.saigon.town.TownServices
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ChatBehaviorTest {
@@ -120,9 +122,25 @@ class ChatBehaviorTest {
             contentType(ContentType.Application.Json)
             setBody("""{"userId":"$minhId"}""")
         }
+        assertEquals(
+            HttpStatusCode.Conflict,
+            linh.post("/api/chats/$chatId/members") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"userId":"$minhId"}""")
+            }.status,
+        )
+        val people = mapper.readTree(linh.get("/api/chats/$chatId/people?q=Minh").bodyAsText()).path("people")
+        assertEquals(0, people.size())
+        val renamed = mapper.readTree(
+            linh.patch("/api/chats/$chatId") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Brunch"}""")
+            }.bodyAsText(),
+        )
+        assertEquals("Brunch", renamed.path("name").asText())
         val minhChats = mapper.readTree(minh.get("/api/chats").bodyAsText())
         assertEquals(1, minhChats.path("unreadCount").asInt())
-        assertEquals("Dinner", minhChats.path("chats")[0].path("name").asText())
+        assertEquals("Brunch", minhChats.path("chats")[0].path("name").asText())
 
         now += 1
         val first = mapper.readTree(
@@ -131,10 +149,23 @@ class ChatBehaviorTest {
                 setBody("""{"text":"first"}""")
             }.bodyAsText(),
         )
-        linh.post("/api/chats/$chatId/messages/${first.path("id").asText()}/reactions") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"emoji":"❤️"}""")
-        }
+        val minhEvents = java.util.concurrent.CopyOnWriteArrayList<String>()
+        services.chatHub.subscribe(minhId) { minhEvents += it }
+        val reacted = mapper.readTree(
+            linh.post("/api/chats/$chatId/messages/${first.path("id").asText()}/reactions") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"emoji":"❤️"}""")
+            }.bodyAsText(),
+        )
+        assertEquals(1, reacted.path("reactions").size())
+        assertTrue(reacted.path("reactions")[0].path("mine").asBoolean())
+        val reactionEvent = minhEvents.map { mapper.readTree(it) }.first { it.path("type").asText() == "reaction" }
+        assertEquals(chatId, reactionEvent.path("chatId").asText())
+        assertEquals(first.path("id").asText(), reactionEvent.path("messageId").asText())
+        assertEquals(1, reactionEvent.path("reactions").size())
+        assertEquals("❤️", reactionEvent.path("reactions")[0].path("emoji").asText())
+        assertFalse(reactionEvent.path("reactions")[0].path("mine").asBoolean())
+        assertEquals(first.path("id").asText(), reactionEvent.path("message").path("id").asText())
         linh.post("/api/chats/$chatId/messages/${first.path("id").asText()}/reactions") {
             contentType(ContentType.Application.Json)
             setBody("""{"emoji":"👍"}""")

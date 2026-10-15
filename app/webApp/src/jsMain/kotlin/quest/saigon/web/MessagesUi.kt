@@ -191,7 +191,11 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
         button.setAttribute("type", "button")
         button.setAttribute("aria-label", Town.t("chatMenu"))
         button.asDynamic().innerHTML = MENU_ICON
-        button.onClick { openChatMenu(shell, router, chatId, title.textContent.orEmpty(), chatType == "group") }
+        button.onClick {
+            openChatMenu(shell, router, chatId, title.textContent.orEmpty(), chatType == "group", owner) { name ->
+                title.textContent = name
+            }
+        }
     })
     head.appendChild(tools)
     shell.appendChild(head)
@@ -246,7 +250,11 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
     }
 
     fun appendMessage(message: ChatMessage, prepend: Boolean = false) {
-        if (thread.asDynamic().querySelector("""[data-message-id="${message.id}"]""") != null) return
+        val existing = thread.asDynamic().querySelector("""[data-message-id="${message.id}"]""")
+        if (existing != null && existing != undefined) {
+            applyMessageReactions(thread, chatId, message.id, message.reactions)
+            return
+        }
         val node = messageBubble(message, shell, chatId, owner, defaults)
         if (prepend) thread.asDynamic().insertBefore(node, thread.firstChild)
         else thread.appendChild(node)
@@ -381,6 +389,14 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
             router.navigate("/messages")
             return@listen
         }
+        val incomingChat = event.chat
+        if (incomingChat != null && incomingChat != undefined && jsText(incomingChat.id) == chatId) {
+            val chat = chatFrom(incomingChat)
+            title.textContent = chat.name
+            chatType = chat.type
+            owner = chat.owner
+            membersBtn.asDynamic().hidden = chat.type != "group"
+        }
         if (type == "typing" && (event.chatId as? String) == chatId) {
             val userId = (event.userId as? String).orEmpty()
             if (userId.isBlank() || userId == Town.me?.id) return@listen
@@ -398,15 +414,22 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
             thread.asDynamic().querySelector("""[data-message-id="$id"]""")?.remove()
             return@listen
         }
-        if (type == "reaction" && (event.chatId as? String) == chatId) {
-            val id = (event.messageId as? String).orEmpty()
-            val bubble = thread.asDynamic().querySelector("""[data-message-id="$id"]""") ?: return@listen
-            paintReactionRow(bubble.querySelector(".chat-reactions"), readReactions(event.reactions), chatId, id, shell)
+        if (type == "reaction") {
+            val incomingChatId = jsText(event.chatId).ifBlank { jsText(event.message?.chatId) }
+            if (incomingChatId == chatId) {
+                val messageId = jsText(event.messageId).ifBlank { jsText(event.message?.id) }
+                val reactions = readReactions(event.reactions).ifEmpty {
+                    val incoming = event.message
+                    if (incoming == null || incoming == undefined) emptyList()
+                    else messageFrom(incoming).reactions
+                }
+                applyMessageReactions(thread, chatId, messageId, reactions)
+            }
             return@listen
         }
         if (type == "message") {
             val message = event.message ?: return@listen
-            if ((message.chatId as? String) != chatId) return@listen
+            if (jsText(message.chatId) != chatId) return@listen
             appendMessage(messageFrom(message))
             if (atBottom) stick()
             http("POST", "/api/chats/$chatId/read", "{}") { _, readBody ->
@@ -421,6 +444,7 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
         stop()
         if (typingTimer != null) window.asDynamic().clearTimeout(typingTimer)
     }
+    window.asDynamic().setTimeout({ field.asDynamic().focus() }, 30)
     return shell
 }
 
@@ -517,9 +541,18 @@ private fun openCreateGroup(host: HTMLElement, router: HistoryRouter) {
     backdrop.appendChild(card)
     backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
+    window.asDynamic().setTimeout({ name.input.asDynamic().focus() }, 30)
 }
 
-private fun openChatMenu(host: HTMLElement, router: HistoryRouter, chatId: String, title: String, group: Boolean) {
+private fun openChatMenu(
+    host: HTMLElement,
+    router: HistoryRouter,
+    chatId: String,
+    title: String,
+    group: Boolean,
+    owner: Boolean,
+    onRenamed: (String) -> Unit = {},
+) {
     if (host.asDynamic().querySelector(".chat-menu") != null) return
     val backdrop = el("div", "dialog-backdrop chat-menu")
     val card = el("div", "dialog")
@@ -539,7 +572,14 @@ private fun openChatMenu(host: HTMLElement, router: HistoryRouter, chatId: Strin
             }
         }
     })
-    if (group) {
+    if (group && owner) {
+        card.appendChild(el("button", "text-button", text = Town.t("renameGroup")) { button ->
+            button.setAttribute("type", "button")
+            button.onClick {
+                backdrop.asDynamic().remove()
+                openRenameGroup(host, chatId, title, onRenamed)
+            }
+        })
         card.appendChild(el("button", "text-button danger", text = Town.t("deleteGroup")) { button ->
             button.setAttribute("type", "button")
             button.onClick {
@@ -563,6 +603,42 @@ private fun openChatMenu(host: HTMLElement, router: HistoryRouter, chatId: Strin
     backdrop.appendChild(card)
     backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
+}
+
+private fun openRenameGroup(host: HTMLElement, chatId: String, current: String, onRenamed: (String) -> Unit = {}) {
+    if (host.asDynamic().querySelector(".rename-group") != null) return
+    val backdrop = el("div", "dialog-backdrop rename-group")
+    val card = el("div", "dialog")
+    card.appendChild(el("h2", text = Town.t("renameGroup")))
+    val name = field(Town.t("groupName"), "text", Town.t("groupNameHint"))
+    name.input.asDynamic().value = current
+    name.input.setAttribute("maxlength", Limits.CHAT_NAME_MAX.toString())
+    card.appendChild(name.root)
+    val actions = el("div", "dialog-actions")
+    actions.appendChild(el("button", "text-button", text = Town.t("cancel")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { backdrop.asDynamic().remove() }
+    })
+    val save = el("button", "primary", text = Town.t("okay"))
+    save.setAttribute("type", "button")
+    save.onClick {
+        val payload = js("({})")
+        payload.name = name.value()
+        http("PATCH", "/api/chats/$chatId", jsonStringify(payload)) { status, body ->
+            if (status != 200) {
+                toast(host, errorText(body, status))
+                return@http
+            }
+            onRenamed(chatFrom(parseJson(body)).name)
+            backdrop.asDynamic().remove()
+        }
+    }
+    actions.appendChild(save)
+    card.appendChild(actions)
+    backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
+    host.appendChild(backdrop)
+    window.asDynamic().setTimeout({ name.input.asDynamic().focus() }, 30)
 }
 
 private fun openChatMembers(host: HTMLElement, router: HistoryRouter, chatId: String, owner: Boolean) {
@@ -604,7 +680,7 @@ private fun openChatMembers(host: HTMLElement, router: HistoryRouter, chatId: St
         timer = window.asDynamic().setTimeout({
             results.clear()
             if (query.isBlank()) return@setTimeout
-            http("GET", "/api/people?q=${encodeQuery(query)}") { status, body ->
+            http("GET", "/api/chats/$chatId/people?q=${encodeQuery(query)}") { status, body ->
                 if (status != 200) return@http
                 val people = parseJson(body).people
                 val length = people?.length as? Int ?: 0
@@ -616,7 +692,7 @@ private fun openChatMembers(host: HTMLElement, router: HistoryRouter, chatId: St
                     val person = people[i]
                     val row = el("button", "chooser-row")
                     row.setAttribute("type", "button")
-                    row.appendChild(el("strong", text = (person.name as? String).orEmpty()))
+                    row.appendChild(el("strong", text = Town.t("addUser", mapOf("name" to (person.name as? String).orEmpty()))))
                     row.onClick {
                         val payload = js("({})")
                         payload.userId = person.id
@@ -680,30 +756,51 @@ private fun chatMemberRow(
         )
     }
     if (canManage && person.id != Town.me?.id) {
-        if (node.owner != true) {
-            row.appendChild(
-                el("button", "text-button", text = Town.t("makeOwner")) { button ->
-                    button.setAttribute("type", "button")
-                    button.onClick {
-                        http("POST", "/api/chats/$chatId/members/${person.id}/owner", "{}") { status, body ->
-                            if (status != 200) toast(host, errorText(body, status)) else reload()
-                        }
-                    }
-                },
-            )
-        }
-        row.appendChild(
-            el("button", "text-button danger", text = Town.t("removeMember")) { button ->
-                button.setAttribute("type", "button")
-                button.onClick {
-                    http("DELETE", "/api/chats/$chatId/members/${person.id}") { status, body ->
-                        if (status != 200) toast(host, errorText(body, status)) else reload()
-                    }
-                }
-            },
-        )
+        val menu = el("button", "attendee-icon member-menu")
+        menu.setAttribute("type", "button")
+        menu.setAttribute("aria-label", Town.t("chatMenu"))
+        menu.asDynamic().innerHTML = MENU_ICON
+        menu.onClick { openMemberMenu(host, chatId, person.id, node.owner == true, reload) }
+        row.appendChild(menu)
     }
     return row
+}
+
+private fun openMemberMenu(host: HTMLElement, chatId: String, userId: String, isOwner: Boolean, reload: () -> Unit) {
+    if (host.asDynamic().querySelector(".member-menu-dialog") != null) return
+    val backdrop = el("div", "dialog-backdrop member-menu-dialog")
+    val card = el("div", "dialog")
+    if (!isOwner) {
+        card.appendChild(el("button", "text-button", text = Town.t("makeOwner")) { button ->
+            button.setAttribute("type", "button")
+            button.onClick {
+                http("POST", "/api/chats/$chatId/members/$userId/owner", "{}") { status, body ->
+                    if (status != 200) toast(host, errorText(body, status)) else {
+                        backdrop.asDynamic().remove()
+                        reload()
+                    }
+                }
+            }
+        })
+    }
+    card.appendChild(el("button", "text-button danger", text = Town.t("removeMember")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick {
+            http("DELETE", "/api/chats/$chatId/members/$userId") { status, body ->
+                if (status != 200) toast(host, errorText(body, status)) else {
+                    backdrop.asDynamic().remove()
+                    reload()
+                }
+            }
+        }
+    })
+    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { backdrop.asDynamic().remove() }
+    })
+    backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
+    host.appendChild(backdrop)
 }
 
 private fun chatRow(chat: ChatCard, router: HistoryRouter): HTMLElement {
@@ -713,11 +810,7 @@ private fun chatRow(chat: ChatCard, router: HistoryRouter): HTMLElement {
     row.setAttribute("data-chat-id", chat.id)
     row.appendChild(chatFaces(chat))
     val copy = el("span", "chat-row-copy")
-    val top = el("span", "chat-row-top")
-    top.appendChild(el(if (unread) "strong" else "span", "chat-row-name", text = chat.name))
-    val time = el("em", if (unread) "chat-row-time unread" else "chat-row-time", text = relativeTime(chat.lastMessageAt))
-    top.appendChild(time)
-    copy.appendChild(top)
+    copy.appendChild(el(if (unread) "strong" else "span", "chat-row-name", text = chat.name))
     val preview = buildString {
         if (chat.lastMessageSenderName.isNotBlank()) {
             append(chat.lastMessageSenderName)
@@ -726,8 +819,11 @@ private fun chatRow(chat: ChatCard, router: HistoryRouter): HTMLElement {
         append(chat.lastMessageText)
     }
     copy.appendChild(el("span", "chat-row-preview", text = preview))
-    if (unread) copy.appendChild(el("span", "chat-unread-count", text = chat.unreadCount.toString()))
     row.appendChild(copy)
+    val meta = el("span", "chat-row-meta")
+    meta.appendChild(el("em", if (unread) "chat-row-time unread" else "chat-row-time", text = relativeTime(chat.lastMessageAt)))
+    if (unread) meta.appendChild(el("span", "chat-unread-count", text = chat.unreadCount.toString()))
+    row.appendChild(meta)
     row.onClick { router.navigate("/messages/${chat.id}") }
     return row
 }
@@ -754,9 +850,10 @@ private fun messageBubble(
         meta.setAttribute("type", "button")
         meta.appendChild(faceNode(message.authorName, message.authorPhotoUrl, "face tiny"))
         meta.appendChild(el("span", text = message.authorName))
-        meta.onClick {
+        meta.asDynamic().addEventListener("click", { event: dynamic ->
+            event.stopPropagation()
             openMiniProfile(host, message.authorName, message.authorPhotoUrl, "", "", message.userId)
-        }
+        })
         bubble.appendChild(meta)
     }
     if (message.text.isNotBlank()) bubble.appendChild(linkedParagraph(message.text, "chat-text"))
@@ -779,6 +876,20 @@ private fun messageBubble(
     return bubble
 }
 
+private fun applyMessageReactions(
+    root: HTMLElement,
+    chatId: String,
+    messageId: String,
+    reactions: List<ReactionChip>,
+) {
+    if (messageId.isBlank()) return
+    val selector = """[data-message-id="$messageId"]"""
+    val bubble = root.asDynamic().querySelector(selector)
+        ?: web.dom.document.asDynamic().querySelector(selector)
+        ?: return
+    paintReactionRow(bubble.querySelector(".chat-reactions"), reactions, chatId, messageId, root)
+}
+
 private fun paintReactionRow(
     host: dynamic,
     reactions: List<ReactionChip>,
@@ -792,9 +903,10 @@ private fun paintReactionRow(
         val chip = el("button", if (reaction.mine) "reaction-chip mine" else "reaction-chip")
         chip.setAttribute("type", "button")
         chip.textContent = "${reaction.emoji} ${reaction.count}"
-        chip.onClick {
+        chip.asDynamic().addEventListener("click", { event: dynamic ->
+            event.stopPropagation()
             openReactionsDialog(root, chatId, messageId)
-        }
+        })
         host.appendChild(chip)
     }
 }
@@ -810,40 +922,58 @@ private fun openMessageMenu(
     val backdrop = el("div", "dialog-backdrop message-menu")
     val card = el("div", "dialog")
     val row = el("div", "reaction-defaults")
+    fun postReaction(emoji: String) {
+        val payload = js("({})")
+        payload.emoji = emoji
+        http("POST", "/api/chats/$chatId/messages/${message.id}/reactions", jsonStringify(payload)) { status, body ->
+            if (status != 200) {
+                toast(host, errorText(body, status))
+                return@http
+            }
+            applyMessageReactions(host, chatId, message.id, readReactions(parseJson(body).reactions))
+            backdrop.asDynamic().remove()
+        }
+    }
     defaults.forEach { emoji ->
         row.appendChild(el("button", "reaction-pick", text = emoji) { button ->
             button.setAttribute("type", "button")
-            button.onClick {
-                val payload = js("({})")
-                payload.emoji = emoji
-                http("POST", "/api/chats/$chatId/messages/${message.id}/reactions", jsonStringify(payload)) { _, _ ->
-                    backdrop.asDynamic().remove()
-                }
-            }
+            button.onClick { postReaction(emoji) }
         })
     }
-    card.appendChild(row)
+    val customWrap = el("div", "reaction-custom")
+    customWrap.asDynamic().hidden = true
     val custom = field(Town.t("customReaction"), "text", Town.t("reactionHint"))
     custom.input.setAttribute("maxlength", Limits.CHAT_REACTION_MAX.toString())
-    card.appendChild(custom.root)
-    card.appendChild(el("button", "primary", text = Town.t("send")) { button ->
+    customWrap.appendChild(custom.root)
+    customWrap.appendChild(el("button", "primary", text = Town.t("send")) { button ->
         button.setAttribute("type", "button")
         button.onClick {
             val emoji = custom.value().trim()
             if (emoji.isEmpty()) return@onClick
-            val payload = js("({})")
-            payload.emoji = emoji
-            http("POST", "/api/chats/$chatId/messages/${message.id}/reactions", jsonStringify(payload)) { status, body ->
-                if (status != 200) toast(host, errorText(body, status)) else backdrop.asDynamic().remove()
-            }
+            postReaction(emoji)
         }
     })
+    row.appendChild(el("button", "reaction-pick") { button ->
+        button.setAttribute("type", "button")
+        button.setAttribute("aria-label", Town.t("customReaction"))
+        button.asDynamic().innerHTML = PLUS_ICON
+        button.onClick {
+            customWrap.asDynamic().hidden = false
+            button.asDynamic().hidden = true
+            window.asDynamic().setTimeout({ custom.input.asDynamic().focus() }, 30)
+        }
+    })
+    card.appendChild(row)
+    card.appendChild(customWrap)
     if (canDelete) {
-        card.appendChild(el("button", "text-button danger", text = Town.t("removeMember")) { button ->
+        card.appendChild(el("button", "text-button danger", text = Town.t("delete")) { button ->
             button.setAttribute("type", "button")
             button.onClick {
-                http("DELETE", "/api/chats/$chatId/messages/${message.id}") { status, body ->
-                    if (status != 200) toast(host, errorText(body, status)) else backdrop.asDynamic().remove()
+                backdrop.asDynamic().remove()
+                confirmAction(host, Town.t("confirmRemoveMessage")) {
+                    http("DELETE", "/api/chats/$chatId/messages/${message.id}") { status, body ->
+                        if (status != 200) toast(host, errorText(body, status))
+                    }
                 }
             }
         })
@@ -895,7 +1025,10 @@ private fun openReactionsDialog(host: HTMLElement, chatId: String, messageId: St
                     button.onClick {
                         val payload = js("({})")
                         payload.emoji = item.emoji
-                        http("DELETE", "/api/chats/$chatId/messages/$messageId/reactions", jsonStringify(payload)) { _, _ ->
+                        http("DELETE", "/api/chats/$chatId/messages/$messageId/reactions", jsonStringify(payload)) { status, body ->
+                            if (status == 200) {
+                                applyMessageReactions(host, chatId, messageId, readReactions(parseJson(body).reactions))
+                            }
                             backdrop.asDynamic().remove()
                         }
                     }
@@ -916,7 +1049,7 @@ private fun confirmAction(host: HTMLElement, message: String, onYes: () -> Unit)
         button.setAttribute("type", "button")
         button.onClick { backdrop.asDynamic().remove() }
     })
-    actions.appendChild(el("button", "primary", text = Town.t("send")) { button ->
+    actions.appendChild(el("button", "primary", text = Town.t("okay")) { button ->
         button.setAttribute("type", "button")
         button.onClick {
             backdrop.asDynamic().remove()
@@ -930,7 +1063,7 @@ private fun confirmAction(host: HTMLElement, message: String, onYes: () -> Unit)
 }
 
 private fun chatFaces(chat: ChatCard): HTMLElement {
-    val stack = el("span", "chat-faces")
+    val stack = el("span", if (chat.photos.size >= 2) "chat-faces pair" else "chat-faces")
     chat.photos.take(2).forEach { face ->
         stack.appendChild(faceNode(face.name, face.photoUrl, "face"))
     }
@@ -940,10 +1073,10 @@ private fun chatFaces(chat: ChatCard): HTMLElement {
 
 private fun faceNode(name: String, photoUrl: String?, className: String): HTMLElement {
     return if (!photoUrl.isNullOrBlank()) {
-        val img = el("img", className)
-        img.setAttribute("alt", "")
-        img.setAttribute("src", photoUrl)
-        img
+        el("span", className) { face ->
+            val escaped = photoUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+            face.asDynamic().style.backgroundImage = "url(\"$escaped\")"
+        }
     } else {
         el("span", "$className initial", text = name.take(1).uppercase())
     }
@@ -1044,14 +1177,22 @@ private fun readMessages(node: dynamic): List<ChatMessage> {
 private fun readReactions(node: dynamic): List<ReactionChip> {
     val items = mutableListOf<ReactionChip>()
     if (node == null || node == undefined) return items
-    val length = node.length as? Int ?: return items
+    val length = num(node.length).toInt()
+    if (length <= 0) return items
     for (i in 0 until length) {
         val item = node[i]
         items += ReactionChip(
-            emoji = (item.emoji as? String).orEmpty(),
+            emoji = jsText(item.emoji),
             count = num(item.count).toInt(),
             mine = item.mine == true,
         )
     }
     return items
+}
+
+private fun jsText(value: dynamic): String {
+    if (value == null || value == undefined) return ""
+    val text = value as? String
+    if (text != null) return text
+    return (js("String")(value) as? String).orEmpty()
 }

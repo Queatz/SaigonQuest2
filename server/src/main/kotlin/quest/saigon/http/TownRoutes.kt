@@ -1072,6 +1072,17 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("ok" to true))
     }
 
+    patch("/chats/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val chat = try {
+            services.chats.renameGroup(user, call.parameters["id"].orEmpty(), Jsons.text(body, "name"))
+        } catch (error: TownException) {
+            return@patch call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(chat))
+    }
+
     get("/chats/{id}/members") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         val members = try {
@@ -1147,7 +1158,7 @@ fun Route.townApi(services: TownServices) {
         val paths = mutableListOf<String>()
         for (photo in photos) {
             val jpeg = try {
-                services.images.preparePostPhoto(photo)
+                services.images.prepareChatPhoto(photo)
             } catch (_: Exception) {
                 return@post call.fail("invalid_photo")
             }
@@ -1232,6 +1243,21 @@ fun Route.townApi(services: TownServices) {
         call.respondBytes(file.readBytes(), ContentType.Image.JPEG)
     }
 
+    get("/chats/{id}/people") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val people = try {
+            services.chats.searchPeopleToAdd(
+                user,
+                call.parameters["id"].orEmpty(),
+                call.request.queryParameters["q"].orEmpty(),
+                20,
+            )
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(mapOf("people" to people.map { attendeePayload(it, includePhone = false) }))
+    }
+
     get("/people") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         val people = services.chats.searchPeople(user, call.request.queryParameters["q"].orEmpty(), emptySet(), 20)
@@ -1290,7 +1316,7 @@ private fun statusFor(code: String): HttpStatusCode = when (code) {
     "not_found" -> HttpStatusCode.NotFound
     "unavailable", "qwen_not_configured" -> HttpStatusCode.ServiceUnavailable
     "rate_limited" -> HttpStatusCode.TooManyRequests
-    "phone_taken", "avatar_busy", "avatar_not_failed", "music_busy", "music_not_failed" -> HttpStatusCode.Conflict
+    "phone_taken", "avatar_busy", "avatar_not_failed", "music_busy", "music_not_failed", "already_member" -> HttpStatusCode.Conflict
     else -> HttpStatusCode.BadRequest
 }
 

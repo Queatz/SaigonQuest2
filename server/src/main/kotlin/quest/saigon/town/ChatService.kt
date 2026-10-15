@@ -192,6 +192,19 @@ class ChatService(
         return destroy(chat, actor, notifyMembers = true)
     }
 
+    fun renameGroup(actor: UserRecord, chatId: String, name: String): ChatSummary {
+        val member = requireMember(actor, chatId)
+        val chat = repo.findChat(chatId) ?: throw TownException("not_found")
+        if (chat.type != ChatType.GROUP || !member.owner) throw TownException("not_found")
+        val cleaned = cleanName(name) ?: throw TownException("invalid_name")
+        repo.updateChat(chat.copy(name = cleaned))
+        repo.chatMemberIds(chat.id).forEach { memberId ->
+            val summary = repo.chatSummary(chat.id, memberId) ?: return@forEach
+            publish(memberId, event("chat", memberId, summary = summary))
+        }
+        return repo.chatSummary(chat.id, actor.id) ?: throw TownException("not_found")
+    }
+
     fun members(actor: UserRecord, chatId: String): List<ChatMemberView> {
         requireMember(actor, chatId)
         return repo.chatMembers(chatId)
@@ -202,9 +215,7 @@ class ChatService(
         val chat = repo.findChat(chatId) ?: throw TownException("not_found")
         if (chat.type != ChatType.GROUP) throw TownException("not_found")
         val other = repo.findUser(userId) ?: throw TownException("not_found")
-        if (repo.findChatMember(chat.id, other.id) != null) {
-            return repo.chatSummary(chat.id, actor.id) ?: throw TownException("not_found")
-        }
+        if (repo.findChatMember(chat.id, other.id) != null) throw TownException("already_member")
         repo.upsertChatMember(
             ChatMemberRecord(chat.id, other.id, owner = false, joinedAt = clock(), unreadCount = 1),
         )
@@ -263,7 +274,7 @@ class ChatService(
                 ),
             )
         }
-        return publishReactions(chatId, message.id)
+        return publishReactions(chatId, message.id, actor.id)
     }
 
     fun unreact(actor: UserRecord, chatId: String, messageId: String, emoji: String): List<ReactionCount> {
@@ -273,7 +284,7 @@ class ChatService(
         val cleaned = cleanReaction(emoji) ?: throw TownException("invalid_reaction")
         val existing = repo.findChatReaction(message.id, actor.id, cleaned) ?: return repo.chatReactionCounts(message.id, actor.id)
         repo.deleteChatReaction(existing.id)
-        return publishReactions(chatId, message.id)
+        return publishReactions(chatId, message.id, actor.id)
     }
 
     fun reactionDetails(actor: UserRecord, chatId: String, messageId: String): List<ReactionDetail> {
@@ -312,6 +323,11 @@ class ChatService(
     fun searchPeople(actor: UserRecord, query: String, exclude: Set<String>, limit: Int): List<EventAttendee> =
         repo.searchPeople(query, exclude + actor.id, limit.coerceIn(1, 30))
 
+    fun searchPeopleToAdd(actor: UserRecord, chatId: String, query: String, limit: Int): List<EventAttendee> {
+        requireMember(actor, chatId)
+        return searchPeople(actor, query, repo.chatMemberIds(chatId).toSet(), limit)
+    }
+
     fun markListNoticesRead(actor: UserRecord) {
         repo.markChatNoticeTypesRead(
             actor.id,
@@ -333,14 +349,16 @@ class ChatService(
         return photos
     }
 
-    private fun publishReactions(chatId: String, messageId: String): List<ReactionCount> {
+    private fun publishReactions(chatId: String, messageId: String, viewerId: String): List<ReactionCount> {
         repo.chatMemberIds(chatId).forEach { userId ->
-            val counts = repo.chatReactionCounts(messageId, userId)
+            val item = repo.chatMessageItem(messageId, userId)
+            val counts = item?.reactions ?: repo.chatReactionCounts(messageId, userId)
             publish(
                 userId,
                 event(
                     "reaction",
                     userId,
+                    message = item,
                     extra = mapOf(
                         "chatId" to chatId,
                         "messageId" to messageId,
@@ -349,7 +367,7 @@ class ChatService(
                 ),
             )
         }
-        return repo.chatReactionCounts(messageId, "")
+        return repo.chatReactionCounts(messageId, viewerId)
     }
 
     private fun requireMember(actor: UserRecord, chatId: String): ChatMemberRecord =

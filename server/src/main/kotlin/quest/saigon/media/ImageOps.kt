@@ -24,6 +24,11 @@ class ImageOps {
         return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
     }
 
+    fun prepareChatPhoto(bytes: ByteArray): ByteArray {
+        val fitted = limitEdge(read(bytes), Limits.PHOTO_MAX_EDGE)
+        return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
+    }
+
     fun prepareProfilePhoto(bytes: ByteArray): ByteArray {
         val fitted = limitEdge(read(bytes), 1600)
         return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())

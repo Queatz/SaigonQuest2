@@ -123,6 +123,12 @@ button { cursor: pointer; }
     flex: 0 0 auto;
 }
 
+.icon-btn svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+}
+
 .page-shell .icon-btn, .page-shell .profile-btn {
     border-color: var(--line);
     background: var(--surface);
@@ -745,10 +751,16 @@ small, .hint { color: var(--muted); font-size: 13px; }
     object-fit: cover;
     display: grid;
     place-items: center;
-    background: #d9d0c6;
+    background-color: #d9d0c6;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     color: #2a241e;
     font-weight: 800;
     overflow: hidden;
+    flex: 0 0 auto;
+    aspect-ratio: 1;
+    box-sizing: border-box;
 }
 
 .face.large { width: 96px; height: 96px; font-size: 32px; }
@@ -3211,27 +3223,52 @@ span.event-face {
     font: inherit;
 }
 
+.chat-row:last-child { border-bottom: 0; }
+
 .chat-faces {
     display: flex;
     width: 48px;
     height: 48px;
+    min-width: 48px;
+    min-height: 48px;
     flex: 0 0 auto;
     position: relative;
+    overflow: hidden;
 }
 
 .chat-faces .face {
     width: 48px;
     height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    max-width: 48px;
+    max-height: 48px;
     border-radius: 50%;
-    object-fit: cover;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    overflow: hidden;
 }
 
-.chat-faces .face:nth-child(2) {
+.chat-faces.pair .face {
     width: 32px;
     height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    max-width: 32px;
+    max-height: 32px;
     position: absolute;
-    right: -4px;
-    bottom: -2px;
+    overflow: hidden;
+}
+
+.chat-faces.pair .face:nth-child(1) {
+    left: 0;
+    top: 0;
+}
+
+.chat-faces.pair .face:nth-child(2) {
+    right: 0;
+    bottom: 0;
     border: 2px solid var(--bg);
 }
 
@@ -3242,17 +3279,18 @@ span.event-face {
     gap: 4px;
 }
 
-.chat-row-top {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-}
-
 .chat-row-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.chat-row-meta {
+    display: grid;
+    justify-items: end;
+    align-content: start;
+    gap: 4px;
+    flex: 0 0 auto;
 }
 
 .chat-row-time {
@@ -3274,7 +3312,6 @@ span.event-face {
 }
 
 .chat-unread-count {
-    justify-self: start;
     background: var(--accent);
     color: #fff;
     border-radius: 999px;
@@ -3305,7 +3342,7 @@ span.event-face {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 18px 18px 18px 6px;
-    padding: 8px 12px;
+    padding: 8px;
     display: grid;
     gap: 6px;
 }
@@ -3313,6 +3350,7 @@ span.event-face {
 .chat-bubble.mine {
     align-self: flex-end;
     background: var(--card);
+    color: var(--ink);
     border-radius: 18px 18px 6px 18px;
 }
 
@@ -3320,6 +3358,7 @@ span.event-face {
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
     border: 0;
     background: none;
     color: inherit;
@@ -3328,12 +3367,38 @@ span.event-face {
     cursor: pointer;
 }
 
+.chat-author .face {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    flex: 0 0 22px;
+    aspect-ratio: 1 / 1;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.chat-author > span:not(.face) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .chat-text { margin: 0; white-space: pre-wrap; word-break: break-word; }
 
 .chat-photos { display: grid; gap: 6px; }
 
 .chat-photo {
     max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
     border-radius: 12px;
     display: block;
 }
@@ -3343,11 +3408,20 @@ span.event-face {
 .reaction-chip, .reaction-pick {
     border: 1px solid var(--line);
     background: var(--bg);
-    color: inherit;
+    color: var(--text);
     border-radius: 999px;
     padding: 2px 8px;
     font: inherit;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reaction-pick svg {
+    width: 16px;
+    height: 16px;
+    display: block;
 }
 
 .reaction-chip.mine { border-color: var(--accent); }
@@ -3372,7 +3446,20 @@ span.event-face {
     50% { opacity: 1; }
 }
 
-.face.tiny { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.face.tiny {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    font-size: 50%;
+    overflow: hidden;
+}
 
 .chat-composer {
     display: flex;
@@ -3393,12 +3480,53 @@ span.event-face {
     background: var(--surface);
     color: inherit;
     font: inherit;
-    padding: 10px 12px;
+    padding: 8px 12px;
+    line-height: 22px;
 }
 
-.chat-send { flex: 0 0 auto; }
+.chat-send {
+    flex: 0 0 auto;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
 
 .composer-photo { flex: 0 0 auto; }
+
+.reaction-custom { display: grid; gap: 8px; margin-top: 8px; }
+
+.reactions-dialog .attendee-row {
+    width: 100%;
+}
+
+.reactions-dialog .attendee-row .face {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    aspect-ratio: 1;
+    overflow: hidden;
+}
+
+.reactions-dialog .attendee-row .text-button {
+    width: auto;
+    margin-left: auto;
+    flex: 0 0 auto;
+    padding: 8px 0 8px 12px;
+}
+
+.attendee-row .attendee-icon.member-menu {
+    margin-left: auto;
+}
 
 .text-button.danger { color: var(--danger); }
 
