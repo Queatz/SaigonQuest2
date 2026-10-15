@@ -30,6 +30,14 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     shell.appendChild(pageHead(router, Town.t("events"), showProfile = true))
     val body = el("div", "page-body events-body")
     val mapBox = el("div", "events-map")
+    val lists = el("div", "events-lists")
+    val tabs = el("div", "chip-row events-tabs")
+    val eventsChip = el("button", "chip selected", text = Town.t("events"))
+    eventsChip.setAttribute("type", "button")
+    val peopleChip = el("button", "chip", text = Town.t("people"))
+    peopleChip.setAttribute("type", "button")
+    tabs.appendChild(eventsChip)
+    tabs.appendChild(peopleChip)
     val split = el("div", "events-split")
     val eventCol = el("div", "events-col")
     val peopleCol = el("div", "events-col")
@@ -41,9 +49,18 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     peopleCol.appendChild(peopleList)
     split.appendChild(eventCol)
     split.appendChild(peopleCol)
+    lists.appendChild(tabs)
+    lists.appendChild(split)
     body.appendChild(mapBox)
-    body.appendChild(split)
+    body.appendChild(lists)
     shell.appendChild(body)
+    fun selectTab(people: Boolean) {
+        eventsChip.asDynamic().classList.toggle("selected", !people)
+        peopleChip.asDynamic().classList.toggle("selected", people)
+        split.asDynamic().classList.toggle("show-people", people)
+    }
+    eventsChip.onClick { selectTab(false) }
+    peopleChip.onClick { selectTab(true) }
     loadGoogleMaps { }
 
     http("GET", "/api/events") { status, text ->
