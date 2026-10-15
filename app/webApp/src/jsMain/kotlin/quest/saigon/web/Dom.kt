@@ -4,6 +4,7 @@ import quest.saigon.TextLinks
 import web.dom.document
 import web.events.EventHandler
 import web.html.HTMLElement
+import web.window.window
 
 internal fun el(
     tag: String,
@@ -35,7 +36,41 @@ internal fun HTMLElement.onClick(handler: () -> Unit) {
     }
 }
 
+internal fun keyboardInset(): Double {
+    val viewport = window.asDynamic().visualViewport
+    return if (viewport == null || viewport == undefined) {
+        0.0
+    } else {
+        (num(window.innerHeight) - num(viewport.height) - num(viewport.offsetTop)).coerceAtLeast(0.0)
+    }
+}
+
+private var keyboardOverlaysBound = false
+
+internal fun HTMLElement.keepAboveKeyboard() {
+    bindKeyboardOverlays()
+    asDynamic().style.bottom = "${keyboardInset()}px"
+}
+
+private fun bindKeyboardOverlays() {
+    if (keyboardOverlaysBound) return
+    keyboardOverlaysBound = true
+    val viewport = window.asDynamic().visualViewport
+    if (viewport == null || viewport == undefined) return
+    val sync = {
+        val inset = "${keyboardInset()}px"
+        val nodes = document.asDynamic().querySelectorAll(".dialog-backdrop")
+        val length = nodes.length as Int
+        for (i in 0 until length) {
+            nodes[i].style.bottom = inset
+        }
+    }
+    viewport.addEventListener("resize", sync)
+    viewport.addEventListener("scroll", sync)
+}
+
 internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
+    keepAboveKeyboard()
     asDynamic().addEventListener("click", { event: dynamic ->
         if (event.target == event.currentTarget) onClose()
     })

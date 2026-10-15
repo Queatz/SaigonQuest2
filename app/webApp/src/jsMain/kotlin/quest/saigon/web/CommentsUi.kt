@@ -215,8 +215,6 @@ internal fun openCommentsSheet(
     sheet.appendChild(composer)
     backdrop.appendChild(sheet)
 
-    var kbHandler: (() -> Unit)? = null
-
     fun stopPlaceholder() {
         if (placeholderTimer != null) {
             window.asDynamic().clearInterval(placeholderTimer)
@@ -224,19 +222,8 @@ internal fun openCommentsSheet(
         }
     }
 
-    fun stopKeyboard() {
-        val viewport = window.asDynamic().visualViewport
-        if (kbHandler != null && viewport != null && viewport != undefined) {
-            viewport.removeEventListener("resize", kbHandler)
-            viewport.removeEventListener("scroll", kbHandler)
-        }
-        kbHandler = null
-        sheet.asDynamic().style.bottom = "0px"
-    }
-
     fun close() {
         stopPlaceholder()
-        stopKeyboard()
         sheet.asDynamic().style.transform = ""
         sheet.asDynamic().classList.remove("open")
         window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
@@ -509,23 +496,6 @@ internal fun openCommentsSheet(
         val full = num(list.asDynamic().scrollHeight)
         if (top + height > full - 80) loadPage()
     })
-
-    fun syncKeyboard() {
-        val viewport = window.asDynamic().visualViewport
-        val inset = if (viewport == null || viewport == undefined) {
-            0.0
-        } else {
-            (num(window.innerHeight) - num(viewport.height) - num(viewport.offsetTop)).coerceAtLeast(0.0)
-        }
-        sheet.asDynamic().style.bottom = "${inset}px"
-    }
-
-    val viewport = window.asDynamic().visualViewport
-    kbHandler = { syncKeyboard() }
-    if (viewport != null && viewport != undefined) {
-        viewport.addEventListener("resize", kbHandler)
-        viewport.addEventListener("scroll", kbHandler)
-    }
 
     var dragStart = 0.0
     var dragging = false
