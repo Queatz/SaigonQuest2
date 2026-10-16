@@ -656,7 +656,7 @@ private fun communityChooserRow(
     return row
 }
 
-private fun communityActionRow(
+internal fun communityActionRow(
     host: HTMLElement,
     router: HistoryRouter,
     community: CommunityCard,

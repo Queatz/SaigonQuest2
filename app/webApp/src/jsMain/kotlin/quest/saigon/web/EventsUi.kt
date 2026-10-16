@@ -36,31 +36,42 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     eventsChip.setAttribute("type", "button")
     val peopleChip = el("button", "chip", text = Town.t("people"))
     peopleChip.setAttribute("type", "button")
+    val communitiesChip = el("button", "chip", text = Town.t("communities"))
+    communitiesChip.setAttribute("type", "button")
     tabs.appendChild(eventsChip)
     tabs.appendChild(peopleChip)
+    tabs.appendChild(communitiesChip)
     val split = el("div", "events-split")
     val eventCol = el("div", "events-col")
     val peopleCol = el("div", "events-col")
+    val communityCol = el("div", "events-col")
     eventCol.appendChild(el("h3", text = Town.t("events")))
     peopleCol.appendChild(el("h3", text = Town.t("people")))
+    communityCol.appendChild(el("h3", text = Town.t("communities")))
     val eventList = el("div", "event-list")
     val peopleList = el("div", "member-list")
+    val communityList = el("div", "community-list")
     eventCol.appendChild(eventList)
     peopleCol.appendChild(peopleList)
+    communityCol.appendChild(communityList)
     split.appendChild(eventCol)
     split.appendChild(peopleCol)
+    split.appendChild(communityCol)
     lists.appendChild(tabs)
     lists.appendChild(split)
     body.appendChild(mapBox)
     body.appendChild(lists)
     shell.appendChild(body)
-    fun selectTab(people: Boolean) {
-        eventsChip.asDynamic().classList.toggle("selected", !people)
-        peopleChip.asDynamic().classList.toggle("selected", people)
-        split.asDynamic().classList.toggle("show-people", people)
+    fun selectTab(chip: HTMLElement) {
+        eventsChip.asDynamic().classList.toggle("selected", chip === eventsChip)
+        peopleChip.asDynamic().classList.toggle("selected", chip === peopleChip)
+        communitiesChip.asDynamic().classList.toggle("selected", chip === communitiesChip)
+        split.asDynamic().classList.toggle("show-people", chip === peopleChip)
+        split.asDynamic().classList.toggle("show-communities", chip === communitiesChip)
     }
-    eventsChip.onClick { selectTab(false) }
-    peopleChip.onClick { selectTab(true) }
+    eventsChip.onClick { selectTab(eventsChip) }
+    peopleChip.onClick { selectTab(peopleChip) }
+    communitiesChip.onClick { selectTab(communitiesChip) }
     loadGoogleMaps { }
 
     http("GET", "/api/events") { status, text ->
@@ -86,6 +97,26 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         }
         mountEventsMap(mapBox, events)
     }
+    fun loadCommunities() {
+        http("GET", "/api/communities?limit=50") { status, body ->
+            communityList.clear()
+            if (status != 200) {
+                communityList.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                return@http
+            }
+            val items = readCommunities(parseJson(body).communities)
+            if (items.isEmpty()) {
+                communityList.appendChild(el("p", "hint", text = Town.t("noCommunities")))
+                return@http
+            }
+            items.forEach { community ->
+                communityList.appendChild(
+                    communityActionRow(shell, router, community, leaving = community.joined) { loadCommunities() },
+                )
+            }
+        }
+    }
+    loadCommunities()
     return shell
 }
 

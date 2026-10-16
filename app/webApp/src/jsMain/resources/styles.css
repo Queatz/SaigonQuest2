@@ -3116,7 +3116,7 @@ span.event-face {
 .events-split {
     display: grid;
     flex: 1 1 auto;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
     min-height: 0;
     overflow: hidden;
@@ -3133,19 +3133,25 @@ span.event-face {
         grid-template-rows: minmax(0, 1fr);
     }
 
-    .events-split .events-col:last-child { display: none; }
+    .events-split .events-col:not(:first-child) { display: none; }
 
-    .events-split.show-people .events-col:first-child { display: none; }
+    .events-split.show-people .events-col { display: none; }
 
-    .events-split.show-people .events-col:last-child { display: flex; }
+    .events-split.show-people .events-col:nth-child(2) { display: flex; }
+
+    .events-split.show-communities .events-col { display: none; }
+
+    .events-split.show-communities .events-col:nth-child(3) { display: flex; }
 }
 
 .event-list,
-.events-col .member-list {
+.events-col .member-list,
+.events-col .community-list {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
     max-height: none;
+    align-content: start;
 }
 
 .event-day { margin: 8px 0 4px; }
