@@ -62,14 +62,14 @@ internal object NotifyInbox {
     }
 
     fun paintBadges() {
-        val nodes = web.dom.document.asDynamic().querySelectorAll(".notify-badge")
+        val nodes = web.dom.document.asDynamic().querySelectorAll(".notify-badge:not(.messages-badge)")
         val length = nodes.length as Int
         for (i in 0 until length) {
             val badge = nodes[i]
             badge.textContent = if (unread > 0) unread.toString() else ""
             badge.hidden = unread <= 0
         }
-        val buttons = web.dom.document.asDynamic().querySelectorAll(".notify-btn")
+        val buttons = web.dom.document.asDynamic().querySelectorAll(".notify-btn:not(.messages-btn)")
         val count = buttons.length as Int
         for (i in 0 until count) {
             val button = buttons[i]
