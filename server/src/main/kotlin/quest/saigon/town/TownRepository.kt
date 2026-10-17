@@ -89,7 +89,7 @@ interface TownRepository {
     fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage
     fun attendeeIds(postId: String): List<String>
     fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
-    fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long): EventSummary
+    fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary
     fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion>
     fun people(cursor: String?, limit: Int): CommunityMemberPage
     fun eventPostsBetween(from: Long, to: Long): List<PostRecord>

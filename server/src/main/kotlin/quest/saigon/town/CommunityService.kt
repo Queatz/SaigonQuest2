@@ -1,5 +1,6 @@
 package quest.saigon.town
 
+import quest.saigon.ai.CommunityEmojiSuggester
 import quest.saigon.ai.CommunityPrompts
 import quest.saigon.ai.CommunitySuggester
 import quest.saigon.auth.RateLimiter
@@ -11,6 +12,9 @@ class CommunityService(
     private val clock: () -> Long,
     private val suggester: CommunitySuggester = CommunitySuggester { message, existing ->
         CommunityPrompts.fallback(message, existing)
+    },
+    private val emojiSuggester: CommunityEmojiSuggester = CommunityEmojiSuggester { name, existing ->
+        CommunityPrompts.fallbackEmoji(name, existing)
     },
     private val suggestLimiter: RateLimiter = RateLimiter(20, 60_000, clock),
 ) {
@@ -48,5 +52,11 @@ class CommunityService(
         if (!suggestLimiter.allow(userId)) throw TownException("rate_limited")
         val existing = repo.searchCommunities("", null, 40).map { it.community }
         return suggester.suggest(text, existing)
+    }
+
+    fun suggestEmoji(userId: String, name: String): String {
+        if (!suggestLimiter.allow(userId)) throw TownException("rate_limited")
+        val existing = repo.searchCommunities("", null, 40).map { it.community }
+        return emojiSuggester.suggest(name, existing)
     }
 }

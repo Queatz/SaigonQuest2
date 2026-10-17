@@ -131,11 +131,14 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
             val parsed = parseJson(body)
             val today = num(parsed.today).toInt()
             val tomorrow = num(parsed.tomorrow).toInt()
+            val week = num(parsed.week).toInt()
             when {
                 today == 1 -> Town.t("eventToday")
                 today > 1 -> Town.t("eventsToday", mapOf("count" to today.toString()))
                 tomorrow == 1 -> Town.t("eventTomorrow")
                 tomorrow > 1 -> Town.t("eventsTomorrow", mapOf("count" to tomorrow.toString()))
+                week == 1 -> Town.t("eventWeek")
+                week > 1 -> Town.t("eventsWeek", mapOf("count" to week.toString()))
                 else -> Town.t("noUpcomingEvents")
             }
         } else {

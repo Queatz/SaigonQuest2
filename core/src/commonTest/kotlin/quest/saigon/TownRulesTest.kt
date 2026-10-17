@@ -122,6 +122,8 @@ class TownRulesTest {
         assertEquals("Xóa ảnh", Copy.text(Language.VI, "removePhoto"))
         assertEquals("2 events today", Copy.text(Language.EN, "eventsToday", mapOf("count" to "2")))
         assertEquals("2 sự kiện hôm nay", Copy.text(Language.VI, "eventsToday", mapOf("count" to "2")))
+        assertEquals("3 events in 7 days", Copy.text(Language.EN, "eventsWeek", mapOf("count" to "3")))
+        assertEquals("3 sự kiện trong 7 ngày", Copy.text(Language.VI, "eventsWeek", mapOf("count" to "3")))
         assertEquals(100_000_000, Limits.EVENT_PRICE_MAX)
         assertEquals("📊 Poll", Copy.text(Language.EN, "poll"))
         assertEquals("📊 Bình chọn", Copy.text(Language.VI, "poll"))

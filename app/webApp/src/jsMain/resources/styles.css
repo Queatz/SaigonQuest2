@@ -507,6 +507,10 @@ button { cursor: pointer; }
     display: none;
 }
 
+.message.ready {
+    cursor: pointer;
+}
+
 .message.ready .see-more-ellipsis,
 .message.ready .see-more {
     display: inline;
@@ -3150,6 +3154,14 @@ span.event-face {
     display: none;
     flex: 0 0 auto;
     margin: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.events-tabs .chip {
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 .events-split {

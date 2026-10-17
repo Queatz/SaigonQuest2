@@ -298,6 +298,64 @@ private fun communityCreateForm(
     button.setAttribute("type", "button")
     val error = el("p", "hint")
     error.asDynamic().hidden = true
+    var emojiTimer: dynamic = null
+    var emojiTicket = 0
+    var emojiManual = false
+
+    fun emojiText(): String = (emoji.asDynamic().value as? String).orEmpty()
+
+    fun stopEmojiGeneration() {
+        if (emojiTimer != null) window.asDynamic().clearTimeout(emojiTimer)
+        emojiTimer = null
+        emojiTicket++
+        emoji.setAttribute("placeholder", "✨")
+    }
+
+    fun resetEmojiState() {
+        emojiManual = false
+        stopEmojiGeneration()
+        emoji.asDynamic().value = ""
+    }
+
+    fun requestEmoji(text: String) {
+        if (emojiManual) return
+        val mine = emojiTicket
+        emoji.asDynamic().value = ""
+        emoji.setAttribute("placeholder", "…")
+        val payload = js("({})")
+        payload.name = text
+        http("POST", "/api/communities/emoji", jsonStringify(payload)) { status, body ->
+            if (mine != emojiTicket) return@http
+            emoji.setAttribute("placeholder", "✨")
+            if (emojiManual) return@http
+            if (status != 200) return@http
+            val generated = (parseJson(body).emoji as? String).orEmpty()
+            if (generated.isBlank()) return@http
+            emoji.asDynamic().value = generated
+        }
+    }
+
+    fun scheduleEmoji() {
+        if (emojiTimer != null) window.asDynamic().clearTimeout(emojiTimer)
+        emojiTimer = null
+        emojiTicket++
+        emoji.setAttribute("placeholder", "✨")
+        if (emojiManual) return
+        val text = (name.asDynamic().value as? String).orEmpty().trim()
+        if (text.isEmpty()) return
+        emojiTimer = window.asDynamic().setTimeout({ requestEmoji(text) }, 3000)
+    }
+
+    name.asDynamic().addEventListener("input", { scheduleEmoji() })
+    emoji.asDynamic().addEventListener("input", {
+        if (emojiText().isNotEmpty()) {
+            emojiManual = true
+            stopEmojiGeneration()
+        } else {
+            emojiManual = false
+            scheduleEmoji()
+        }
+    })
     button.onClick {
         val rawName = (name.asDynamic().value as? String).orEmpty().trim()
         if (rawName.isEmpty()) {
@@ -306,19 +364,19 @@ private fun communityCreateForm(
             return@onClick
         }
         button.setAttribute("disabled", "disabled")
-        val rawEmoji = (emoji.asDynamic().value as? String).orEmpty().ifBlank { "✨" }
+        val rawEmoji = emojiText().ifBlank { "✨" }
         createCommunity(host, rawName, rawEmoji) { created ->
             button.removeAttribute("disabled")
             if (created == null) return@createCommunity
             name.asDynamic().value = ""
-            emoji.asDynamic().value = ""
+            resetEmojiState()
             error.asDynamic().hidden = true
             onCreated(created)
         }
     }
     cancel.onClick {
         name.asDynamic().value = ""
-        emoji.asDynamic().value = ""
+        resetEmojiState()
         error.asDynamic().hidden = true
         onCancel()
     }

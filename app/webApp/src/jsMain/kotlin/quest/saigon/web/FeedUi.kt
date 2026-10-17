@@ -619,16 +619,25 @@ private fun buildSlide(
             CommunityCard(communityId, communityName, post.communityEmoji ?: "✨"),
         )
         chip.asDynamic().classList.add("in-message")
+        chip.asDynamic().addEventListener("click", { event: dynamic ->
+            event.stopPropagation()
+        })
         message.appendChild(chip)
         message.asDynamic().classList.add("has-community")
     }
     message.appendChild(el("span", "message-copy"))
     if (postMessageNeedsMore(post.message)) {
+        val openMore = {
+            if (message.asDynamic().classList.contains("ready")) {
+                openPostSheet(current, host, router, ::updateFromSheet)
+            }
+        }
         message.appendChild(el("span", "see-more-ellipsis", text = "…"))
         val more = el("button", "see-more", text = Town.t("seeMore"))
         more.setAttribute("type", "button")
-        more.onClick { openPostSheet(current, host, router, ::updateFromSheet) }
+        more.onClick { openMore() }
         message.appendChild(more)
+        message.onClick { openMore() }
     }
     val time = el("span", "message-time")
     message.appendChild(time)
@@ -1009,6 +1018,10 @@ private fun interactive(target: dynamic): Boolean {
     while (node != null && node != undefined) {
         val tag = (node.tagName as? String)?.lowercase()
         if (tag == "button" || tag == "a" || tag == "input" || tag == "textarea" || tag == "select" || tag == "label") {
+            return true
+        }
+        val list = node.classList
+        if (list != null && list != undefined && list.contains("message") == true && list.contains("ready") == true) {
             return true
         }
         node = node.parentElement

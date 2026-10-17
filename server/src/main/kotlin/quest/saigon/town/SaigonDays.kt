@@ -7,6 +7,8 @@ import java.time.ZoneOffset
 object SaigonDays {
     val ZONE: ZoneOffset = ZoneOffset.ofHours(7)
     const val LOOKBACK_DAYS = 30L
+    const val SUMMARY_DAYS = 7L
+    const val DAY_MILLIS = 24 * 60 * 60 * 1000L
 
     fun dayKey(epochMillis: Long): String =
         Instant.ofEpochMilli(epochMillis).atOffset(ZONE).toLocalDate().toString()

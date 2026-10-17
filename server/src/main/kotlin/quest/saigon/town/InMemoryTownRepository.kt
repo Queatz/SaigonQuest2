@@ -721,14 +721,15 @@ class InMemoryTownRepository : TownRepository {
             .take(limit)
             .map { toFeedItem(it, viewerId) }
 
-    override fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long): EventSummary {
+    override fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary {
         val upcoming = posts.values.filter { post ->
             val start = post.eventStartAt ?: return@filter false
-            !post.communityOnly && start >= todayStart
+            !post.communityOnly && start >= todayStart && start < weekEnd
         }
         return EventSummary(
             today = upcoming.count { it.eventStartAt!! in todayStart until tomorrowStart }.toLong(),
             tomorrow = upcoming.count { it.eventStartAt!! in tomorrowStart until tomorrowEnd }.toLong(),
+            week = upcoming.size.toLong(),
         )
     }
 

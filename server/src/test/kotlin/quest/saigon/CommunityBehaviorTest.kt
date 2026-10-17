@@ -46,6 +46,8 @@ class CommunityBehaviorTest {
         assertEquals("🌱", suggested.emoji)
         val parsed = CommunityPrompts.parse("""{"emoji":"🌱","name":"Vegans"}""")
         assertEquals("Vegans", parsed?.name)
+        assertEquals("🌱", CommunityPrompts.parseEmoji("""{"emoji":"🌱"}"""))
+        assertEquals("🌱", CommunityPrompts.fallbackEmoji("Vegans", emptyList()))
         val vietnamese = CommunityPrompts.fallback("Hôm nay ăn chay với bạn ở quận 1", emptyList())
         assertEquals("Ăn chay", vietnamese.name)
         assertEquals("🌱", vietnamese.emoji)
@@ -77,6 +79,13 @@ class CommunityBehaviorTest {
         assertEquals("Vegans", suggestion.path("name").asText())
         assertEquals("🌱", suggestion.path("emoji").asText())
         assertTrue(suggestion.path("communityId").isNull || suggestion.path("communityId").asText().isBlank())
+
+        val emoji = linh.post("/api/communities/emoji") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Vegans"}""")
+        }
+        assertEquals(HttpStatusCode.OK, emoji.status)
+        assertEquals("🌱", mapper.readTree(emoji.bodyAsText()).path("emoji").asText())
         assertEquals(0, mapper.readTree(linh.get("/api/communities?q=veg").bodyAsText()).path("communities").size())
 
         val created = linh.post("/api/communities") {

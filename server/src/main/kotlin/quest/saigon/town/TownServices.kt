@@ -4,6 +4,7 @@ import org.slf4j.LoggerFactory
 import quest.saigon.AppConfig
 import quest.saigon.ai.AvatarPipeline
 import quest.saigon.ai.AvatarRenderer
+import quest.saigon.ai.CommunityEmojiSuggester
 import quest.saigon.ai.CommunityPrompts
 import quest.saigon.ai.CommunitySuggester
 import quest.saigon.ai.MusicPipeline
@@ -63,7 +64,12 @@ class TownServices(
                 hub = hub,
                 pusher = pusher,
                 replies = QuickReplyService(repo, QuickReplyPipeline(qwen), config.qwenConfigured),
-                communities = CommunityService(repo, clock, communitySuggester(qwen, config.qwenConfigured)),
+                communities = CommunityService(
+                    repo,
+                    clock,
+                    communitySuggester(qwen, config.qwenConfigured),
+                    communityEmojiSuggester(qwen, config.qwenConfigured),
+                ),
                 places = config.googleMapsApiKey?.takeIf { it.isNotBlank() }?.let(::GooglePlaces) ?: NoPlaces,
                 events = events,
                 chatHub = chatHub,
@@ -153,6 +159,25 @@ internal fun communitySuggester(qwen: QwenClient, configured: Boolean): Communit
                 ) ?: CommunityPrompts.fallback(message, existing)
             } catch (_: Exception) {
                 CommunityPrompts.fallback(message, existing)
+            }
+        }
+    }
+
+internal fun communityEmojiSuggester(qwen: QwenClient, configured: Boolean): CommunityEmojiSuggester =
+    CommunityEmojiSuggester { name, existing ->
+        if (!configured) {
+            CommunityPrompts.fallbackEmoji(name, existing)
+        } else {
+            try {
+                CommunityPrompts.parseEmoji(
+                    qwen.chat(
+                        CommunityPrompts.EMOJI_SYSTEM,
+                        CommunityPrompts.emojiUser(name, existing),
+                        temperature = 0.2,
+                    ),
+                ) ?: CommunityPrompts.fallbackEmoji(name, existing)
+            } catch (_: Exception) {
+                CommunityPrompts.fallbackEmoji(name, existing)
             }
         }
     }

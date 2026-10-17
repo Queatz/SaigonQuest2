@@ -1527,26 +1527,28 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return queryList(query, bind).map(::feedItemFrom)
     }
 
-    override fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long): EventSummary {
+    override fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary {
         val row = first(
             """
             LET upcoming = (
               FOR p IN $POSTS
-                FILTER p.eventStartAt != null AND p.eventStartAt >= @todayStart AND p.communityOnly != true
+                FILTER p.eventStartAt != null AND p.eventStartAt >= @todayStart AND p.eventStartAt < @weekEnd AND p.communityOnly != true
                 RETURN p.eventStartAt
             )
             RETURN {
               today: LENGTH(FOR t IN upcoming FILTER t >= @todayStart AND t < @tomorrowStart RETURN 1),
-              tomorrow: LENGTH(FOR t IN upcoming FILTER t >= @tomorrowStart AND t < @tomorrowEnd RETURN 1)
+              tomorrow: LENGTH(FOR t IN upcoming FILTER t >= @tomorrowStart AND t < @tomorrowEnd RETURN 1),
+              week: LENGTH(upcoming)
             }
             """.trimIndent(),
             mapOf(
                 "todayStart" to todayStart,
                 "tomorrowStart" to tomorrowStart,
                 "tomorrowEnd" to tomorrowEnd,
+                "weekEnd" to weekEnd,
             ),
         )
-        return EventSummary(long(row, "today"), long(row, "tomorrow"))
+        return EventSummary(long(row, "today"), long(row, "tomorrow"), long(row, "week"))
     }
 
     override fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion> {

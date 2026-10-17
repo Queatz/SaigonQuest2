@@ -437,6 +437,7 @@ data class PollOptionView(
 data class EventSummary(
     val today: Long,
     val tomorrow: Long,
+    val week: Long,
 )
 
 data class PlaceSuggestion(

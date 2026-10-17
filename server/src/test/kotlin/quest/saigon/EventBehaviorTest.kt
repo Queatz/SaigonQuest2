@@ -62,6 +62,8 @@ class EventBehaviorTest {
         val todayStart = SaigonDays.startMillis(SaigonDays.dayKey(now))
         val todayEvent = todayStart + 18 * 60 * 60 * 1000L
         val tomorrowEvent = todayStart + 34 * 60 * 60 * 1000L
+        val laterEvent = todayStart + 3 * SaigonDays.DAY_MILLIS + 12 * 60 * 60 * 1000L
+        val tooFarEvent = todayStart + 8 * SaigonDays.DAY_MILLIS
 
         val created = postEvent(linh, "Sunset at the river", todayEvent, todayEvent + 2 * 60 * 60 * 1000L, 50_000, "ChIJ123abc")
         assertEquals(HttpStatusCode.Created, created.status)
@@ -74,10 +76,13 @@ class EventBehaviorTest {
         assertEquals(1, body.path("attendeeCount").asInt())
 
         postEvent(linh, "Breakfast tomorrow", tomorrowEvent, null, null, null)
+        postEvent(linh, "Midweek hang", laterEvent, null, null, null)
+        postEvent(linh, "Too far out", tooFarEvent, null, null, null)
 
         val summary = mapper.readTree(linh.get("/api/events/summary").bodyAsText())
         assertEquals(1, summary.path("today").asInt())
         assertEquals(1, summary.path("tomorrow").asInt())
+        assertEquals(3, summary.path("week").asInt())
 
         val joined = minh.post("/api/posts/$postId/join")
         assertEquals(HttpStatusCode.OK, joined.status)
@@ -105,7 +110,7 @@ class EventBehaviorTest {
         assertTrue(attendees.path(0).path("zaloUrl").asText().startsWith("https://zalo.me/"))
 
         val events = mapper.readTree(linh.get("/api/events").bodyAsText())
-        assertEquals(2, events.path("events").size())
+        assertEquals(4, events.path("events").size())
         assertTrue(events.path("people").size() >= 3)
 
         val places = mapper.readTree(linh.get("/api/places?q=cafe").bodyAsText())

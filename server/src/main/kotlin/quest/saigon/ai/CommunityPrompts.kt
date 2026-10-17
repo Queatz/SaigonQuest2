@@ -9,6 +9,10 @@ fun interface CommunitySuggester {
     fun suggest(message: String, existing: List<CommunityRecord>): CommunitySuggestion
 }
 
+fun interface CommunityEmojiSuggester {
+    fun suggest(name: String, existing: List<CommunityRecord>): String
+}
+
 object CommunityPrompts {
     const val SYSTEM = """
         You name one small community for a Saigon social post.
@@ -20,9 +24,22 @@ object CommunityPrompts {
         Do not explain.
     """
 
+    const val EMOJI_SYSTEM = """
+        You pick one emoji for a new Saigon community name.
+        Reply with JSON only: {"emoji":"🌱"}
+        emoji is a single emoji that fits the name.
+        If the name matches an existing community, reuse that emoji.
+        Do not explain.
+    """
+
     fun user(message: String, existing: List<CommunityRecord>): String {
         val names = existing.take(30).joinToString(", ") { "${it.emoji} ${it.name}" }.ifBlank { "none" }
         return "Existing communities: $names\nPost:\n$message"
+    }
+
+    fun emojiUser(name: String, existing: List<CommunityRecord>): String {
+        val names = existing.take(30).joinToString(", ") { "${it.emoji} ${it.name}" }.ifBlank { "none" }
+        return "Existing communities: $names\nCommunity name:\n$name"
     }
 
     fun parse(raw: String?): CommunitySuggestion? {
@@ -32,6 +49,14 @@ object CommunityPrompts {
         val name = field(text, "name")?.let(CommunityNames::clean) ?: return null
         return CommunitySuggestion(CommunityNames.cleanEmoji(emoji.orEmpty()), name)
     }
+
+    fun parseEmoji(raw: String?): String? {
+        val emoji = field(raw?.trim().orEmpty(), "emoji") ?: return null
+        return CommunityNames.cleanEmoji(emoji)
+    }
+
+    fun fallbackEmoji(name: String, existing: List<CommunityRecord>): String =
+        fallback(name, existing).emoji
 
     fun fallback(message: String, existing: List<CommunityRecord>): CommunitySuggestion {
         val lower = message.lowercase()

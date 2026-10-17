@@ -519,10 +519,11 @@ fun Route.townApi(services: TownServices) {
     get("/events/summary") {
         val today = SaigonDays.dayKey(services.clock())
         val todayStart = SaigonDays.startMillis(today)
-        val tomorrowStart = todayStart + 24 * 60 * 60 * 1000L
-        val tomorrowEnd = tomorrowStart + 24 * 60 * 60 * 1000L
-        val counts = services.repo.eventCounts(todayStart, tomorrowStart, tomorrowEnd)
-        call.respondJson(mapOf("today" to counts.today, "tomorrow" to counts.tomorrow))
+        val tomorrowStart = todayStart + SaigonDays.DAY_MILLIS
+        val tomorrowEnd = tomorrowStart + SaigonDays.DAY_MILLIS
+        val weekEnd = todayStart + SaigonDays.SUMMARY_DAYS * SaigonDays.DAY_MILLIS
+        val counts = services.repo.eventCounts(todayStart, tomorrowStart, tomorrowEnd, weekEnd)
+        call.respondJson(mapOf("today" to counts.today, "tomorrow" to counts.tomorrow, "week" to counts.week))
     }
 
     get("/events") {
@@ -778,6 +779,18 @@ fun Route.townApi(services: TownServices) {
                 "communityId" to match?.id,
             ),
         )
+    }
+
+    post("/communities/emoji") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val name = Jsons.text(Jsons.parse(call.receiveText()), "name").trim()
+        if (quest.saigon.town.CommunityNames.clean(name) == null) return@post call.fail("invalid_community")
+        val emoji = try {
+            services.communities.suggestEmoji(user.id, name)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("emoji" to emoji))
     }
 
     post("/communities") {
