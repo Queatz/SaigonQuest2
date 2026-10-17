@@ -763,7 +763,7 @@ fun Route.townApi(services: TownServices) {
 
     post("/communities/suggest") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
-        val text = Jsons.text(Jsons.parse(call.receiveText()), "text")
+        val text = Jsons.text(Jsons.parse(call.receiveText()), "text").trim()
         if (text.length !in 1..Limits.MESSAGE_MAX) return@post call.fail("invalid_message")
         val suggestion = try {
             services.communities.suggest(user.id, text)

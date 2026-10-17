@@ -123,7 +123,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     }
 
     val message = el("textarea")
-    message.setAttribute("maxlength", "280")
+    message.setAttribute("maxlength", Limits.MESSAGE_MAX.toString())
     message.setAttribute("placeholder", Town.t("messagePlaceholder"))
     val messageLabel = el("label", "field")
     messageLabel.appendChild(el("span", text = Town.t("message")))

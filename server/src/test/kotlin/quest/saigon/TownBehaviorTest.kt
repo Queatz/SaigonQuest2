@@ -493,6 +493,63 @@ class TownBehaviorTest {
     }
 
     @Test
+    fun postsAcceptLongMessages() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        val created = http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901234502","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, created.status)
+        http.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Cát Lái"}""")
+        }
+        val jpeg = ImageOps().writeJpeg(solid(8, 16, Color(40, 90, 160)), 0.85f)
+        val message = "a".repeat(Limits.MESSAGE_MAX)
+        val posted = http.post("/api/posts") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", message)
+                        append(
+                            "photo",
+                            jpeg,
+                            io.ktor.http.Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, posted.status)
+        assertEquals(message, mapper.readTree(posted.bodyAsText()).path("message").asText())
+
+        val tooLong = http.post("/api/posts") {
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", "a".repeat(Limits.MESSAGE_MAX + 1))
+                        append(
+                            "photo",
+                            jpeg,
+                            io.ktor.http.Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooLong.status)
+        assertEquals("invalid_message", mapper.readTree(tooLong.bodyAsText()).path("error").asText())
+    }
+
+    @Test
     fun postPhotosAreCappedAtEightHundredPixels() {
         val images = ImageOps()
         val source = BufferedImage(1600, 2844, BufferedImage.TYPE_INT_RGB)

@@ -202,6 +202,17 @@ class TownRulesTest {
     }
 
     @Test
+    fun longPostMessagesKeepAShortPreview() {
+        assertEquals(5000, Limits.MESSAGE_MAX)
+        assertEquals(100, Limits.MESSAGE_PREVIEW)
+        assertEquals("short", previewPostMessage("short"))
+        assertEquals("a".repeat(100), previewPostMessage("a".repeat(100)))
+        assertEquals("a".repeat(100), previewPostMessage("a".repeat(101)))
+        assertTrue(!postMessageNeedsMore("a".repeat(100)))
+        assertTrue(postMessageNeedsMore("a".repeat(101)))
+    }
+
+    @Test
     fun musicNamesPreferLyricsThenPrompt() {
         assertEquals("Sáng sớm trời mưa", MusicNames.fromPrompt("Sáng sớm trời mưa"))
         assertEquals(

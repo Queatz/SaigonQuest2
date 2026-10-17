@@ -3,6 +3,8 @@ package quest.saigon.web
 import quest.saigon.Limits
 import quest.saigon.PostAge
 import quest.saigon.feedSlideMotion
+import quest.saigon.postMessageNeedsMore
+import quest.saigon.previewPostMessage
 import web.dom.document
 import web.html.HTMLElement
 import web.window.window
@@ -204,7 +206,10 @@ private fun mountPager(
             viewedId = post.id
             http("POST", "/api/posts/${post.id}/view", "{}") { _, _ -> }
         }
-        cancelType = typewrite(copy, post.message)
+        message.classList.remove("ready")
+        cancelType = typewrite(copy, previewPostMessage(post.message)) {
+            if (postMessageNeedsMore(post.message)) message.classList.add("ready")
+        }
     }
 
     fun revealAvatar() {
@@ -536,6 +541,22 @@ private fun buildSlide(
     onUpdate: (PostCard) -> Unit,
     @Suppress("UNUSED_PARAMETER") replay: () -> Unit,
 ): BuiltSlide {
+    var current = post
+    var eventEl: HTMLElement? = null
+    var pollEl: HTMLElement? = null
+    fun update(next: PostCard) {
+        current = next
+        onUpdate(next)
+    }
+    fun replace(old: HTMLElement, next: HTMLElement): HTMLElement {
+        old.asDynamic().replaceWith(next)
+        return next
+    }
+    fun updateFromSheet(next: PostCard) {
+        update(next)
+        eventEl = eventEl?.let { replace(it, eventCard(next, host, router, ::update)) }
+        pollEl = pollEl?.let { replace(it, pollCard(next, host, router, ::update)) }
+    }
     val slide = el("article", "slide")
     val urls = post.allPhotoUrls().ifEmpty { listOf(post.photoUrl) }
     val photo = el("div", "photo")
@@ -602,6 +623,13 @@ private fun buildSlide(
         message.asDynamic().classList.add("has-community")
     }
     message.appendChild(el("span", "message-copy"))
+    if (postMessageNeedsMore(post.message)) {
+        message.appendChild(el("span", "see-more-ellipsis", text = "…"))
+        val more = el("button", "see-more", text = Town.t("seeMore"))
+        more.setAttribute("type", "button")
+        more.onClick { openPostSheet(current, host, router, ::updateFromSheet) }
+        message.appendChild(more)
+    }
     val time = el("span", "message-time")
     message.appendChild(time)
     paintPostTime(time, post.createdAt)
@@ -612,13 +640,88 @@ private fun buildSlide(
         message.appendChild(exclusive)
     }
     card.appendChild(message)
-    if (post.hasEvent) card.appendChild(eventCard(post, host, router, onUpdate))
-    if (post.hasPoll) card.appendChild(pollCard(post, host, router, onUpdate))
-    card.appendChild(collapsedChat(post, host, router, onUpdate))
+    if (post.hasEvent) {
+        val node = eventCard(post, host, router, ::update)
+        eventEl = node
+        card.appendChild(node)
+    }
+    if (post.hasPoll) {
+        val node = pollCard(post, host, router, ::update)
+        pollEl = node
+        card.appendChild(node)
+    }
+    card.appendChild(collapsedChat(post, host, router, ::update))
     stack.appendChild(card)
     slide.appendChild(stack)
     val pager = PhotoPager(urls, photo, track, frames, dots).also { it.preload() }
     return BuiltSlide(slide, pager)
+}
+
+private fun openPostSheet(
+    post: PostCard,
+    host: HTMLElement,
+    router: HistoryRouter,
+    onUpdate: (PostCard) -> Unit,
+) {
+    if (host.asDynamic().querySelector(".post-sheet") != null) return
+    val backdrop = el("div", "dialog-backdrop comment-backdrop")
+    val sheet = el("div", "comment-sheet post-sheet")
+    sheet.setAttribute("role", "dialog")
+    sheet.setAttribute("aria-modal", "true")
+    var closer: () -> Unit = {}
+    val handle = el("div", "sheet-handle")
+    handle.setAttribute("aria-hidden", "true")
+    val bar = el("div", "comment-bar")
+    bar.appendChild(el("h2", text = post.authorName))
+    bar.appendChild(el("button", "icon-btn sheet-close", text = "×") { button ->
+        button.setAttribute("type", "button")
+        button.setAttribute("aria-label", Town.t("close"))
+        button.onClick { closer() }
+    })
+    val body = el("div", "post-sheet-body")
+    body.appendChild(el("p", "post-sheet-message", text = post.message))
+    if (post.hasEvent) body.appendChild(eventCard(post, host, router, onUpdate))
+    if (post.hasPoll) body.appendChild(pollCard(post, host, router, onUpdate))
+    sheet.appendChild(handle)
+    sheet.appendChild(bar)
+    sheet.appendChild(body)
+    backdrop.appendChild(sheet)
+
+    fun close() {
+        sheet.asDynamic().style.transform = ""
+        sheet.asDynamic().classList.remove("open")
+        window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
+    }
+    closer = { close() }
+    backdrop.closeOnOutsideClick { close() }
+
+    var dragStart = 0.0
+    var dragging = false
+    handle.asDynamic().addEventListener("pointerdown", { event: dynamic ->
+        event.preventDefault()
+        dragging = true
+        dragStart = num(event.clientY)
+        if (handle.asDynamic().setPointerCapture != undefined) handle.asDynamic().setPointerCapture(event.pointerId)
+    })
+    handle.asDynamic().addEventListener("pointermove", { event: dynamic ->
+        if (!dragging) return@addEventListener
+        event.preventDefault()
+        val delta = (num(event.clientY) - dragStart).coerceAtLeast(0.0)
+        sheet.asDynamic().style.transform = "translate3d(0, ${delta}px, 0)"
+    })
+    handle.asDynamic().addEventListener("pointerup", { event: dynamic ->
+        if (!dragging) return@addEventListener
+        dragging = false
+        val delta = num(event.clientY) - dragStart
+        if (delta > 90) close() else sheet.asDynamic().style.transform = ""
+    })
+
+    host.appendChild(backdrop)
+    window.asDynamic().requestAnimationFrame {
+        window.asDynamic().requestAnimationFrame {
+            sheet.asDynamic().classList.add("open")
+        }
+    }
 }
 
 private class PhotoPager(
@@ -809,7 +912,7 @@ private fun paintPostTime(node: dynamic, createdAt: Long) {
     node.style.display = if (label.isBlank()) "none" else ""
 }
 
-private fun typewrite(node: dynamic, text: String): () -> Unit {
+private fun typewrite(node: dynamic, text: String, onDone: () -> Unit = {}): () -> Unit {
     var index = 0
     var timer: dynamic = null
     var stopped = false
@@ -819,6 +922,8 @@ private fun typewrite(node: dynamic, text: String): () -> Unit {
         node.textContent = text.substring(0, index)
         if (index < text.length) {
             timer = window.asDynamic().setTimeout({ step() }, Limits.TYPEWRITER_MILLIS_PER_CHAR)
+        } else {
+            onDone()
         }
     }
     node.textContent = ""

@@ -2,7 +2,8 @@ package quest.saigon
 
 object Limits {
     const val NAME_MAX = 40
-    const val MESSAGE_MAX = 280
+    const val MESSAGE_MAX = 5000
+    const val MESSAGE_PREVIEW = 100
     const val PROMPT_MAX = 200
     const val MUSIC_PROMPT_MAX = 400
     const val MUSIC_NAME_MAX = 40
