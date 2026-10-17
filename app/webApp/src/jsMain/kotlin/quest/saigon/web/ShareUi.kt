@@ -162,12 +162,13 @@ private fun copyImageBlob(blob: dynamic, done: (Boolean) -> Unit) {
 }
 
 private fun renderShareCard(post: PostCard, done: (dynamic?) -> Unit) {
-    loadBitmap(post.photoUrl) { photo ->
+    val urls = post.allPhotoUrls().ifEmpty { listOf(post.photoUrl) }
+    loadBitmaps(urls) { photos ->
         loadBitmap(post.avatarUrl) { avatar ->
             loadBitmap(post.authorPhotoUrl) { face ->
                 whenFontsReady {
                     try {
-                        val canvas = paintShareCard(post, photo, avatar, face)
+                        val canvas = paintShareCard(post, photos, avatar, face)
                         canvas.toBlob({ blob: dynamic ->
                             if (blob == null || blob == undefined) done(null) else done(blob)
                         }, "image/png")
@@ -176,6 +177,22 @@ private fun renderShareCard(post: PostCard, done: (dynamic?) -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+private fun loadBitmaps(urls: List<String>, done: (List<dynamic>) -> Unit) {
+    if (urls.isEmpty()) {
+        done(emptyList())
+        return
+    }
+    val results = MutableList<dynamic?>(urls.size) { null }
+    var remaining = urls.size
+    urls.forEachIndexed { index, url ->
+        loadBitmap(url) { image ->
+            results[index] = image
+            remaining -= 1
+            if (remaining == 0) done(results.filterNotNull())
         }
     }
 }
@@ -217,7 +234,7 @@ private fun whenFontsReady(then: () -> Unit) {
     fonts.load("700 42px \"Be Vietnam Pro\", Nunito, sans-serif").then({ then() }, { _: dynamic -> then() })
 }
 
-private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face: dynamic): dynamic {
+private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynamic, face: dynamic): dynamic {
     val canvas = document.createElement("canvas").asDynamic()
     canvas.width = SHARE_PX.toInt()
     canvas.height = SHARE_PX.toInt()
@@ -227,7 +244,7 @@ private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face
 
     ctx.fillStyle = "#1c1916"
     ctx.fillRect(0.0, 0.0, SHARE_PX, SHARE_PX)
-    if (photo != null) drawCover(ctx, photo, SHARE_PX)
+    drawCovers(ctx, photos, SHARE_PX)
 
     val footerH = 156.0
     val footerY = SHARE_PX - footerH
@@ -364,14 +381,34 @@ private fun paintShareCard(post: PostCard, photo: dynamic, avatar: dynamic, face
     return canvas
 }
 
-private fun drawCover(ctx: dynamic, image: dynamic, size: Double) {
+private fun drawCovers(ctx: dynamic, images: List<dynamic>, size: Double) {
+    if (images.isEmpty()) return
+    if (images.size == 1) {
+        drawCoverIn(ctx, images[0], 0.0, 0.0, size, size)
+        return
+    }
+    val gap = 8.0
+    val count = images.size
+    val colW = (size - gap * (count - 1)) / count
+    if (colW < 1.0) return
+    images.forEachIndexed { index, image ->
+        drawCoverIn(ctx, image, index * (colW + gap), 0.0, colW, size)
+    }
+}
+
+private fun drawCoverIn(ctx: dynamic, image: dynamic, x: Double, y: Double, w: Double, h: Double) {
     val sw = num(image.naturalWidth)
     val sh = num(image.naturalHeight)
-    if (sw < 1.0 || sh < 1.0) return
-    val scale = maxOf(size / sw, size / sh)
-    val cropW = size / scale
-    val cropH = size / scale
-    ctx.drawImage(image, (sw - cropW) / 2, (sh - cropH) / 2, cropW, cropH, 0.0, 0.0, size, size)
+    if (sw < 1.0 || sh < 1.0 || w < 1.0 || h < 1.0) return
+    val scale = maxOf(w / sw, h / sh)
+    val cropW = w / scale
+    val cropH = h / scale
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x, y, w, h)
+    ctx.clip()
+    ctx.drawImage(image, (sw - cropW) / 2, (sh - cropH) / 2, cropW, cropH, x, y, w, h)
+    ctx.restore()
 }
 
 private fun drawAvatar(ctx: dynamic, image: dynamic, cardX: Double, cardY: Double, cardW: Double, footerY: Double) {

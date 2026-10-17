@@ -127,7 +127,7 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
     button.setAttribute("hidden", "hidden")
     button.onClick { router.navigate("/events") }
     http("GET", "/api/events/summary") { status, body ->
-        button.textContent = if (status == 200) {
+        button.textContent = "📅 " + if (status == 200) {
             val parsed = parseJson(body)
             val today = num(parsed.today).toInt()
             val tomorrow = num(parsed.tomorrow).toInt()
