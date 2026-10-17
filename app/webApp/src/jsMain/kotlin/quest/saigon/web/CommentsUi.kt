@@ -178,20 +178,14 @@ internal fun openCommentsSheet(
     var placeholderIndex = 0
     var placeholderTimer: dynamic = null
     val comments = current.previewComments.toMutableList()
-    val backdrop = el("div", "dialog-backdrop comment-backdrop")
-    val sheet = el("div", "comment-sheet")
-    sheet.setAttribute("role", "dialog")
-    sheet.setAttribute("aria-modal", "true")
-    var closer: () -> Unit = {}
-    val handle = el("div", "sheet-handle")
-    handle.setAttribute("aria-hidden", "true")
-    val bar = el("div", "comment-bar")
-    bar.appendChild(el("h2", text = Town.t("comments")))
-    bar.appendChild(el("button", "icon-btn sheet-close", text = "×") { button ->
-        button.setAttribute("type", "button")
-        button.setAttribute("aria-label", Town.t("close"))
-        button.onClick { closer() }
-    })
+    fun stopPlaceholder() {
+        if (placeholderTimer != null) {
+            window.asDynamic().clearInterval(placeholderTimer)
+            placeholderTimer = null
+        }
+    }
+    val chrome = SheetChrome("comment-sheet", Town.t("comments")) { stopPlaceholder() }
+    val sheet = chrome.sheet
     val list = el("div", "comment-list")
     val composer = el("div", "comment-composer")
     val chips = el("div", "quick-replies sheet-replies")
@@ -209,28 +203,8 @@ internal fun openCommentsSheet(
     composer.appendChild(chips)
     composer.appendChild(replyBar)
     composer.appendChild(row)
-    sheet.appendChild(handle)
-    sheet.appendChild(bar)
     sheet.appendChild(list)
     sheet.appendChild(composer)
-    backdrop.appendChild(sheet)
-
-    fun stopPlaceholder() {
-        if (placeholderTimer != null) {
-            window.asDynamic().clearInterval(placeholderTimer)
-            placeholderTimer = null
-        }
-    }
-
-    fun close() {
-        stopPlaceholder()
-        sheet.asDynamic().style.transform = ""
-        sheet.asDynamic().classList.remove("open")
-        window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
-    }
-    closer = { close() }
-
-    backdrop.closeOnOutsideClick { close() }
 
     fun paintPlaceholder() {
         val typed = (field.asDynamic().value as? String).orEmpty()
@@ -497,37 +471,12 @@ internal fun openCommentsSheet(
         if (top + height > full - 80) loadPage()
     })
 
-    var dragStart = 0.0
-    var dragging = false
-    handle.asDynamic().addEventListener("pointerdown", { event: dynamic ->
-        event.preventDefault()
-        dragging = true
-        dragStart = num(event.clientY)
-        if (handle.asDynamic().setPointerCapture != undefined) handle.asDynamic().setPointerCapture(event.pointerId)
-    })
-    handle.asDynamic().addEventListener("pointermove", { event: dynamic ->
-        if (!dragging) return@addEventListener
-        event.preventDefault()
-        val delta = (num(event.clientY) - dragStart).coerceAtLeast(0.0)
-        sheet.asDynamic().style.transform = "translate3d(0, ${delta}px, 0)"
-    })
-    handle.asDynamic().addEventListener("pointerup", { event: dynamic ->
-        if (!dragging) return@addEventListener
-        dragging = false
-        val delta = num(event.clientY) - dragStart
-        if (delta > 90) close() else sheet.asDynamic().style.transform = ""
-    })
-
-    host.appendChild(backdrop)
     paintList(true)
     paintReplyTarget()
     loadPage()
     startPlaceholder()
-    window.asDynamic().requestAnimationFrame {
-        window.asDynamic().requestAnimationFrame {
-            sheet.asDynamic().classList.add("open")
-            if (focusInput) window.asDynamic().setTimeout({ field.asDynamic().focus() }, 80)
-        }
+    chrome.open(host) {
+        if (focusInput) window.asDynamic().setTimeout({ field.asDynamic().focus() }, 80)
     }
 }
 

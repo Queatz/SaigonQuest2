@@ -76,6 +76,89 @@ internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
     })
 }
 
+    internal class SheetChrome(
+    className: String,
+    title: String,
+    private val beforeClose: () -> Unit = {},
+) {
+    val sheet: HTMLElement = el("div", className)
+    private val backdrop: HTMLElement = el("div", "dialog-backdrop comment-backdrop")
+
+    init {
+        sheet.setAttribute("role", "dialog")
+        sheet.setAttribute("aria-modal", "true")
+        val grab = el("div", "sheet-grab")
+        val handle = el("div", "sheet-handle")
+        handle.setAttribute("aria-hidden", "true")
+        val bar = el("div", "comment-bar")
+        bar.appendChild(el("h2", text = title))
+        bar.appendChild(el("button", "icon-btn sheet-close", text = "×") { button ->
+            button.setAttribute("type", "button")
+            button.setAttribute("aria-label", Town.t("close"))
+            button.onClick { close() }
+        })
+        grab.appendChild(handle)
+        grab.appendChild(bar)
+        sheet.appendChild(grab)
+        backdrop.appendChild(sheet)
+        backdrop.closeOnOutsideClick { close() }
+        bindSheetDrag(grab, sheet) { close() }
+    }
+
+    fun close() {
+        beforeClose()
+        sheet.asDynamic().style.transform = ""
+        sheet.asDynamic().classList.remove("open")
+        window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
+    }
+
+    fun open(host: HTMLElement, afterOpen: () -> Unit = {}) {
+        host.appendChild(backdrop)
+        window.asDynamic().requestAnimationFrame {
+            window.asDynamic().requestAnimationFrame {
+                sheet.asDynamic().classList.add("open")
+                afterOpen()
+            }
+        }
+    }
+}
+
+private fun bindSheetDrag(grab: HTMLElement, sheet: HTMLElement, onClose: () -> Unit) {
+    var dragStart = 0.0
+    var dragging = false
+    fun fromControl(target: dynamic): Boolean {
+        var node = target
+        while (node != null && node != undefined && node != grab) {
+            val tag = (node.tagName as? String)?.lowercase()
+            if (tag == "button" || tag == "a" || tag == "input" || tag == "textarea" || tag == "select") return true
+            node = node.parentElement
+        }
+        return false
+    }
+    grab.asDynamic().addEventListener("pointerdown", { event: dynamic ->
+        if (fromControl(event.target)) return@addEventListener
+        event.preventDefault()
+        dragging = true
+        dragStart = num(event.clientY)
+        if (grab.asDynamic().setPointerCapture != undefined) grab.asDynamic().setPointerCapture(event.pointerId)
+    })
+    grab.asDynamic().addEventListener("pointermove", { event: dynamic ->
+        if (!dragging) return@addEventListener
+        event.preventDefault()
+        val delta = (num(event.clientY) - dragStart).coerceAtLeast(0.0)
+        sheet.asDynamic().style.transform = "translate3d(0, ${delta}px, 0)"
+    })
+    val end = { event: dynamic ->
+        if (dragging) {
+            dragging = false
+            val delta = num(event.clientY) - dragStart
+            if (delta > 90) onClose() else sheet.asDynamic().style.transform = ""
+        }
+    }
+    grab.asDynamic().addEventListener("pointerup", end)
+    grab.asDynamic().addEventListener("pointercancel", end)
+}
+
 internal fun linkedParagraph(text: String, className: String? = null): HTMLElement {
     val node = el("p", className)
     appendLinkedText(node, text)

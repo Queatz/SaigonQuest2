@@ -1995,13 +1995,22 @@ button.busy .avatar-spinner {
 
 .comment-sheet.open { transform: translate3d(0, 0, 0); }
 
+.sheet-grab {
+    flex: 0 0 auto;
+    touch-action: none;
+    cursor: grab;
+}
+
+.sheet-grab .sheet-close {
+    cursor: pointer;
+}
+
 .sheet-handle {
     width: 44px;
     height: 5px;
     border-radius: 999px;
     background: var(--line);
     margin: 10px auto 4px;
-    touch-action: none;
 }
 
 .comment-bar {

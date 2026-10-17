@@ -673,64 +673,13 @@ private fun openPostSheet(
     onUpdate: (PostCard) -> Unit,
 ) {
     if (host.asDynamic().querySelector(".post-sheet") != null) return
-    val backdrop = el("div", "dialog-backdrop comment-backdrop")
-    val sheet = el("div", "comment-sheet post-sheet")
-    sheet.setAttribute("role", "dialog")
-    sheet.setAttribute("aria-modal", "true")
-    var closer: () -> Unit = {}
-    val handle = el("div", "sheet-handle")
-    handle.setAttribute("aria-hidden", "true")
-    val bar = el("div", "comment-bar")
-    bar.appendChild(el("h2", text = post.authorName))
-    bar.appendChild(el("button", "icon-btn sheet-close", text = "×") { button ->
-        button.setAttribute("type", "button")
-        button.setAttribute("aria-label", Town.t("close"))
-        button.onClick { closer() }
-    })
+    val chrome = SheetChrome("comment-sheet post-sheet", post.authorName)
     val body = el("div", "post-sheet-body")
     body.appendChild(el("p", "post-sheet-message", text = post.message))
     if (post.hasEvent) body.appendChild(eventCard(post, host, router, onUpdate))
     if (post.hasPoll) body.appendChild(pollCard(post, host, router, onUpdate))
-    sheet.appendChild(handle)
-    sheet.appendChild(bar)
-    sheet.appendChild(body)
-    backdrop.appendChild(sheet)
-
-    fun close() {
-        sheet.asDynamic().style.transform = ""
-        sheet.asDynamic().classList.remove("open")
-        window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
-    }
-    closer = { close() }
-    backdrop.closeOnOutsideClick { close() }
-
-    var dragStart = 0.0
-    var dragging = false
-    handle.asDynamic().addEventListener("pointerdown", { event: dynamic ->
-        event.preventDefault()
-        dragging = true
-        dragStart = num(event.clientY)
-        if (handle.asDynamic().setPointerCapture != undefined) handle.asDynamic().setPointerCapture(event.pointerId)
-    })
-    handle.asDynamic().addEventListener("pointermove", { event: dynamic ->
-        if (!dragging) return@addEventListener
-        event.preventDefault()
-        val delta = (num(event.clientY) - dragStart).coerceAtLeast(0.0)
-        sheet.asDynamic().style.transform = "translate3d(0, ${delta}px, 0)"
-    })
-    handle.asDynamic().addEventListener("pointerup", { event: dynamic ->
-        if (!dragging) return@addEventListener
-        dragging = false
-        val delta = num(event.clientY) - dragStart
-        if (delta > 90) close() else sheet.asDynamic().style.transform = ""
-    })
-
-    host.appendChild(backdrop)
-    window.asDynamic().requestAnimationFrame {
-        window.asDynamic().requestAnimationFrame {
-            sheet.asDynamic().classList.add("open")
-        }
-    }
+    chrome.sheet.appendChild(body)
+    chrome.open(host)
 }
 
 private class PhotoPager(
