@@ -1,6 +1,8 @@
 package quest.saigon.town
 
+import quest.saigon.CallToAction
 import quest.saigon.Limits
+import quest.saigon.PhoneNumbers
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -411,6 +413,15 @@ class InMemoryTownRepository : TownRepository {
                 0L
             },
             answered = viewerId != null && questionAnswers.containsKey(membershipKey(post.id, viewerId)),
+            ctaTitle = post.ctaTitle,
+            ctaText = post.ctaText,
+            ctaDestination = post.ctaDestination,
+            ctaUrl = post.ctaUrl,
+            authorZaloUrl = if (post.ctaDestination == CallToAction.ZALO) {
+                author?.phone?.takeIf { it.isNotBlank() }?.let(PhoneNumbers::zaloUrl)
+            } else {
+                null
+            },
         )
     }
 

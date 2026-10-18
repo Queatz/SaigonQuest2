@@ -24,6 +24,7 @@ import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.utils.io.writeStringUtf8
 import kotlinx.coroutines.delay
 import quest.saigon.AppConfig
+import quest.saigon.CallToAction
 import quest.saigon.Limits
 import quest.saigon.MusicNames
 import quest.saigon.PhoneNumbers
@@ -444,6 +445,26 @@ fun Route.townApi(services: TownServices) {
             quest.saigon.town.QuestionService.cleanTitle(form.text("questionTitle"))
                 ?: return@post call.fail("invalid_question")
         }
+        val addCtaRaw = form.text("addCta").trim()
+        val addCta = addCtaRaw.equals("true", true) || addCtaRaw == "1"
+        val cta = if (!addCta) {
+            null
+        } else {
+            CallToAction.parse(
+                form.text("ctaTitle"),
+                form.text("ctaText"),
+                form.text("ctaDestination"),
+                form.text("ctaUrl"),
+            ) ?: run {
+                val dest = form.text("ctaDestination").trim().lowercase()
+                val fail = if (dest == CallToAction.WEBSITE && CallToAction.cleanUrl(form.text("ctaUrl")) == null) {
+                    "invalid_cta_url"
+                } else {
+                    "invalid_cta"
+                }
+                return@post call.fail(fail)
+            }
+        }
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
@@ -478,6 +499,10 @@ fun Route.townApi(services: TownServices) {
                 pollOptions = pollOptions,
                 hasQuestion = askQuestion,
                 questionTitle = questionTitle,
+                ctaTitle = cta?.title.orEmpty(),
+                ctaText = cta?.text.orEmpty(),
+                ctaDestination = cta?.destination.orEmpty(),
+                ctaUrl = cta?.url.orEmpty(),
             ),
         )
         if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
@@ -517,6 +542,15 @@ fun Route.townApi(services: TownServices) {
                     },
                     hasQuestion = askQuestion,
                     questionTitle = questionTitle,
+                    ctaTitle = cta?.title.orEmpty(),
+                    ctaText = cta?.text.orEmpty(),
+                    ctaDestination = cta?.destination.orEmpty(),
+                    ctaUrl = cta?.url.orEmpty(),
+                    authorZaloUrl = if (cta?.destination == CallToAction.ZALO) {
+                        PhoneNumbers.zaloUrl(user.phone)
+                    } else {
+                        null
+                    },
                 ),
             ),
             HttpStatusCode.Created,
@@ -1553,6 +1587,11 @@ private fun postPayload(item: FeedItem) = mapOf(
     "questionTitle" to item.questionTitle,
     "answerCount" to item.answerCount,
     "answered" to item.answered,
+    "ctaTitle" to item.ctaTitle,
+    "ctaText" to item.ctaText,
+    "ctaDestination" to item.ctaDestination,
+    "ctaUrl" to item.ctaUrl.takeIf { it.isNotBlank() },
+    "authorZaloUrl" to item.authorZaloUrl,
 )
 
 private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(

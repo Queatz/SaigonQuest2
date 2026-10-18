@@ -666,6 +666,9 @@ private fun buildSlide(
         questionEl = node
         card.appendChild(node)
     }
+    if (post.hasCta) {
+        card.appendChild(ctaCard(post, host, router))
+    }
     card.appendChild(collapsedChat(post, host, router, ::update))
     stack.appendChild(card)
     slide.appendChild(stack)
@@ -686,6 +689,7 @@ private fun openPostSheet(
     if (post.hasEvent) body.appendChild(eventCard(post, host, router, onUpdate))
     if (post.hasPoll) body.appendChild(pollCard(post, host, router, onUpdate))
     if (post.hasQuestion) body.appendChild(questionCard(post, host, router, onUpdate))
+    if (post.hasCta) body.appendChild(ctaCard(post, host, router))
     chrome.sheet.appendChild(body)
     chrome.open(host)
 }

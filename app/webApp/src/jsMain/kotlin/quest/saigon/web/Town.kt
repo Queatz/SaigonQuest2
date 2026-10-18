@@ -69,6 +69,11 @@ internal data class PostCard(
     val questionTitle: String = "",
     val answerCount: Int = 0,
     val answered: Boolean = false,
+    val ctaTitle: String = "",
+    val ctaText: String = "",
+    val ctaDestination: String = "",
+    val ctaUrl: String = "",
+    val authorZaloUrl: String? = null,
 )
 
 internal data class PollChoice(
@@ -162,6 +167,11 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     questionTitle = (node.questionTitle as? String).orEmpty(),
     answerCount = num(node.answerCount).toInt(),
     answered = node.answered == true,
+    ctaTitle = (node.ctaTitle as? String).orEmpty(),
+    ctaText = (node.ctaText as? String).orEmpty(),
+    ctaDestination = (node.ctaDestination as? String).orEmpty(),
+    ctaUrl = (node.ctaUrl as? String).orEmpty(),
+    authorZaloUrl = (node.authorZaloUrl as? String)?.takeIf { it.isNotBlank() },
 )
 
 internal fun eventPersonFrom(node: dynamic): EventPerson = EventPerson(
@@ -188,6 +198,8 @@ internal fun readEventPeople(node: dynamic): List<EventPerson> {
 internal val PostCard.hasEvent: Boolean get() = (eventStartAt ?: 0L) > 0
 
 internal val PostCard.hasPoll: Boolean get() = pollOptions.isNotEmpty()
+
+internal val PostCard.hasCta: Boolean get() = ctaText.isNotBlank()
 
 internal fun readPollOptions(node: dynamic): List<PollChoice> {
     val items = mutableListOf<PollChoice>()

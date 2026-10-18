@@ -141,6 +141,15 @@ class TownRulesTest {
         assertEquals("Hay quá ✨", Copy.quickReplies(Language.VI).first())
         assertEquals(5, Copy.quickReplies(Language.EN).distinct().size)
         assertEquals(5, Copy.quickReplies(Language.VI).distinct().size)
+        assertEquals(80, Limits.CTA_TITLE_MAX)
+        assertEquals(40, Limits.CTA_TEXT_MAX)
+        assertEquals("Add a call to action", Copy.text(Language.EN, "addCallToAction"))
+        assertEquals("Thêm lời kêu gọi hành động", Copy.text(Language.VI, "addCallToAction"))
+        assertEquals("Book now", CallToAction.parse("", "Book now", "message", "")?.text)
+        assertEquals("https://saigon.town/menu", CallToAction.parse("", "Open", "website", "saigon.town/menu")?.url)
+        assertNull(CallToAction.parse("", "", "message", ""))
+        assertNull(CallToAction.parse("", "Open", "website", "javascript:alert(1)"))
+        assertNull(CallToAction.parse("", "Open", "email", ""))
     }
 
     @Test

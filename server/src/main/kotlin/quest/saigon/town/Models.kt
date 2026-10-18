@@ -119,6 +119,10 @@ data class PostRecord(
     val pollOptions: List<String> = emptyList(),
     val hasQuestion: Boolean = false,
     val questionTitle: String = "",
+    val ctaTitle: String = "",
+    val ctaText: String = "",
+    val ctaDestination: String = "",
+    val ctaUrl: String = "",
 )
 
 data class FeedItem(
@@ -157,6 +161,11 @@ data class FeedItem(
     val questionTitle: String = "",
     val answerCount: Long = 0,
     val answered: Boolean = false,
+    val ctaTitle: String = "",
+    val ctaText: String = "",
+    val ctaDestination: String = "",
+    val ctaUrl: String = "",
+    val authorZaloUrl: String? = null,
 )
 
 data class FeedPage(

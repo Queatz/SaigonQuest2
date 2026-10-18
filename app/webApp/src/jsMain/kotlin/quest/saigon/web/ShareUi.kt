@@ -263,11 +263,13 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
     val eventRelative = if (post.hasEvent) eventRelativeLabel(eventStart, post.eventEndAt) else null
     val eventH = if (post.hasEvent) if (eventRelative != null) 214.0 else 180.0 else 0.0
     val eventGap = if (post.hasEvent) 18.0 else 0.0
+    val ctaH = if (post.hasCta) if (post.ctaTitle.isNotBlank()) 140.0 else 112.0 else 0.0
+    val ctaGap = if (post.hasCta) 18.0 else 0.0
     val textW = cardW - padX * 2
-    val maxMessageH = (cardBottom - minCardTop) - padTop - replyGap - replyH - eventH - eventGap - padBottom
+    val maxMessageH = (cardBottom - minCardTop) - padTop - replyGap - replyH - eventH - eventGap - ctaH - ctaGap - padBottom
     val fitted = fitMessage(ctx, post.message, textW, maxMessageH.coerceAtLeast(80.0))
     val messageH = fitted.lines.size * fitted.lineHeight
-    val cardH = padTop + messageH + eventGap + eventH + replyGap + replyH + padBottom
+    val cardH = padTop + messageH + eventGap + eventH + ctaGap + ctaH + replyGap + replyH + padBottom
     val cardY = cardBottom - cardH
 
     if (avatar != null) drawAvatar(ctx, avatar, cardX, cardY, cardW, footerY)
@@ -350,8 +352,43 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
         ctx.fillText(joinLabel, joinX + joinW / 2, joinY + joinH / 2)
     }
 
+    if (post.hasCta) {
+        val ctaY = cardY + padTop + messageH + eventGap + eventH + ctaGap
+        val ctaX = cardX + 28.0
+        val ctaW = cardW - 56.0
+        traceRound(ctx, ctaX, ctaY, ctaW, ctaH, 28.0)
+        ctx.fillStyle = "#ffffff"
+        ctx.fill()
+        ctx.strokeStyle = "#e6ddd2"
+        ctx.lineWidth = 3.0
+        ctx.stroke()
+        val actionLabel = post.ctaText.ifBlank { " " }
+        ctx.font = "800 36px $SHARE_FONT"
+        val actionW = maxOf(220.0, num(ctx.measureText(actionLabel).width) + 72.0)
+        val actionH = if (ctaH >= 140.0) 112.0 else 84.0
+        val actionX = ctaX + ctaW - 24.0 - actionW
+        val actionY = ctaY + (ctaH - actionH) / 2
+        val title = post.ctaTitle.trim()
+        if (title.isNotBlank()) {
+            val textMax = (actionX - ctaX - 40.0).coerceAtLeast(120.0)
+            ctx.fillStyle = "#2a241e"
+            ctx.font = "800 32px $SHARE_FONT"
+            ctx.textAlign = "left"
+            ctx.textBaseline = "middle"
+            ctx.fillText(ellipsize(ctx, title, textMax), ctaX + 24.0, ctaY + ctaH / 2)
+        }
+        traceRound(ctx, actionX, actionY, actionW, actionH, actionH / 2)
+        ctx.fillStyle = "#e9897c"
+        ctx.fill()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "800 32px $SHARE_FONT"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText(ellipsize(ctx, actionLabel, actionW - 36.0), actionX + actionW / 2, actionY + actionH / 2)
+    }
+
     val replyX = cardX + 28.0
-    val replyY = cardY + padTop + messageH + eventGap + eventH + replyGap
+    val replyY = cardY + padTop + messageH + eventGap + eventH + ctaGap + ctaH + replyGap
     val replyW = cardW - 56.0
     traceRound(ctx, replyX, replyY, replyW, replyH, 24.0)
     ctx.fillStyle = "#ffffff"

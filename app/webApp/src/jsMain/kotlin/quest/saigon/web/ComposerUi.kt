@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.CallToAction
 import quest.saigon.Limits
 import web.dom.document
 import web.html.HTMLElement
@@ -144,6 +145,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val event = composerEventFields()
     val poll = composerPollFields()
     val question = composerQuestionFields()
+    val cta = composerCtaFields()
     mapBtn.onClick {
         openLocationPicker(shell, communities.second.communityId, pickedPlace) { picked ->
             pickedPlace.name = picked.name
@@ -305,6 +307,22 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                     val title = question.title.trim()
                     if (title.isNotEmpty()) form.append("questionTitle", title)
                 }
+                if (cta.enabled) {
+                    val parsed = CallToAction.parse(cta.title, cta.text, cta.destination, cta.url)
+                    if (parsed == null) {
+                        post.removeAttribute("disabled")
+                        post.textContent = Town.t("postNow")
+                        val urlInvalid = cta.destination == CallToAction.WEBSITE &&
+                            CallToAction.cleanUrl(cta.url) == null
+                        show(error, Town.t(if (urlInvalid) "invalidCallToActionUrl" else "invalidCallToAction"))
+                        return@onClick
+                    }
+                    form.append("addCta", "true")
+                    if (parsed.title.isNotEmpty()) form.append("ctaTitle", parsed.title)
+                    form.append("ctaText", parsed.text)
+                    form.append("ctaDestination", parsed.destination)
+                    if (parsed.url.isNotEmpty()) form.append("ctaUrl", parsed.url)
+                }
                 val avatarId = selectedAvatar
                 if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
@@ -343,6 +361,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(event.root)
     body.appendChild(poll.root)
     body.appendChild(question.root)
+    body.appendChild(cta.root)
     body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)
     body.appendChild(avatarRow)

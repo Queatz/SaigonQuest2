@@ -3201,6 +3201,61 @@ span.event-face {
     cursor: pointer;
 }
 
+.cta-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    align-items: center;
+    margin: 10px 0 4px;
+    padding: 12px 12px 12px 14px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .72);
+    color: var(--ink);
+    border: 1px solid var(--ink);
+}
+
+.cta-card.no-title {
+    grid-template-columns: 1fr;
+}
+
+.cta-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.cta-action {
+    align-self: center;
+    border: 0;
+    border-radius: 32px;
+    min-width: 88px;
+    min-height: 56px;
+    padding: 14px 20px;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 800;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+}
+
+.cta-card.no-title .cta-action {
+    width: 100%;
+}
+
+.cta-fields {
+    display: grid;
+    gap: 8px;
+}
+
+.cta-fields .field-label {
+    font-weight: 800;
+}
+
+.cta-destinations { margin: 0; }
+
 .event-join.is-leave {
     background: none;
     color: var(--accent);

@@ -291,6 +291,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("pollOptions", post.pollOptions)
         doc.addAttribute("hasQuestion", post.hasQuestion)
         doc.addAttribute("questionTitle", post.questionTitle)
+        doc.addAttribute("ctaTitle", post.ctaTitle)
+        doc.addAttribute("ctaText", post.ctaText)
+        doc.addAttribute("ctaDestination", post.ctaDestination)
+        doc.addAttribute("ctaUrl", post.ctaUrl)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -392,7 +396,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                     }
                 ),
                 ${pollOptionsAql()},
-                ${questionAql()}
+                ${questionAql()},
+                ${ctaAql()}
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -433,6 +438,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 pollOptions = stringList(doc, "pollOptions"),
                 hasQuestion = boolean(doc, "hasQuestion"),
                 questionTitle = string(doc, "questionTitle"),
+                ctaTitle = string(doc, "ctaTitle"),
+                ctaText = string(doc, "ctaText"),
+                ctaDestination = string(doc, "ctaDestination"),
+                ctaUrl = string(doc, "ctaUrl"),
             )
         }
 
@@ -521,7 +530,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                     }
                 ),
                 ${pollOptionsAql()},
-                ${questionAql()}
+                ${questionAql()},
+                ${ctaAql()}
               }
         """.trimIndent()
         val row = first(query, bind) ?: return null
@@ -1534,7 +1544,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                     }
                 ),
                 ${pollOptionsAql()},
-                ${questionAql()}
+                ${questionAql()},
+                ${ctaAql()}
               }
         """.trimIndent()
         return queryList(query, bind).map(::feedItemFrom)
@@ -2523,6 +2534,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         questionTitle = string(row, "questionTitle"),
         answerCount = long(row, "answerCount"),
         answered = boolean(row, "answered"),
+        ctaTitle = string(row, "ctaTitle"),
+        ctaText = string(row, "ctaText"),
+        ctaDestination = string(row, "ctaDestination"),
+        ctaUrl = string(row, "ctaUrl"),
+        authorZaloUrl = optional(row, "authorZaloUrl"),
     )
 
     private fun attendeeList(doc: BaseDocument, name: String): List<EventAttendee> =
@@ -2638,6 +2654,16 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
            LIMIT 1
            RETURN 1
        ) > 0
+   """.trimIndent()
+
+   private fun ctaAql(): String = """
+       ctaTitle: p.ctaTitle == null ? "" : p.ctaTitle,
+       ctaText: p.ctaText == null ? "" : p.ctaText,
+       ctaDestination: p.ctaDestination == null ? "" : p.ctaDestination,
+       ctaUrl: p.ctaUrl == null ? "" : p.ctaUrl,
+       authorZaloUrl: p.ctaDestination == "zalo" && author != null && author.phone != null && author.phone != ""
+         ? CONCAT("https://zalo.me/", author.phone)
+         : null
    """.trimIndent()
 
    private fun questionAnswerItemFrom(row: BaseDocument) = QuestionAnswerItem(

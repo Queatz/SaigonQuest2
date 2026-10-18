@@ -16,6 +16,9 @@ object Limits {
     const val POLL_OPTION_MAX = 40
     const val QUESTION_TITLE_MAX = 80
     const val QUESTION_ANSWER_MAX = 280
+    const val CTA_TITLE_MAX = 80
+    const val CTA_TEXT_MAX = 40
+    const val CTA_URL_MAX = 2048
     const val INTRO_MAX = 280
     const val FEATURE_MAX = 280
     const val COMMUNITY_DESCRIPTION_MAX = 280

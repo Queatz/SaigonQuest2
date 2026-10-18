@@ -93,6 +93,8 @@ internal fun errorText(body: String, status: Int): String {
         "invalid_poll" -> "invalidPoll"
         "invalid_question" -> "invalidQuestion"
         "invalid_answer" -> "invalidAnswer"
+        "invalid_cta" -> "invalidCallToAction"
+        "invalid_cta_url" -> "invalidCallToActionUrl"
         "invalid_chat_message" -> "invalidChatMessage"
         "invalid_reaction" -> "invalidReaction"
         "already_member" -> "alreadyMember"
