@@ -436,6 +436,14 @@ fun Route.townApi(services: TownServices) {
         } else {
             quest.saigon.PollNames.clean(pollRaw) ?: return@post call.fail("invalid_poll")
         }
+        val askRaw = form.text("askQuestion").trim()
+        val askQuestion = askRaw.equals("true", true) || askRaw == "1"
+        val questionTitle = if (!askQuestion) {
+            ""
+        } else {
+            quest.saigon.town.QuestionService.cleanTitle(form.text("questionTitle"))
+                ?: return@post call.fail("invalid_question")
+        }
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
@@ -468,6 +476,8 @@ fun Route.townApi(services: TownServices) {
                 eventEndAt = eventEndAt,
                 eventPrice = eventPrice,
                 pollOptions = pollOptions,
+                hasQuestion = askQuestion,
+                questionTitle = questionTitle,
             ),
         )
         if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
@@ -505,6 +515,8 @@ fun Route.townApi(services: TownServices) {
                     pollOptions = pollOptions.mapIndexed { index, text ->
                         quest.saigon.town.PollOptionView(index, text)
                     },
+                    hasQuestion = askQuestion,
+                    questionTitle = questionTitle,
                 ),
             ),
             HttpStatusCode.Created,
@@ -554,6 +566,27 @@ fun Route.townApi(services: TownServices) {
         val viewer = call.user(services)
         val options = services.repo.pollOptions(post.id, viewer?.id, 200)
         call.respondJson(mapOf("options" to options.map { pollOptionPayload(it, includePhone = false) }))
+    }
+
+    post("/posts/{id}/answers") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val item = try {
+            services.questions.answer(user, call.parameters["id"].orEmpty(), Jsons.text(body, "text"))
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(postPayload(item))
+    }
+
+    get("/posts/{id}/answers") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val answers = try {
+            services.questions.answers(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(mapOf("answers" to answers.map(::questionAnswerPayload)))
     }
 
     get("/posts/{id}/attendees") {
@@ -1516,6 +1549,10 @@ private fun postPayload(item: FeedItem) = mapOf(
     "joined" to item.joined,
     "attendees" to item.attendees.map { attendeePayload(it, includePhone = false) },
     "pollOptions" to item.pollOptions.map { pollOptionPayload(it, includePhone = false) },
+    "hasQuestion" to item.hasQuestion,
+    "questionTitle" to item.questionTitle,
+    "answerCount" to item.answerCount,
+    "answered" to item.answered,
 )
 
 private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(
@@ -1535,6 +1572,17 @@ private fun memberPayload(member: quest.saigon.town.CommunityMember) = mapOf(
     "location" to member.location,
     "intro" to member.intro,
     "joinedAt" to member.joinedAt,
+)
+
+private fun questionAnswerPayload(item: quest.saigon.town.QuestionAnswerItem) = mapOf(
+    "id" to item.id,
+    "userId" to item.userId,
+    "name" to item.authorName,
+    "photoUrl" to item.authorPhotoPath?.let { "/api/users/${item.userId}/photo" },
+    "location" to item.authorLocation,
+    "intro" to item.authorIntro,
+    "text" to item.text,
+    "createdAt" to item.createdAt,
 )
 
 private fun pollOptionPayload(option: quest.saigon.town.PollOptionView, includePhone: Boolean) = mapOf(

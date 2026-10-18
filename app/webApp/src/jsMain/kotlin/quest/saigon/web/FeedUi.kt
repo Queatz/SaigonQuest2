@@ -544,6 +544,7 @@ private fun buildSlide(
     var current = post
     var eventEl: HTMLElement? = null
     var pollEl: HTMLElement? = null
+    var questionEl: HTMLElement? = null
     fun update(next: PostCard) {
         current = next
         onUpdate(next)
@@ -556,6 +557,7 @@ private fun buildSlide(
         update(next)
         eventEl = eventEl?.let { replace(it, eventCard(next, host, router, ::update)) }
         pollEl = pollEl?.let { replace(it, pollCard(next, host, router, ::update)) }
+        questionEl = questionEl?.let { replace(it, questionCard(next, host, router, ::update)) }
     }
     val slide = el("article", "slide")
     val urls = post.allPhotoUrls().ifEmpty { listOf(post.photoUrl) }
@@ -659,6 +661,11 @@ private fun buildSlide(
         pollEl = node
         card.appendChild(node)
     }
+    if (post.hasQuestion) {
+        val node = questionCard(post, host, router, ::update)
+        questionEl = node
+        card.appendChild(node)
+    }
     card.appendChild(collapsedChat(post, host, router, ::update))
     stack.appendChild(card)
     slide.appendChild(stack)
@@ -678,6 +685,7 @@ private fun openPostSheet(
     body.appendChild(el("p", "post-sheet-message", text = post.message))
     if (post.hasEvent) body.appendChild(eventCard(post, host, router, onUpdate))
     if (post.hasPoll) body.appendChild(pollCard(post, host, router, onUpdate))
+    if (post.hasQuestion) body.appendChild(questionCard(post, host, router, onUpdate))
     chrome.sheet.appendChild(body)
     chrome.open(host)
 }

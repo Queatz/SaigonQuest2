@@ -117,6 +117,8 @@ data class PostRecord(
     val eventHourNotified: Boolean = false,
     val eventNowNotified: Boolean = false,
     val pollOptions: List<String> = emptyList(),
+    val hasQuestion: Boolean = false,
+    val questionTitle: String = "",
 )
 
 data class FeedItem(
@@ -151,6 +153,10 @@ data class FeedItem(
     val joined: Boolean = false,
     val attendees: List<EventAttendee> = emptyList(),
     val pollOptions: List<PollOptionView> = emptyList(),
+    val hasQuestion: Boolean = false,
+    val questionTitle: String = "",
+    val answerCount: Long = 0,
+    val answered: Boolean = false,
 )
 
 data class FeedPage(
@@ -271,6 +277,7 @@ object NotificationType {
     const val EVENT_STARTING_SOON = "event_starting_soon"
     const val EVENT_STARTING_NOW = "event_starting_now"
     const val POLL_VOTED = "poll_voted"
+    const val QUESTION_ANSWERED = "question_answered"
     const val CHAT_MESSAGE = "chat_message"
     const val CHAT_ADDED = "chat_added"
     const val CHAT_REMOVED = "chat_removed"
@@ -432,6 +439,26 @@ data class PollOptionView(
     val voteCount: Long = 0,
     val voted: Boolean = false,
     val voters: List<EventAttendee> = emptyList(),
+)
+
+data class QuestionAnswerRecord(
+    val id: String,
+    val postId: String,
+    val userId: String,
+    val text: String,
+    val createdAt: Long,
+)
+
+data class QuestionAnswerItem(
+    val id: String,
+    val postId: String,
+    val userId: String,
+    val authorName: String,
+    val authorPhotoPath: String?,
+    val authorLocation: String = "",
+    val authorIntro: String = "",
+    val text: String,
+    val createdAt: Long,
 )
 
 data class EventSummary(

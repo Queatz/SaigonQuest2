@@ -143,6 +143,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     locationRow.appendChild(mapBtn)
     val event = composerEventFields()
     val poll = composerPollFields()
+    val question = composerQuestionFields()
     mapBtn.onClick {
         openLocationPicker(shell, communities.second.communityId, pickedPlace) { picked ->
             pickedPlace.name = picked.name
@@ -299,6 +300,11 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                         form.append("pollOption$index", option)
                     }
                 }
+                if (question.enabled) {
+                    form.append("askQuestion", "true")
+                    val title = question.title.trim()
+                    if (title.isNotEmpty()) form.append("questionTitle", title)
+                }
                 val avatarId = selectedAvatar
                 if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
@@ -336,6 +342,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(location.root)
     body.appendChild(event.root)
     body.appendChild(poll.root)
+    body.appendChild(question.root)
     body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)
     body.appendChild(avatarRow)

@@ -2870,6 +2870,10 @@ button.busy .avatar-spinner {
 
 .poll-composer { margin: 8px 0 16px; }
 
+.question-composer { margin: 8px 0 16px; }
+
+.question-fields { display: grid; gap: 0; }
+
 .poll-fields { display: grid; gap: 0; }
 
 .poll-option-fields { display: grid; gap: 0; }
@@ -2906,6 +2910,108 @@ button.busy .avatar-spinner {
     background: rgba(255, 255, 255, .72);
     color: var(--ink);
     border: 1px solid var(--ink);
+}
+
+.question-card {
+    display: grid;
+    gap: 10px;
+    margin: 10px 0 4px;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .72);
+    color: var(--ink);
+    border: 1px solid var(--ink);
+}
+
+.question-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.question-field {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--ink);
+    border-radius: 12px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 10px 12px;
+}
+
+.question-field:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+.question-send {
+    width: 100%;
+    min-height: 44px;
+    border: 0;
+    border-radius: 999px;
+    padding: 10px 16px;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 800;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+}
+
+.question-responses {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.question-sent {
+    margin: 0;
+    font-weight: 800;
+}
+
+.question-sheet-body {
+    padding: 0 16px 16px;
+    overflow: auto;
+}
+
+.answer-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.answer-row:last-child {
+    border-bottom: 0;
+}
+
+.answer-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    text-align: left;
+}
+
+.answer-text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-weight: 400;
+}
+
+.answer-row .primary {
+    width: auto;
+    margin-left: auto;
+    flex: 0 0 auto;
+    padding: 8px 14px;
 }
 
 .poll-title {

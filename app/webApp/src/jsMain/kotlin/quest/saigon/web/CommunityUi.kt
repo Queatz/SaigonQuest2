@@ -343,7 +343,7 @@ private fun communityCreateForm(
         if (emojiManual) return
         val text = (name.asDynamic().value as? String).orEmpty().trim()
         if (text.isEmpty()) return
-        emojiTimer = window.asDynamic().setTimeout({ requestEmoji(text) }, 3000)
+        emojiTimer = window.asDynamic().setTimeout({ requestEmoji(text) }, 2000)
     }
 
     name.asDynamic().addEventListener("input", { scheduleEmoji() })

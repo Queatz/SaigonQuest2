@@ -65,6 +65,10 @@ internal data class PostCard(
     val joined: Boolean = false,
     val attendees: List<EventPerson> = emptyList(),
     val pollOptions: List<PollChoice> = emptyList(),
+    val hasQuestion: Boolean = false,
+    val questionTitle: String = "",
+    val answerCount: Int = 0,
+    val answered: Boolean = false,
 )
 
 internal data class PollChoice(
@@ -154,6 +158,10 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     joined = node.joined == true,
     attendees = readEventPeople(node.attendees),
     pollOptions = readPollOptions(node.pollOptions),
+    hasQuestion = node.hasQuestion == true,
+    questionTitle = (node.questionTitle as? String).orEmpty(),
+    answerCount = num(node.answerCount).toInt(),
+    answered = node.answered == true,
 )
 
 internal fun eventPersonFrom(node: dynamic): EventPerson = EventPerson(

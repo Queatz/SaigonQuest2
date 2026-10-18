@@ -30,6 +30,7 @@ object NotificationCopy {
         "event_starting_soon" -> "notificationEventStartingSoon"
         "event_starting_now" -> "notificationEventStartingNow"
         "poll_voted" -> "notificationPollVoted"
+        "question_answered" -> "notificationQuestionAnswered"
         "chat_message" -> "notificationChatMessage"
         "chat_added" -> "notificationChatAdded"
         "chat_removed" -> "notificationChatRemoved"

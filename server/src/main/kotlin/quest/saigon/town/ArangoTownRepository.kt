@@ -16,7 +16,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
-            POLL_VOTES, FEATURE_SUGGESTIONS, FEATURE_VOTES, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
+            POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -36,6 +36,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "joinedAt"), PersistentIndexOptions())
         db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "optionIndex", "votedAt"), PersistentIndexOptions())
+        db.collection(QUESTION_ANSWERS).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(QUESTION_ANSWERS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
         db.collection(FEATURE_SUGGESTIONS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey"), PersistentIndexOptions())
@@ -287,6 +289,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("eventHourNotified", post.eventHourNotified)
         doc.addAttribute("eventNowNotified", post.eventNowNotified)
         doc.addAttribute("pollOptions", post.pollOptions)
+        doc.addAttribute("hasQuestion", post.hasQuestion)
+        doc.addAttribute("questionTitle", post.questionTitle)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -387,7 +391,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                       joinedAt: a.joinedAt
                     }
                 ),
-                ${pollOptionsAql()}
+                ${pollOptionsAql()},
+                ${questionAql()}
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -426,6 +431,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 eventHourNotified = boolean(doc, "eventHourNotified"),
                 eventNowNotified = boolean(doc, "eventNowNotified"),
                 pollOptions = stringList(doc, "pollOptions"),
+                hasQuestion = boolean(doc, "hasQuestion"),
+                questionTitle = string(doc, "questionTitle"),
             )
         }
 
@@ -513,7 +520,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                       joinedAt: a.joinedAt
                     }
                 ),
-                ${pollOptionsAql()}
+                ${pollOptionsAql()},
+                ${questionAql()}
               }
         """.trimIndent()
         val row = first(query, bind) ?: return null
@@ -608,6 +616,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         exec("FOR w IN $COMMENT_WATCHES FILTER w.postKey == @id REMOVE w IN $COMMENT_WATCHES RETURN OLD", mapOf("id" to id))
         exec("FOR a IN $EVENT_ATTENDANCES FILTER a.postKey == @id REMOVE a IN $EVENT_ATTENDANCES RETURN OLD", mapOf("id" to id))
         exec("FOR v IN $POLL_VOTES FILTER v.postKey == @id REMOVE v IN $POLL_VOTES RETURN OLD", mapOf("id" to id))
+        exec("FOR a IN $QUESTION_ANSWERS FILTER a.postKey == @id REMOVE a IN $QUESTION_ANSWERS RETURN OLD", mapOf("id" to id))
         db.collection(POSTS).deleteDocument(id)
     }
 
@@ -1524,7 +1533,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                       joinedAt: a.joinedAt
                     }
                 ),
-                ${pollOptionsAql()}
+                ${pollOptionsAql()},
+                ${questionAql()}
               }
         """.trimIndent()
         return queryList(query, bind).map(::feedItemFrom)
@@ -1784,6 +1794,52 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
         return rows.mapNotNull(::pollOptionFrom)
     }
+
+    override fun insertQuestionAnswer(answer: QuestionAnswerRecord): QuestionAnswerRecord {
+        val key = membershipKey(answer.postId, answer.userId)
+        val doc = BaseDocument(key)
+        doc.addAttribute("postKey", answer.postId)
+        doc.addAttribute("userKey", answer.userId)
+        doc.addAttribute("text", answer.text)
+        doc.addAttribute("createdAt", answer.createdAt)
+        db.collection(QUESTION_ANSWERS).insertDocument(doc)
+        return answer.copy(id = key)
+    }
+
+    override fun findQuestionAnswer(postId: String, userId: String): QuestionAnswerRecord? {
+        val doc = db.collection(QUESTION_ANSWERS).getDocument(membershipKey(postId, userId), BaseDocument::class.java)
+            ?: return null
+        return QuestionAnswerRecord(
+            id = doc.key,
+            postId = string(doc, "postKey").ifBlank { postId },
+            userId = string(doc, "userKey").ifBlank { userId },
+            text = string(doc, "text"),
+            createdAt = long(doc, "createdAt"),
+        )
+    }
+
+    override fun questionAnswers(postId: String): List<QuestionAnswerItem> =
+        queryList(
+            """
+            FOR a IN $QUESTION_ANSWERS
+              FILTER a.postKey == @postId
+              SORT a.createdAt DESC, a._key DESC
+              LET person = DOCUMENT("$USERS", a.userKey)
+              FILTER person != null
+              RETURN {
+                id: a._key,
+                postId: a.postKey,
+                userId: a.userKey,
+                authorName: person.name,
+                authorPhotoPath: person.profilePhotoPath,
+                authorLocation: person.location,
+                authorIntro: person.intro,
+                text: a.text,
+                createdAt: a.createdAt
+              }
+            """.trimIndent(),
+            mapOf("postId" to postId),
+        ).map(::questionAnswerItemFrom)
 
     override fun insertFeatureSuggestion(userId: String, text: String, createdAt: Long): FeatureSuggestionRecord {
         val doc = BaseDocument()
@@ -2463,6 +2519,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         joined = boolean(row, "joined"),
         attendees = attendeeList(row, "attendees"),
         pollOptions = pollOptionList(row, "pollOptions"),
+        hasQuestion = boolean(row, "hasQuestion"),
+        questionTitle = string(row, "questionTitle"),
+        answerCount = long(row, "answerCount"),
+        answered = boolean(row, "answered"),
     )
 
     private fun attendeeList(doc: BaseDocument, name: String): List<EventAttendee> =
@@ -2564,7 +2624,35 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     """.trimIndent()
 
-    private fun notificationFrom(doc: BaseDocument) = NotificationRecord(
+   private fun questionAql(): String = """
+       hasQuestion: p.hasQuestion == true,
+       questionTitle: p.questionTitle == null ? "" : p.questionTitle,
+       answerCount: @viewerId != "" && @viewerId == p.userKey ? LENGTH(
+         FOR a IN $QUESTION_ANSWERS
+           FILTER a.postKey == p._key
+           RETURN 1
+       ) : 0,
+       answered: @viewerId != "" && LENGTH(
+         FOR a IN $QUESTION_ANSWERS
+           FILTER a.postKey == p._key AND a.userKey == @viewerId
+           LIMIT 1
+           RETURN 1
+       ) > 0
+   """.trimIndent()
+
+   private fun questionAnswerItemFrom(row: BaseDocument) = QuestionAnswerItem(
+       id = string(row, "id"),
+       postId = string(row, "postId"),
+       userId = string(row, "userId"),
+       authorName = string(row, "authorName"),
+       authorPhotoPath = row.getAttribute("authorPhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+       authorLocation = string(row, "authorLocation"),
+       authorIntro = string(row, "authorIntro"),
+       text = string(row, "text"),
+       createdAt = long(row, "createdAt"),
+   )
+
+   private fun notificationFrom(doc: BaseDocument) = NotificationRecord(
         id = doc.key,
         userId = string(doc, "userKey"),
         type = string(doc, "type"),
@@ -2754,6 +2842,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val MEMBERSHIPS = "memberships"
         private const val EVENT_ATTENDANCES = "eventAttendances"
         private const val POLL_VOTES = "pollVotes"
+        private const val QUESTION_ANSWERS = "questionAnswers"
         private const val FEATURE_SUGGESTIONS = "featureSuggestions"
         private const val FEATURE_VOTES = "featureVotes"
         private const val CHATS = "chats"

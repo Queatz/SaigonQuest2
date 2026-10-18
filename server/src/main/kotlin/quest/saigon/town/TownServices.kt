@@ -39,6 +39,7 @@ class TownServices(
     val places: PlaceLookup = NoPlaces,
     val events: EventService = EventService(repo, hub, clock, pusher),
     val polls: PollService = PollService(repo, hub, clock, pusher),
+    val questions: QuestionService = QuestionService(repo, hub, clock, pusher),
     val chatHub: NotificationHub = NotificationHub(),
     val chats: ChatService = ChatService(repo, chatHub, clock, pusher),
 ) {

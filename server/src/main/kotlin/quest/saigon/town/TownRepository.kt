@@ -100,6 +100,9 @@ interface TownRepository {
     fun castPollVote(postId: String, userId: String, optionIndex: Int, votedAt: Long): Boolean
     fun removePollVote(postId: String, userId: String): Boolean
     fun pollOptions(postId: String, viewerId: String?, voterLimit: Int = 5): List<PollOptionView>
+    fun insertQuestionAnswer(answer: QuestionAnswerRecord): QuestionAnswerRecord
+    fun findQuestionAnswer(postId: String, userId: String): QuestionAnswerRecord?
+    fun questionAnswers(postId: String): List<QuestionAnswerItem>
     fun insertFeatureSuggestion(userId: String, text: String, createdAt: Long): FeatureSuggestionRecord
     fun findFeatureSuggestion(id: String): FeatureSuggestionRecord?
     fun deleteFeatureSuggestion(id: String): Boolean

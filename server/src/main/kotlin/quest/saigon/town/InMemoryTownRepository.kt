@@ -20,6 +20,7 @@ class InMemoryTownRepository : TownRepository {
     private val memberships = ConcurrentHashMap<String, Membership>()
     private val attendances = ConcurrentHashMap<String, Attendance>()
     private val pollVotes = ConcurrentHashMap<String, PollVote>()
+    private val questionAnswers = ConcurrentHashMap<String, QuestionAnswerRecord>()
     private val features = ConcurrentHashMap<String, FeatureSuggestionRecord>()
     private val featureVotes = ConcurrentHashMap<String, FeatureVote>()
     private val chats = ConcurrentHashMap<String, ChatRecord>()
@@ -261,6 +262,7 @@ class InMemoryTownRepository : TownRepository {
         watches.keys.filter { it.startsWith("$id:") }.forEach { watches.remove(it) }
         attendances.keys.filter { it.startsWith("${id}_") || attendances[it]?.postId == id }.forEach { attendances.remove(it) }
         pollVotes.keys.filter { it.startsWith("${id}_") || pollVotes[it]?.postId == id }.forEach { pollVotes.remove(it) }
+        questionAnswers.keys.filter { it.startsWith("${id}_") || questionAnswers[it]?.postId == id }.forEach { questionAnswers.remove(it) }
     }
 
     override fun insertComment(comment: CommentRecord): CommentRecord {
@@ -401,6 +403,14 @@ class InMemoryTownRepository : TownRepository {
             joined = viewerId != null && isAttending(post.id, viewerId),
             attendees = previewAttendees(post.id),
             pollOptions = pollViews(post, viewerId),
+            hasQuestion = post.hasQuestion,
+            questionTitle = post.questionTitle,
+            answerCount = if (viewerId == post.userId) {
+                questionAnswers.values.count { it.postId == post.id }.toLong()
+            } else {
+                0L
+            },
+            answered = viewerId != null && questionAnswers.containsKey(membershipKey(post.id, viewerId)),
         )
     }
 
@@ -848,6 +858,35 @@ class InMemoryTownRepository : TownRepository {
         val post = posts[postId] ?: return emptyList()
         return pollViews(post, viewerId, voterLimit)
     }
+
+    override fun insertQuestionAnswer(answer: QuestionAnswerRecord): QuestionAnswerRecord {
+        val key = membershipKey(answer.postId, answer.userId)
+        val stored = answer.copy(id = if (answer.id.isBlank()) key else answer.id)
+        questionAnswers[key] = stored
+        return stored
+    }
+
+    override fun findQuestionAnswer(postId: String, userId: String): QuestionAnswerRecord? =
+        questionAnswers[membershipKey(postId, userId)]
+
+    override fun questionAnswers(postId: String): List<QuestionAnswerItem> =
+        questionAnswers.values
+            .filter { it.postId == postId }
+            .sortedWith(compareByDescending<QuestionAnswerRecord> { it.createdAt }.thenByDescending { it.id })
+            .map { answer ->
+                val author = users[answer.userId]
+                QuestionAnswerItem(
+                    id = answer.id,
+                    postId = answer.postId,
+                    userId = answer.userId,
+                    authorName = author?.name.orEmpty(),
+                    authorPhotoPath = author?.profilePhotoPath,
+                    authorLocation = author?.location.orEmpty(),
+                    authorIntro = author?.intro.orEmpty(),
+                    text = answer.text,
+                    createdAt = answer.createdAt,
+                )
+            }
 
     override fun insertFeatureSuggestion(userId: String, text: String, createdAt: Long): FeatureSuggestionRecord {
         val stored = FeatureSuggestionRecord(newId(), userId, text, createdAt)
