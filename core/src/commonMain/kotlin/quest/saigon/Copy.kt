@@ -1,5 +1,17 @@
 package quest.saigon
 
+/**
+ * App strings for English and Vietnamese.
+ *
+ * Call [text] with a key from the tables below. Placeholders like `{name}` are
+ * replaced from [text]'s `values` map.
+ *
+ * Plural forms are optional. When `values` includes `"count"`, lookup tries
+ * `"$key.zero"` (count 0), `"$key.one"` (count 1), or `"$key.many"` (2+), then
+ * falls back to the base key. Missing `zero` also falls back to `many`.
+ * Call sites stay the same; only add the extra keys you need, e.g.
+ * `"postCount.one" to "{count} post"`.
+ */
 object Copy {
     private val en = mapOf(
         "appName" to "Saigon.Town",
@@ -129,6 +141,7 @@ object Copy {
         "noComments" to "No comments yet",
         "onPost" to "On post",
         "postCount" to "{count} posts",
+        "postCount.one" to "{count} post",
         "pauseUser" to "Pause",
         "unpauseUser" to "Unpause",
         "accountPaused" to "Your account is paused",
@@ -639,15 +652,35 @@ object Copy {
         "notificationChatDeleted" to "Nhóm chat đã bị xóa",
     )
 
+    /** Resolve [key] for [language], substituting `{placeholders}` from [values]. */
     fun text(language: Language, key: String, values: Map<String, String> = emptyMap()): String {
         val table = if (language == Language.VI) vi else en
-        val template = table[key] ?: en[key] ?: key
+        val count = values["count"]?.toIntOrNull()
+        val template = resolve(table, key, count) ?: resolve(en, key, count) ?: key
         return values.entries.fold(template) { current, (name, value) ->
             current.replace("{$name}", value)
         }
     }
 
-    fun keys(): Set<String> = en.keys
+    fun keys(): Set<String> = en.keys.filterNot(::isPluralForm).toSet()
+
+    private fun resolve(table: Map<String, String>, key: String, count: Int?): String? {
+        if (count != null) {
+            val form = pluralForm(count)
+            table["$key.$form"]?.let { return it }
+            if (form == "zero") table["$key.many"]?.let { return it }
+        }
+        return table[key]
+    }
+
+    private fun pluralForm(count: Int): String = when (count) {
+        0 -> "zero"
+        1 -> "one"
+        else -> "many"
+    }
+
+    private fun isPluralForm(key: String): Boolean =
+        key.endsWith(".zero") || key.endsWith(".one") || key.endsWith(".many")
 
     fun uploadPrompts(language: Language): List<String> =
         (1..10).map { text(language, "uploadPrompt$it") }
