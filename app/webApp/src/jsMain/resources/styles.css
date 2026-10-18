@@ -3256,6 +3256,8 @@ span.event-face {
 
 .cta-destinations { margin: 0; }
 
+.cta-fields .hint { margin-top: -2px; }
+
 .event-join.is-leave {
     background: none;
     color: var(--accent);

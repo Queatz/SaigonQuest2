@@ -55,9 +55,5 @@ object CallToAction {
         return href
     }
 
-    fun httpUrl(raw: String?): String? {
-        val href = raw?.trim().orEmpty()
-        val lower = href.lowercase()
-        return href.takeIf { lower.startsWith("http://") || lower.startsWith("https://") }
-    }
+    fun httpUrl(raw: String?): String? = cleanUrl(raw.orEmpty())
 }

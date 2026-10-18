@@ -30,15 +30,36 @@ internal fun composerCtaFields(): ComposerCta {
     }
     val destLabel = el("span", "field-label", text = Town.t("callToActionDestination"))
     val destRow = el("div", "chip-row cta-destinations")
-    val url = field(Town.t("callToActionUrl"), "url", Town.t("callToActionUrlHint"))
+    val destHint = el("small", "hint")
+    val url = field(Town.t("callToActionUrl"), "text", Town.t("callToActionUrlHint"))
     url.input.setAttribute("maxlength", Limits.CTA_URL_MAX.toString())
     url.input.setAttribute("autocomplete", "off")
-    url.input.asDynamic().oninput = {
+    url.input.setAttribute("inputmode", "url")
+    url.input.setAttribute("autocapitalize", "none")
+    url.input.setAttribute("spellcheck", "false")
+    fun rememberUrl() {
         state.url = url.value()
     }
+    fun prefixUrl() {
+        val cleaned = CallToAction.cleanUrl(url.value())
+        if (cleaned != null) {
+            url.input.asDynamic().value = cleaned
+            state.url = cleaned
+        } else {
+            rememberUrl()
+        }
+    }
+    url.input.asDynamic().oninput = { rememberUrl() }
+    url.input.asDynamic().onblur = { prefixUrl() }
     val urlRoot = url.root
     fun paintDestination() {
         urlRoot.asDynamic().hidden = state.destination != CallToAction.WEBSITE
+        destHint.textContent = when (state.destination) {
+            CallToAction.MESSAGE -> Town.t("ctaSendMessageHint")
+            CallToAction.ZALO -> Town.t("ctaZaloMessageHint")
+            else -> ""
+        }
+        destHint.asDynamic().hidden = destHint.textContent == ""
         val chips = destRow.asDynamic().querySelectorAll(".chip")
         val count = chips.length as Int
         for (i in 0 until count) {
@@ -70,6 +91,7 @@ internal fun composerCtaFields(): ComposerCta {
     fields.appendChild(text.root)
     fields.appendChild(destLabel)
     fields.appendChild(destRow)
+    fields.appendChild(destHint)
     fields.appendChild(urlRoot)
     paintDestination()
     box.appendChild(row)
