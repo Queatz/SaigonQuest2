@@ -475,6 +475,7 @@ private fun openComposeDirect(host: HTMLElement, router: HistoryRouter, userId: 
     val card = el("div", "dialog")
     card.setAttribute("role", "dialog")
     card.appendChild(el("h2", text = Town.t("messageUser", mapOf("name" to name))))
+    card.appendChild(el("p", "hint", text = Town.t("firstDirectMessage", mapOf("name" to name))))
     val field = el("textarea")
     field.setAttribute("maxlength", Limits.CHAT_MESSAGE_MAX.toString())
     card.appendChild(field)

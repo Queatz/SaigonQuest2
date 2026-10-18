@@ -263,13 +263,17 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
     val eventRelative = if (post.hasEvent) eventRelativeLabel(eventStart, post.eventEndAt) else null
     val eventH = if (post.hasEvent) if (eventRelative != null) 214.0 else 180.0 else 0.0
     val eventGap = if (post.hasEvent) 18.0 else 0.0
+    val questionH = if (post.hasQuestion) if (post.questionTitle.isNotBlank()) 254.0 else 210.0 else 0.0
+    val questionGap = if (post.hasQuestion) 18.0 else 0.0
     val ctaH = if (post.hasCta) if (post.ctaTitle.isNotBlank()) 140.0 else 112.0 else 0.0
     val ctaGap = if (post.hasCta) 18.0 else 0.0
     val textW = cardW - padX * 2
-    val maxMessageH = (cardBottom - minCardTop) - padTop - replyGap - replyH - eventH - eventGap - ctaH - ctaGap - padBottom
+    val maxMessageH = (cardBottom - minCardTop) - padTop - replyGap - replyH -
+        eventH - eventGap - questionH - questionGap - ctaH - ctaGap - padBottom
     val fitted = fitMessage(ctx, post.message, textW, maxMessageH.coerceAtLeast(80.0))
     val messageH = fitted.lines.size * fitted.lineHeight
-    val cardH = padTop + messageH + eventGap + eventH + ctaGap + ctaH + replyGap + replyH + padBottom
+    val cardH = padTop + messageH + eventGap + eventH + questionGap + questionH +
+        ctaGap + ctaH + replyGap + replyH + padBottom
     val cardY = cardBottom - cardH
 
     if (avatar != null) drawAvatar(ctx, avatar, cardX, cardY, cardW, footerY)
@@ -352,8 +356,59 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
         ctx.fillText(joinLabel, joinX + joinW / 2, joinY + joinH / 2)
     }
 
+    if (post.hasQuestion) {
+        val questionY = cardY + padTop + messageH + eventGap + eventH + questionGap
+        val questionX = cardX + 28.0
+        val questionW = cardW - 56.0
+        traceRound(ctx, questionX, questionY, questionW, questionH, 28.0)
+        ctx.fillStyle = "#ffffff"
+        ctx.fill()
+        ctx.strokeStyle = "#e6ddd2"
+        ctx.lineWidth = 3.0
+        ctx.stroke()
+        val innerX = questionX + 24.0
+        val innerW = questionW - 48.0
+        var blockY = questionY + 20.0
+        val title = post.questionTitle.trim()
+        if (title.isNotBlank()) {
+            ctx.fillStyle = "#2a241e"
+            ctx.font = "800 32px $SHARE_FONT"
+            ctx.textAlign = "left"
+            ctx.textBaseline = "top"
+            ctx.fillText(ellipsize(ctx, title, innerW), innerX, blockY)
+            blockY += 44.0
+        }
+        val fieldH = 70.0
+        traceRound(ctx, innerX, blockY, innerW, fieldH, 18.0)
+        ctx.fillStyle = "#fffdf8"
+        ctx.fill()
+        ctx.strokeStyle = "#e6ddd2"
+        ctx.lineWidth = 3.0
+        ctx.stroke()
+        ctx.fillStyle = "#b0a89e"
+        ctx.font = "600 28px $SHARE_FONT"
+        ctx.textAlign = "left"
+        ctx.textBaseline = "middle"
+        ctx.fillText(
+            ellipsize(ctx, Town.t("questionAnswerHint"), innerW - 36.0),
+            innerX + 18.0,
+            blockY + fieldH / 2,
+        )
+        val sendY = blockY + fieldH + 16.0
+        val sendH = 84.0
+        val sendLabel = Town.t("sendTo", mapOf("name" to post.authorName))
+        traceRound(ctx, innerX, sendY, innerW, sendH, sendH / 2)
+        ctx.fillStyle = "#e9897c"
+        ctx.fill()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "800 32px $SHARE_FONT"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText(ellipsize(ctx, sendLabel, innerW - 36.0), innerX + innerW / 2, sendY + sendH / 2)
+    }
+
     if (post.hasCta) {
-        val ctaY = cardY + padTop + messageH + eventGap + eventH + ctaGap
+        val ctaY = cardY + padTop + messageH + eventGap + eventH + questionGap + questionH + ctaGap
         val ctaX = cardX + 28.0
         val ctaW = cardW - 56.0
         traceRound(ctx, ctaX, ctaY, ctaW, ctaH, 28.0)
@@ -388,7 +443,7 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
     }
 
     val replyX = cardX + 28.0
-    val replyY = cardY + padTop + messageH + eventGap + eventH + ctaGap + ctaH + replyGap
+    val replyY = cardY + padTop + messageH + eventGap + eventH + questionGap + questionH + ctaGap + ctaH + replyGap
     val replyW = cardW - 56.0
     traceRound(ctx, replyX, replyY, replyW, replyH, 24.0)
     ctx.fillStyle = "#ffffff"
