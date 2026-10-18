@@ -15,6 +15,7 @@ object Limits {
     const val POLL_OPTIONS_MAX = 5
     const val POLL_OPTION_MAX = 40
     const val INTRO_MAX = 280
+    const val FEATURE_MAX = 280
     const val COMMUNITY_DESCRIPTION_MAX = 280
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72

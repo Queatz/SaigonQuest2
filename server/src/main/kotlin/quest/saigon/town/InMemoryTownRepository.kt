@@ -20,6 +20,8 @@ class InMemoryTownRepository : TownRepository {
     private val memberships = ConcurrentHashMap<String, Membership>()
     private val attendances = ConcurrentHashMap<String, Attendance>()
     private val pollVotes = ConcurrentHashMap<String, PollVote>()
+    private val features = ConcurrentHashMap<String, FeatureSuggestionRecord>()
+    private val featureVotes = ConcurrentHashMap<String, FeatureVote>()
     private val chats = ConcurrentHashMap<String, ChatRecord>()
     private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
     private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
@@ -845,6 +847,65 @@ class InMemoryTownRepository : TownRepository {
     override fun pollOptions(postId: String, viewerId: String?, voterLimit: Int): List<PollOptionView> {
         val post = posts[postId] ?: return emptyList()
         return pollViews(post, viewerId, voterLimit)
+    }
+
+    override fun insertFeatureSuggestion(userId: String, text: String, createdAt: Long): FeatureSuggestionRecord {
+        val stored = FeatureSuggestionRecord(newId(), userId, text, createdAt)
+        features[stored.id] = stored
+        return stored
+    }
+
+    override fun findFeatureSuggestion(id: String): FeatureSuggestionRecord? = features[id]
+
+    override fun deleteFeatureSuggestion(id: String): Boolean {
+        if (features.remove(id) == null) return false
+        featureVotes.entries.removeIf { it.value.suggestionId == id }
+        return true
+    }
+
+    override fun resolveFeatureSuggestion(id: String, resolvedAt: Long): FeatureSuggestionView? {
+        val current = features[id] ?: return null
+        val updated = current.copy(resolvedAt = current.resolvedAt ?: resolvedAt)
+        features[id] = updated
+        return toFeatureView(updated, null)
+    }
+
+    override fun toggleFeatureVote(id: String, userId: String, votedAt: Long): FeatureSuggestionView? {
+        val current = features[id] ?: return null
+        val key = membershipKey(id, userId)
+        if (featureVotes.containsKey(key)) {
+            featureVotes.remove(key)
+        } else {
+            featureVotes[key] = FeatureVote(id, userId, votedAt)
+        }
+        return toFeatureView(current, userId)
+    }
+
+    override fun featureSuggestions(viewerId: String?, limit: Int, openOnly: Boolean): List<FeatureSuggestionView> =
+        features.values
+            .filter { !openOnly || it.resolvedAt == null }
+            .map { toFeatureView(it, viewerId) }
+            .sortedWith(
+                compareByDescending<FeatureSuggestionView> { !it.resolved }
+                    .thenByDescending { it.voteCount }
+                    .thenByDescending { it.createdAt }
+                    .thenBy { it.id },
+            )
+            .take(limit)
+
+    override fun featureSuggestionView(id: String, viewerId: String?): FeatureSuggestionView? =
+        features[id]?.let { toFeatureView(it, viewerId) }
+
+    private fun toFeatureView(record: FeatureSuggestionRecord, viewerId: String?): FeatureSuggestionView {
+        val votes = featureVotes.values.filter { it.suggestionId == record.id }
+        return FeatureSuggestionView(
+            id = record.id,
+            text = record.text,
+            voteCount = votes.size.toLong(),
+            voted = viewerId != null && votes.any { it.userId == viewerId },
+            resolved = record.resolvedAt != null,
+            createdAt = record.createdAt,
+        )
     }
 
     override fun upsertPushSubscription(subscription: PushSubscriptionRecord) {

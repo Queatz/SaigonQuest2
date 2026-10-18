@@ -16,7 +16,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
-            POLL_VOTES, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
+            POLL_VOTES, FEATURE_SUGGESTIONS, FEATURE_VOTES, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -36,6 +36,9 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "joinedAt"), PersistentIndexOptions())
         db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "optionIndex", "votedAt"), PersistentIndexOptions())
+        db.collection(FEATURE_SUGGESTIONS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -1782,6 +1785,117 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return rows.mapNotNull(::pollOptionFrom)
     }
 
+    override fun insertFeatureSuggestion(userId: String, text: String, createdAt: Long): FeatureSuggestionRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("text", text)
+        doc.addAttribute("createdAt", createdAt)
+        doc.addAttribute("resolvedAt", null)
+        val key = db.collection(FEATURE_SUGGESTIONS).insertDocument(doc).key
+        return FeatureSuggestionRecord(key, userId, text, createdAt)
+    }
+
+    override fun findFeatureSuggestion(id: String): FeatureSuggestionRecord? =
+        db.collection(FEATURE_SUGGESTIONS).getDocument(id, BaseDocument::class.java)?.let(::featureFrom)
+
+    override fun deleteFeatureSuggestion(id: String): Boolean {
+        if (!db.collection(FEATURE_SUGGESTIONS).documentExists(id)) return false
+        db.collection(FEATURE_SUGGESTIONS).deleteDocument(id)
+        exec(
+            "FOR v IN $FEATURE_VOTES FILTER v.suggestionKey == @id REMOVE v IN $FEATURE_VOTES",
+            mapOf("id" to id),
+        )
+        return true
+    }
+
+    override fun resolveFeatureSuggestion(id: String, resolvedAt: Long): FeatureSuggestionView? {
+        first(
+            """
+            FOR s IN $FEATURE_SUGGESTIONS
+              FILTER s._key == @id
+              UPDATE s WITH { resolvedAt: @resolvedAt } IN $FEATURE_SUGGESTIONS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to id, "resolvedAt" to resolvedAt),
+        ) ?: return null
+        return featureSuggestionView(id, null)
+    }
+
+    override fun toggleFeatureVote(id: String, userId: String, votedAt: Long): FeatureSuggestionView? {
+        findFeatureSuggestion(id) ?: return null
+        val key = membershipKey(id, userId)
+        if (db.collection(FEATURE_VOTES).documentExists(key)) {
+            db.collection(FEATURE_VOTES).deleteDocument(key)
+        } else {
+            val doc = BaseDocument(key)
+            doc.addAttribute("suggestionKey", id)
+            doc.addAttribute("userKey", userId)
+            doc.addAttribute("votedAt", votedAt)
+            try {
+                db.collection(FEATURE_VOTES).insertDocument(doc)
+            } catch (_: ArangoDBException) {
+                return featureSuggestionView(id, userId)
+            }
+        }
+        return featureSuggestionView(id, userId)
+    }
+
+    override fun featureSuggestions(viewerId: String?, limit: Int, openOnly: Boolean): List<FeatureSuggestionView> =
+        queryList(
+            """
+            FOR s IN $FEATURE_SUGGESTIONS
+              FILTER @openOnly == false || s.resolvedAt == null
+              LET voteCount = LENGTH(FOR v IN $FEATURE_VOTES FILTER v.suggestionKey == s._key RETURN 1)
+              LET voted = @viewerId != "" && LENGTH(
+                FOR v IN $FEATURE_VOTES
+                  FILTER v.suggestionKey == s._key AND v.userKey == @viewerId
+                  LIMIT 1
+                  RETURN 1
+              ) > 0
+              SORT s.resolvedAt == null DESC, voteCount DESC, s.createdAt DESC, s._key
+              LIMIT @limit
+              RETURN MERGE(s, { voteCount: voteCount, voted: voted })
+            """.trimIndent(),
+            mapOf(
+                "viewerId" to viewerId.orEmpty(),
+                "openOnly" to openOnly,
+                "limit" to limit,
+            ),
+        ).map(::featureViewFrom)
+
+    override fun featureSuggestionView(id: String, viewerId: String?): FeatureSuggestionView? = first(
+        """
+        FOR s IN $FEATURE_SUGGESTIONS
+          FILTER s._key == @id
+          LET voteCount = LENGTH(FOR v IN $FEATURE_VOTES FILTER v.suggestionKey == s._key RETURN 1)
+          LET voted = @viewerId != "" && LENGTH(
+            FOR v IN $FEATURE_VOTES
+              FILTER v.suggestionKey == s._key AND v.userKey == @viewerId
+              LIMIT 1
+              RETURN 1
+          ) > 0
+          RETURN MERGE(s, { voteCount: voteCount, voted: voted })
+        """.trimIndent(),
+        mapOf("id" to id, "viewerId" to viewerId.orEmpty()),
+    )?.let(::featureViewFrom)
+
+    private fun featureFrom(doc: BaseDocument) = FeatureSuggestionRecord(
+        id = doc.key,
+        userId = string(doc, "userKey"),
+        text = string(doc, "text"),
+        createdAt = long(doc, "createdAt"),
+        resolvedAt = longOrNull(doc, "resolvedAt"),
+    )
+
+    private fun featureViewFrom(doc: BaseDocument) = FeatureSuggestionView(
+        id = doc.key,
+        text = string(doc, "text"),
+        voteCount = long(doc, "voteCount"),
+        voted = boolean(doc, "voted"),
+        resolved = longOrNull(doc, "resolvedAt") != null,
+        createdAt = long(doc, "createdAt"),
+    )
+
     override fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean) {
         exec(
             """
@@ -2640,6 +2754,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val MEMBERSHIPS = "memberships"
         private const val EVENT_ATTENDANCES = "eventAttendances"
         private const val POLL_VOTES = "pollVotes"
+        private const val FEATURE_SUGGESTIONS = "featureSuggestions"
+        private const val FEATURE_VOTES = "featureVotes"
         private const val CHATS = "chats"
         private const val CHAT_MEMBERS = "chatMembers"
         private const val CHAT_MESSAGES = "chatMessages"

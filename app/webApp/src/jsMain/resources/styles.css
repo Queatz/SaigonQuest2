@@ -3770,3 +3770,53 @@ span.event-face {
 .text-button.danger { color: var(--danger); }
 
 .hint { color: var(--muted); }
+
+.feature-form {
+    display: grid;
+    gap: 8px;
+    margin: 8px 0 12px;
+}
+
+.feature-form textarea {
+    min-height: 88px;
+    resize: vertical;
+}
+
+.feature-row {
+    display: grid;
+    gap: 8px;
+    margin: 8px 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+}
+
+.feature-row.resolved { opacity: 0.72; }
+
+.feature-text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.feature-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.feature-votes { color: var(--muted); font-weight: 700; font-size: 12px; }
+
+.feature-resolved {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.tiny.voted {
+    background: var(--accent);
+    color: #fff;
+}

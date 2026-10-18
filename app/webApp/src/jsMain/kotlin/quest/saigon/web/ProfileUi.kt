@@ -136,6 +136,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
             }
         }
     })
+    body.appendChild(suggestFeaturePanel(shell, router, me.admin))
     shell.appendChild(body)
     val bar = el("div", "dock dock-wide")
     bar.appendChild(save)
@@ -327,6 +328,160 @@ private fun languageField(current: String, onChange: (String) -> Unit): HTMLElem
     select.asDynamic().onchange = { onChange(select.asDynamic().value as String) }
     label.appendChild(select)
     return label
+}
+
+internal fun featureSuggestionsScreen(router: HistoryRouter): HTMLElement {
+    if (Town.me == null) return el("section", "shell")
+    val shell = el("section", "shell page-shell")
+    shell.appendChild(pageHead(router, Town.t("allFeatures"), showProfile = false))
+    val body = el("div", "page-body")
+    val list = el("div", "feature-list")
+    body.appendChild(list)
+    shell.appendChild(body)
+    loadFeatures(list, shell, router, limit = 100, openOnly = false, admin = Town.me?.admin == true)
+    return shell
+}
+
+private fun suggestFeaturePanel(shell: HTMLElement, router: HistoryRouter, admin: Boolean): HTMLElement {
+    val section = el("section", "features-preview")
+    val head = el("div", "section-head")
+    head.appendChild(el("h3", text = Town.t("suggestFeature")))
+    val seeAll = el("button", "see-all", text = Town.t("seeAll"))
+    seeAll.setAttribute("type", "button")
+    seeAll.onClick { go(router, "/profile/features") }
+    head.appendChild(seeAll)
+    section.appendChild(head)
+    val form = el("div", "feature-form")
+    val input = el("textarea")
+    input.setAttribute("maxlength", Limits.FEATURE_MAX.toString())
+    input.setAttribute("placeholder", Town.t("suggestFeatureHint"))
+    val submit = el("button", "secondary", text = Town.t("submitFeature"))
+    submit.setAttribute("type", "button")
+    submit.onClick {
+        val text = (input.asDynamic().value as String).trim()
+        if (text.isEmpty()) {
+            toast(shell, Town.t("invalidFeature"))
+            return@onClick
+        }
+        submit.setAttribute("disabled", "disabled")
+        val payload = js("({})")
+        payload.text = text
+        http("POST", "/api/features", jsonStringify(payload)) { status, body ->
+            submit.removeAttribute("disabled")
+            if (status == 200 || status == 201) {
+                input.asDynamic().value = ""
+                toast(shell, Town.t("featureSubmitted"))
+                refresh(router)
+            } else {
+                toast(shell, errorText(body, status))
+            }
+        }
+    }
+    form.appendChild(input)
+    form.appendChild(submit)
+    section.appendChild(form)
+    val list = el("div", "feature-list")
+    section.appendChild(list)
+    loadFeatures(list, shell, router, limit = 3, openOnly = true, admin)
+    return section
+}
+
+private fun loadFeatures(
+    list: HTMLElement,
+    shell: HTMLElement,
+    router: HistoryRouter,
+    limit: Int,
+    openOnly: Boolean,
+    admin: Boolean,
+) {
+    val query = if (openOnly) "/api/features?limit=$limit&open=1" else "/api/features?limit=$limit"
+    http("GET", query) { status, text ->
+        if (status != 200) {
+            if (list.childNodes.length == 0) list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            return@http
+        }
+        val parsed = parseJson(text)
+        val length = postCount(parsed.features)
+        if (length == 0) {
+            list.appendChild(el("p", "hint", text = Town.t("noFeatures")))
+            return@http
+        }
+        for (i in 0 until length) list.appendChild(featureRow(parsed.features[i], shell, router, admin))
+    }
+}
+
+private fun featureRow(item: dynamic, shell: HTMLElement, router: HistoryRouter, admin: Boolean): HTMLElement {
+    val row = el("article", "feature-row")
+    fun paint(current: dynamic) {
+        row.clear()
+        if (current.resolved == true) {
+            row.asDynamic().classList.add("resolved")
+        } else {
+            row.asDynamic().classList.remove("resolved")
+        }
+        row.appendChild(el("p", "feature-text", text = current.text as? String ?: ""))
+        val meta = el("div", "feature-meta")
+        if (current.resolved == true) {
+            meta.appendChild(el("span", "feature-resolved", text = Town.t("featureResolved")))
+        }
+        val voted = current.voted == true
+        val vote = el("button", if (voted) "tiny voted" else "tiny", text = Town.t(if (voted) "voted" else "vote"))
+        vote.setAttribute("type", "button")
+        vote.onClick {
+            if (Town.me == null) {
+                toast(shell, Town.t("needSignInToVote"))
+                return@onClick
+            }
+            val id = current.id as String
+            vote.setAttribute("disabled", "disabled")
+            http("POST", "/api/features/$id/vote") { status, body ->
+                vote.removeAttribute("disabled")
+                if (status == 200) paint(parseJson(body)) else toast(shell, errorText(body, status))
+            }
+        }
+        meta.appendChild(vote)
+        meta.appendChild(
+            el(
+                "span",
+                "feature-votes",
+                text = Town.t("votes", mapOf("count" to num(current.voteCount).toLong().toString())),
+            ),
+        )
+        if (admin) {
+            if (current.resolved != true) {
+                meta.appendChild(el("button", "tiny", text = Town.t("resolveFeature")) { button ->
+                    button.setAttribute("type", "button")
+                    button.onClick {
+                        button.setAttribute("disabled", "disabled")
+                        http("POST", "/api/features/${current.id}/resolve") { code, body ->
+                            if (code == 200) paint(parseJson(body)) else {
+                                button.removeAttribute("disabled")
+                                toast(shell, errorText(body, code))
+                            }
+                        }
+                    }
+                })
+            }
+            meta.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
+                button.setAttribute("type", "button")
+                button.onClick {
+                    confirmDialog(shell, Town.t("deleteFeatureAsk"), Town.t("deleteFeatureHint")) {
+                        http("DELETE", "/api/features/${current.id}") { code, body ->
+                            if (code == 200) {
+                                row.asDynamic().remove()
+                                if (shell.asDynamic().querySelector(".feature-row") == null) refresh(router)
+                            } else {
+                                toast(shell, errorText(body, code))
+                            }
+                        }
+                    }
+                }
+            })
+        }
+        row.appendChild(meta)
+    }
+    paint(item)
+    return row
 }
 
 internal fun myPostsScreen(router: HistoryRouter): HTMLElement {

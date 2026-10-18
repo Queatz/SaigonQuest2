@@ -5,6 +5,7 @@ sealed class AppRoute {
     data object NewPost : AppRoute()
     data object Profile : AppRoute()
     data object MyPosts : AppRoute()
+    data object FeatureSuggestions : AppRoute()
     data object Stats : AppRoute()
     data object Admin : AppRoute()
     data object Events : AppRoute()
@@ -27,6 +28,7 @@ fun matchAppRoute(path: String): AppRoute {
         normalized == "/new" -> AppRoute.NewPost
         normalized == "/profile" -> AppRoute.Profile
         normalized == "/profile/posts" -> AppRoute.MyPosts
+        normalized == "/profile/features" -> AppRoute.FeatureSuggestions
         normalized == "/stats" -> AppRoute.Stats
         normalized == "/admin" -> AppRoute.Admin
         normalized == "/events" -> AppRoute.Events

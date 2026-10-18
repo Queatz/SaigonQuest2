@@ -478,3 +478,26 @@ data class CommunityMemberPage(
     val items: List<CommunityMember>,
     val nextCursor: String?,
 )
+
+data class FeatureSuggestionRecord(
+    val id: String,
+    val userId: String,
+    val text: String,
+    val createdAt: Long,
+    val resolvedAt: Long? = null,
+)
+
+data class FeatureVote(
+    val suggestionId: String,
+    val userId: String,
+    val votedAt: Long,
+)
+
+data class FeatureSuggestionView(
+    val id: String,
+    val text: String,
+    val voteCount: Long,
+    val voted: Boolean,
+    val resolved: Boolean,
+    val createdAt: Long,
+)

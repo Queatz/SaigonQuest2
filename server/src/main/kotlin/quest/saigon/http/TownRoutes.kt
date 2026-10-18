@@ -40,6 +40,7 @@ import quest.saigon.town.ChatMemberView
 import quest.saigon.town.ChatService
 import quest.saigon.town.CommentItem
 import quest.saigon.town.CommentService
+import quest.saigon.town.FeatureSuggestionView
 import quest.saigon.town.FeedItem
 import quest.saigon.town.MusicRecord
 import quest.saigon.town.MusicStatus
@@ -196,6 +197,59 @@ fun Route.townApi(services: TownServices) {
                 "nextCursor" to page.nextCursor,
             ),
         )
+    }
+
+    get("/features") {
+        val viewer = call.user(services)
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 20
+        val openOnly = call.request.queryParameters["open"].orEmpty().let {
+            it == "1" || it.equals("true", true)
+        }
+        call.respondJson(
+            mapOf("features" to services.repo.featureSuggestions(viewer?.id, limit, openOnly).map(::featurePayload)),
+        )
+    }
+
+    post("/features") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (user.paused) return@post call.fail("account_paused")
+        val text = cleanFeature(Jsons.text(Jsons.parse(call.receiveText()), "text"))
+            ?: return@post call.fail("invalid_feature")
+        if (text.isEmpty()) return@post call.fail("invalid_feature")
+        val stored = services.repo.insertFeatureSuggestion(user.id, text, services.clock())
+        val view = services.repo.featureSuggestionView(stored.id, user.id) ?: FeatureSuggestionView(
+            id = stored.id,
+            text = stored.text,
+            voteCount = 0,
+            voted = false,
+            resolved = false,
+            createdAt = stored.createdAt,
+        )
+        call.respondJson(featurePayload(view), HttpStatusCode.Created)
+    }
+
+    post("/features/{id}/vote") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (user.paused) return@post call.fail("account_paused")
+        val view = services.repo.toggleFeatureVote(call.parameters["id"].orEmpty(), user.id, services.clock())
+            ?: return@post call.fail("not_found")
+        call.respondJson(featurePayload(view))
+    }
+
+    post("/features/{id}/resolve") {
+        val admin = call.requireAdmin(services) ?: return@post
+        val id = call.parameters["id"].orEmpty()
+        services.repo.resolveFeatureSuggestion(id, services.clock()) ?: return@post call.fail("not_found")
+        val view = services.repo.featureSuggestionView(id, admin.id) ?: return@post call.fail("not_found")
+        call.respondJson(featurePayload(view))
+    }
+
+    delete("/features/{id}") {
+        call.requireAdmin(services) ?: return@delete
+        if (!services.repo.deleteFeatureSuggestion(call.parameters["id"].orEmpty())) {
+            return@delete call.fail("not_found")
+        }
+        call.respondJson(mapOf("ok" to true))
     }
 
     get("/avatars") {
@@ -1564,6 +1618,15 @@ private fun adminPostPayload(item: AdminPost) = mapOf(
     "musicName" to item.musicName,
 )
 
+private fun featurePayload(item: FeatureSuggestionView) = mapOf(
+    "id" to item.id,
+    "text" to item.text,
+    "voteCount" to item.voteCount,
+    "voted" to item.voted,
+    "resolved" to item.resolved,
+    "createdAt" to item.createdAt,
+)
+
 private fun ownedPostPayload(item: OwnedPost) = mapOf(
     "id" to item.id,
     "message" to item.message,
@@ -1630,6 +1693,8 @@ private fun parseVnd(raw: String): Long? {
 }
 
 private fun cleanIntro(raw: String): String? = cleanMultiline(raw, Limits.INTRO_MAX)
+
+private fun cleanFeature(raw: String): String? = cleanMultiline(raw, Limits.FEATURE_MAX)
 
 private fun cleanDescription(raw: String): String? = cleanMultiline(raw, Limits.COMMUNITY_DESCRIPTION_MAX)
 

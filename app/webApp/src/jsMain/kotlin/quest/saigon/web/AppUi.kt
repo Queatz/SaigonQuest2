@@ -16,6 +16,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     }
     val loggedOutGate = Town.signedOut && (
         route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts ||
+            route == AppRoute.FeatureSuggestions ||
             route == AppRoute.Messages || route is AppRoute.Chat
         )
     val page = when {
@@ -24,6 +25,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
         route == AppRoute.MyPosts -> myPostsScreen(router)
+        route == AppRoute.FeatureSuggestions -> featureSuggestionsScreen(router)
         route == AppRoute.Stats -> statsScreen(router)
         route == AppRoute.Admin -> adminScreen(router)
         route == AppRoute.Events -> eventsScreen(router)
@@ -37,6 +39,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         val next = when (route) {
             AppRoute.Profile -> "/profile"
             AppRoute.MyPosts -> "/profile/posts"
+            AppRoute.FeatureSuggestions -> "/profile/features"
             AppRoute.Messages -> "/messages"
             is AppRoute.Chat -> "/messages/${route.id}"
             else -> "/new"
