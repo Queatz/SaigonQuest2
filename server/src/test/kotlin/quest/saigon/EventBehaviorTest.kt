@@ -134,6 +134,74 @@ class EventBehaviorTest {
         assertEquals(HttpStatusCode.BadRequest, pricey.status)
     }
 
+    @Test
+    fun locationPostsAreGroupedByNameAndPlaceId() = testApplication {
+        var now = 1_700_000_000_000L
+        val services = services({ now })
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        linh.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905550001","password":"secretpass"}""")
+        }
+
+        postAt(linh, "One", "Cafe", "ChIJ1")
+        now += 1
+        postAt(linh, "Two", "Cafe", "ChIJ1")
+        now += 1
+        postAt(linh, "Other id", "Cafe", "ChIJ2")
+        now += 1
+        postAt(linh, "Different name", "Park", "ChIJ1")
+        now += 1
+        postAt(linh, "No id", "Cafe", null)
+
+        val matched = mapper.readTree(linh.get("/api/places/posts?name=Cafe&placeId=ChIJ1").bodyAsText())
+        assertEquals(2, matched.path("count").asInt())
+        assertEquals(2, matched.path("posts").size())
+        assertEquals("Two", matched.path("posts").path(0).path("message").asText())
+        assertEquals("One", matched.path("posts").path(1).path("message").asText())
+
+        val unnamed = mapper.readTree(linh.get("/api/places/posts?name=Cafe").bodyAsText())
+        assertEquals(1, unnamed.path("count").asInt())
+        assertEquals("No id", unnamed.path("posts").path(0).path("message").asText())
+
+        val guest = createClient { }
+        val guestView = mapper.readTree(guest.get("/api/places/posts?name=Cafe&placeId=ChIJ1").bodyAsText())
+        assertEquals(2, guestView.path("count").asInt())
+        assertEquals(HttpStatusCode.BadRequest, linh.get("/api/places/posts?name=").status)
+        assertEquals(HttpStatusCode.BadRequest, linh.get("/api/places/posts").status)
+    }
+
+    private suspend fun postAt(
+        client: io.ktor.client.HttpClient,
+        message: String,
+        location: String,
+        placeId: String?,
+    ) = client.post("/api/posts") {
+        setBody(
+            MultiPartFormDataContent(
+                formData {
+                    val jpeg = ImageOps().writeJpeg(solid(12, 16, Color(40, 120, 80)), 0.85f)
+                    append(
+                        "photo",
+                        jpeg,
+                        Headers.build {
+                            append(HttpHeaders.ContentType, "image/jpeg")
+                            append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                        },
+                    )
+                    append("message", message)
+                    append("location", location)
+                    if (!placeId.isNullOrBlank()) {
+                        append("placeId", placeId)
+                        append("lat", "10.77")
+                        append("lng", "106.70")
+                    }
+                },
+            ),
+        )
+    }
+
     private suspend fun postEvent(
         client: io.ktor.client.HttpClient,
         message: String,

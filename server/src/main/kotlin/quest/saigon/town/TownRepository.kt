@@ -91,6 +91,8 @@ interface TownRepository {
     fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
     fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary
     fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion>
+    fun postsAtPlace(location: String, placeId: String?, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
+    fun countPostsAtPlace(location: String, placeId: String?, viewerId: String? = null): Long
     fun people(cursor: String?, limit: Int): CommunityMemberPage
     fun eventPostsBetween(from: Long, to: Long): List<PostRecord>
     fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean)

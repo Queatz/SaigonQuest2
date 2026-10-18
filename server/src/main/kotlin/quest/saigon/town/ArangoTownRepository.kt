@@ -1587,6 +1587,60 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return places
     }
 
+    override fun postsAtPlace(
+        location: String,
+        placeId: String?,
+        cursor: String?,
+        limit: Int,
+        viewerId: String?,
+    ): FeedPage = pageFeed(
+        "${placePostFilter()} AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
+        cursorBind(cursor, limit) + placePostBind(location, placeId, viewerId),
+        limit,
+    )
+
+    override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long {
+        val row = first(
+            """
+            RETURN { count: LENGTH(
+              FOR p IN $POSTS
+                FILTER ${placePostFilter()}
+                RETURN 1
+            )}
+            """.trimIndent(),
+            placePostBind(location, placeId, viewerId),
+        )
+        return long(row, "count")
+    }
+
+    private fun placePostBind(location: String, placeId: String?, viewerId: String?): Map<String, Any?> = mapOf(
+        "location" to location,
+        "placeId" to placeId.orEmpty(),
+        "viewerId" to viewerId.orEmpty(),
+    )
+
+    private fun placePostFilter(): String = """
+        p.location == @location
+        AND (
+          (@placeId == "" AND (p.placeId == null OR p.placeId == ""))
+          OR (@placeId != "" AND p.placeId == @placeId)
+        )
+        AND (
+          p.communityOnly != true
+          OR (
+            @viewerId != ""
+            AND p.communityKey != null
+            AND p.communityKey != ""
+            AND LENGTH(
+              FOR m IN $MEMBERSHIPS
+                FILTER m.communityKey == p.communityKey AND m.userKey == @viewerId
+                LIMIT 1
+                RETURN 1
+            ) > 0
+          )
+        )
+    """.trimIndent()
+
     override fun people(cursor: String?, limit: Int): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
         val rows = queryList(

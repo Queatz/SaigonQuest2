@@ -757,6 +757,33 @@ class InMemoryTownRepository : TownRepository {
         return places.take(limit)
     }
 
+    override fun postsAtPlace(
+        location: String,
+        placeId: String?,
+        cursor: String?,
+        limit: Int,
+        viewerId: String?,
+    ): FeedPage = pagePosts(placePosts(location, placeId, viewerId), cursor, limit, viewerId)
+
+    override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long =
+        placePosts(location, placeId, viewerId).size.toLong()
+
+    private fun placePosts(location: String, placeId: String?, viewerId: String?): List<PostRecord> {
+        val pid = placeId?.takeIf { it.isNotBlank() }
+        return posts.values.filter { post ->
+            post.location == location &&
+                post.placeId?.takeIf { it.isNotBlank() } == pid &&
+                placePostVisible(post, viewerId)
+        }
+    }
+
+    private fun placePostVisible(post: PostRecord, viewerId: String?): Boolean {
+        if (!post.communityOnly) return true
+        val communityId = post.communityId?.takeIf { it.isNotBlank() } ?: return false
+        val viewer = viewerId?.takeIf { it.isNotBlank() } ?: return false
+        return isMember(communityId, viewer)
+    }
+
     override fun people(cursor: String?, limit: Int): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
         val sorted = users.values.sortedWith(

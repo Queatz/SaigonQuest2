@@ -519,7 +519,7 @@ private fun mountPager(
         val post = posts.getOrNull(index) ?: return@onClick
         val place = post.location.trim()
         if (place.isBlank()) return@onClick
-        window.asDynamic().open(mapsUrl(place, post.placeId), "_blank")
+        openLocationSheet(host, router, place, post.placeId, post.lat, post.lng)
     }
     ensureResize()
     feedResizeHandler = {

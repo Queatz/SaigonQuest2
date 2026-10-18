@@ -1,0 +1,109 @@
+package quest.saigon.web
+
+import web.html.HTMLElement
+import web.window.WindowTarget
+import web.window._blank
+import web.window.window
+
+internal fun openLocationSheet(
+    host: HTMLElement,
+    router: HistoryRouter,
+    location: String,
+    placeId: String?,
+    lat: Double? = null,
+    lng: Double? = null,
+) {
+    val place = location.trim()
+    if (place.isBlank()) return
+    if (host.asDynamic().querySelector(".location-sheet") != null) return
+    val chrome = SheetChrome("comment-sheet location-sheet", place)
+    val body = el("div", "location-sheet-body")
+    val mapBox = el("div", "location-sheet-map")
+    val directions = el("button", "primary location-sheet-directions", text = Town.t("directions"))
+    directions.setAttribute("type", "button")
+    directions.onClick { window.open(mapsUrl(place, placeId), WindowTarget._blank) }
+    val countHead = el("h3", "location-sheet-count")
+    countHead.asDynamic().hidden = true
+    val grid = el("div", "location-sheet-grid")
+    val canShowMap = lat != null && lng != null && !placeId.isNullOrBlank()
+    if (canShowMap) body.appendChild(mapBox)
+    body.appendChild(directions)
+    body.appendChild(countHead)
+    body.appendChild(grid)
+    chrome.sheet.appendChild(body)
+
+    var cursor: String? = null
+    var loading = false
+    var done = false
+
+    fun load() {
+        if (loading || done) return
+        loading = true
+        val id = if (placeId.isNullOrBlank()) "" else "&placeId=${encodeQuery(placeId)}"
+        val next = cursor
+        val more = if (next.isNullOrBlank()) "" else "&cursor=${encodeQuery(next)}"
+        http("GET", "/api/places/posts?name=${encodeQuery(place)}$id$more&limit=24") { status, text ->
+            loading = false
+            if (status != 200) {
+                if (grid.childElementCount == 0) {
+                    grid.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                }
+                done = true
+                return@http
+            }
+            val parsed = parseJson(text)
+            val total = num(parsed.count).toInt()
+            countHead.textContent = Town.t("postCount", mapOf("count" to total.toString()))
+            countHead.asDynamic().hidden = false
+            val posts = readLocationPosts(parsed.posts)
+            if (posts.isEmpty() && grid.childElementCount == 0) {
+                grid.appendChild(el("p", "hint", text = Town.t("noPosts")))
+            } else {
+                posts.forEach { post -> grid.appendChild(locationPostTile(post, router)) }
+            }
+            cursor = parsed.nextCursor as? String
+            if (cursor.isNullOrBlank()) done = true
+        }
+    }
+
+    body.asDynamic().addEventListener("scroll", {
+        val top = num(body.asDynamic().scrollTop)
+        val height = num(body.asDynamic().clientHeight)
+        val full = num(body.asDynamic().scrollHeight)
+        if (top + height > full - 80) load()
+    })
+    chrome.open(host) {
+        if (canShowMap) mountPlaceMap(mapBox, lat, lng, place, placeId)
+        load()
+    }
+}
+
+private fun locationPostTile(post: PostCard, router: HistoryRouter): HTMLElement {
+    val tile = el("button", "location-post")
+    tile.setAttribute("type", "button")
+    tile.setAttribute("aria-label", post.authorName)
+    if (post.photoUrl.isNotBlank()) {
+        tile.asDynamic().style.backgroundImage = "url(\"${post.photoUrl}\")"
+    }
+    val author = el("span", "location-post-author")
+    if (!post.authorPhotoUrl.isNullOrBlank()) {
+        val face = el("img", "face")
+        face.setAttribute("alt", "")
+        face.setAttribute("src", post.authorPhotoUrl)
+        author.appendChild(face)
+    } else {
+        author.appendChild(el("span", "face initial", text = post.authorName.take(1).uppercase()))
+    }
+    author.appendChild(el("span", "location-post-name", text = post.authorName))
+    tile.appendChild(author)
+    tile.onClick { router.navigate("/p/${post.id}") }
+    return tile
+}
+
+private fun readLocationPosts(array: dynamic): List<PostCard> {
+    val posts = mutableListOf<PostCard>()
+    if (array == null || array == undefined) return posts
+    val length = array.length as Int
+    for (i in 0 until length) posts += postFrom(array[i])
+    return posts
+}

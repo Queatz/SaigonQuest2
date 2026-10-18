@@ -561,6 +561,22 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(placePayload(details))
     }
 
+    get("/places/posts") {
+        val name = call.request.queryParameters["name"]?.trim().orEmpty()
+        if (name.isEmpty() || name.length > Limits.LOCATION_MAX) return@get call.fail("invalid_location")
+        val placeId = cleanPlaceId(call.request.queryParameters["placeId"].orEmpty())
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 48) ?: 24
+        val viewer = call.user(services)
+        val page = services.repo.postsAtPlace(name, placeId, call.request.queryParameters["cursor"], limit, viewer?.id)
+        call.respondJson(
+            mapOf(
+                "posts" to page.items.map(::postPayload),
+                "nextCursor" to page.nextCursor,
+                "count" to services.repo.countPostsAtPlace(name, placeId, viewer?.id),
+            ),
+        )
+    }
+
     get("/posts/{id}/comments") {
         val postId = call.parameters["id"].orEmpty()
         services.repo.findPost(postId) ?: return@get call.fail("not_found")

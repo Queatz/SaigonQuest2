@@ -3,6 +3,8 @@ package quest.saigon.web
 import quest.saigon.Limits
 import web.dom.document
 import web.html.HTMLElement
+import web.window.WindowTarget
+import web.window._blank
 import web.window.window
 
 private const val SAIGON_OFFSET = 7 * 60 * 60 * 1000L
@@ -173,7 +175,7 @@ internal fun eventCard(
             place.setAttribute("type", "button")
             place.appendChild(el("span", "event-icon", text = PLACE_ICON))
             place.appendChild(el("span", text = current.location))
-            place.onClick { window.asDynamic().open(mapsUrl(current.location, current.placeId), "_blank") }
+            place.onClick { openLocationSheet(host, router, current.location, current.placeId, current.lat, current.lng) }
             details.appendChild(place)
         }
         val price = current.eventPrice
@@ -625,6 +627,73 @@ private fun renderGroupedEvents(list: HTMLElement, events: List<PostCard>, route
         row.onClick { router.navigate("/p/${post.id}") }
         list.appendChild(row)
     }
+}
+
+internal fun mountPlaceMap(
+    host: HTMLElement,
+    lat: Double?,
+    lng: Double?,
+    title: String,
+    placeId: String? = null,
+) {
+    if (lat == null || lng == null) {
+        if (host.childElementCount == 0) {
+            host.appendChild(el("p", "hint", text = "$PLACE_ICON $title"))
+        }
+        return
+    }
+    fun tryMount() {
+        if (host.asDynamic().isConnected == false) {
+            window.asDynamic().requestAnimationFrame { tryMount() }
+            return
+        }
+        loadGoogleMaps { ready ->
+            if (!ready || host.asDynamic().isConnected == false) {
+                if (host.asDynamic().isConnected != false && host.childElementCount == 0) {
+                    host.appendChild(el("p", "hint", text = "$PLACE_ICON $title"))
+                }
+                return@loadGoogleMaps
+            }
+            host.clear()
+            val opts = js("{}")
+            opts.center = js("{lat:10.7769,lng:106.7009}")
+            opts.zoom = 16
+            opts.disableDefaultUI = true
+            opts.zoomControl = true
+            val map = googleMap(host, opts)
+            val pos = js("{}")
+            pos.lat = lat
+            pos.lng = lng
+            googleHtmlMarker(map, pos, placeMapBubble(title, placeId))
+            fun fit() {
+                map.setCenter(pos)
+                map.setZoom(16)
+            }
+            fun relayout() {
+                val trigger = mapsEvent()?.trigger
+                if (trigger != null && trigger != undefined) trigger(map, "resize")
+                fit()
+            }
+            fit()
+            window.asDynamic().requestAnimationFrame { relayout() }
+            window.asDynamic().setTimeout({ relayout() }, 120)
+        }
+    }
+    tryMount()
+}
+
+private fun placeMapBubble(title: String, placeId: String?): HTMLElement {
+    val bubble = el("button", "event-map-bubble")
+    bubble.setAttribute("type", "button")
+    bubble.setAttribute("aria-label", title)
+    val heading = el("span", "event-map-bubble-title")
+    heading.appendChild(el("span", "event-map-bubble-emoji", text = PLACE_ICON))
+    heading.appendChild(el("strong", text = title))
+    bubble.appendChild(heading)
+    bubble.onClick {
+        window.open(mapsUrl(title, placeId), WindowTarget._blank)
+    }
+    return bubble
 }
 
 private fun mountEventsMap(host: HTMLElement, events: List<PostCard>) {
