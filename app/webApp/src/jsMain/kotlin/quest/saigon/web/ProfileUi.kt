@@ -128,11 +128,13 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(el("button", "text-button danger", text = Town.t("signOut")) { button ->
         button.setAttribute("type", "button")
         button.onClick {
-            http("POST", "/api/auth/logout") { _, _ ->
-                Town.me = null
-                Town.applyLanguage()
-                NotifyInbox.disconnect()
-                router.navigate("/")
+            confirmDialog(shell, Town.t("signOutAsk"), Town.t("signOutHint"), Town.t("signOut")) {
+                http("POST", "/api/auth/logout") { _, _ ->
+                    Town.me = null
+                    Town.applyLanguage()
+                    NotifyInbox.disconnect()
+                    router.navigate("/")
+                }
             }
         }
     })
@@ -230,10 +232,16 @@ private fun shellOf(node: HTMLElement): HTMLElement {
 }
 
 private fun confirmDelete(host: HTMLElement, onYes: () -> Unit) {
-    confirmDialog(host, Town.t("deleteAvatarAsk"), Town.t("deleteAvatarHint"), onYes)
+    confirmDialog(host, Town.t("deleteAvatarAsk"), Town.t("deleteAvatarHint"), onYes = onYes)
 }
 
-internal fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes: () -> Unit) {
+internal fun confirmDialog(
+    host: HTMLElement,
+    title: String,
+    hint: String,
+    confirmLabel: String = Town.t("delete"),
+    onYes: () -> Unit,
+) {
     if (host.asDynamic().querySelector(".confirm-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop confirm-backdrop")
     val card = el("div", "dialog")
@@ -244,7 +252,7 @@ internal fun confirmDialog(host: HTMLElement, title: String, hint: String, onYes
         button.setAttribute("type", "button")
         button.onClick { backdrop.asDynamic().remove() }
     })
-    actions.appendChild(el("button", "primary danger", text = Town.t("delete")) { button ->
+    actions.appendChild(el("button", "primary danger", text = confirmLabel) { button ->
         button.setAttribute("type", "button")
         button.onClick {
             backdrop.asDynamic().remove()
