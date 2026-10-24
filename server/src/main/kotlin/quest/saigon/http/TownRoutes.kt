@@ -1024,6 +1024,20 @@ fun Route.townApi(services: TownServices) {
         )
     }
 
+    get("/users/{id}/posts") {
+        val user = services.repo.findUser(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 48) ?: 24
+        val viewer = call.user(services)
+        val page = services.repo.postsByAuthor(user.id, call.request.queryParameters["cursor"], limit, viewer?.id)
+        call.respondJson(
+            mapOf(
+                "posts" to page.items.map(::postPayload),
+                "nextCursor" to page.nextCursor,
+                "count" to services.repo.countPostsByAuthor(user.id, viewer?.id),
+            ),
+        )
+    }
+
     delete("/posts/{id}") {
         val user = call.user(services) ?: return@delete call.fail("unauthorized")
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")

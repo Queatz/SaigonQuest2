@@ -157,6 +157,18 @@ class CommunityBehaviorTest {
         assertEquals(communityId, sharedOwn.path("communityId").asText())
         assertFalse(sharedOwn.path("communityOnly").asBoolean())
 
+        val asAuthor = mapper.readTree(linh.get("/api/users/$linhId/posts").bodyAsText())
+        assertEquals(2, asAuthor.path("count").asInt())
+        assertEquals(2, asAuthor.path("posts").size())
+        val asMember = mapper.readTree(minh.get("/api/users/$linhId/posts").bodyAsText())
+        assertEquals(2, asMember.path("count").asInt())
+        assertEquals(2, asMember.path("posts").size())
+        val asStranger = mapper.readTree(createClient { }.get("/api/users/$linhId/posts").bodyAsText())
+        assertEquals(1, asStranger.path("count").asInt())
+        assertEquals(1, asStranger.path("posts").size())
+        assertEquals(sharedBody.path("id").asText(), asStranger.path("posts").path(0).path("id").asText())
+        assertEquals(HttpStatusCode.NotFound, createClient { }.get("/api/users/missing/posts").status)
+
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Nowhere", null, exclusive = true).status)
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Missing", "nope", exclusive = false).status)
         assertEquals(HttpStatusCode.NotFound, linh.get("/api/communities/missing").status)

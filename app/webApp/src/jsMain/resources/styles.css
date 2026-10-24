@@ -718,12 +718,13 @@ small, .hint { color: var(--muted); font-size: 13px; }
 
 .dialog h2 + h3 { margin-top: 4px; }
 
-.dialog.mini-profile {
+.dialog.mini-profile,
+.profile-sheet-head {
+    width: 100%;
     text-align: center;
     display: grid;
     justify-items: center;
     gap: 8px;
-    padding: 28px 22px 16px;
 }
 
 .dialog.visitor-welcome {
@@ -1995,18 +1996,21 @@ button.busy .avatar-spinner {
 
 .comment-sheet.open { transform: translate3d(0, 0, 0); }
 
-.location-sheet {
+.location-sheet,
+.profile-sheet {
     max-height: min(92vh, 860px);
 }
 
-.location-sheet .comment-bar h2 {
+.location-sheet .comment-bar h2,
+.profile-sheet .comment-bar h2 {
     max-width: calc(100% - 72px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.location-sheet-body {
+.location-sheet-body,
+.profile-sheet-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
@@ -2028,12 +2032,14 @@ button.busy .avatar-spinner {
     flex: 0 0 auto;
 }
 
-.location-sheet-directions {
+.location-sheet-directions,
+.profile-sheet-message {
     width: 100%;
     flex: 0 0 auto;
 }
 
-.location-sheet-count {
+.location-sheet-count,
+.profile-sheet-count {
     margin: 0;
     font-size: 16px;
     font-weight: 800;
@@ -2049,6 +2055,10 @@ button.busy .avatar-spinner {
 .location-sheet-grid .hint {
     grid-column: 1 / -1;
     margin: 8px 0 0;
+}
+
+.profile-sheet .location-post::after {
+    display: none;
 }
 
 .location-post {

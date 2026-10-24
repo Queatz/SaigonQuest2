@@ -791,6 +791,12 @@ class InMemoryTownRepository : TownRepository {
     override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long =
         placePosts(location, placeId, viewerId).size.toLong()
 
+    override fun postsByAuthor(userId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage =
+        pagePosts(authorPosts(userId, viewerId), cursor, limit, viewerId)
+
+    override fun countPostsByAuthor(userId: String, viewerId: String?): Long =
+        authorPosts(userId, viewerId).size.toLong()
+
     private fun placePosts(location: String, placeId: String?, viewerId: String?): List<PostRecord> {
         val pid = placeId?.takeIf { it.isNotBlank() }
         return posts.values.filter { post ->
@@ -799,6 +805,12 @@ class InMemoryTownRepository : TownRepository {
                 placePostVisible(post, viewerId)
         }
     }
+
+    private fun authorPosts(userId: String, viewerId: String?): List<PostRecord> =
+        posts.values.filter { post -> post.userId == userId && authorPostVisible(post, viewerId) }
+
+    private fun authorPostVisible(post: PostRecord, viewerId: String?): Boolean =
+        viewerId == post.userId || placePostVisible(post, viewerId)
 
     private fun placePostVisible(post: PostRecord, viewerId: String?): Boolean {
         if (!post.communityOnly) return true

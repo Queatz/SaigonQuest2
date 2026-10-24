@@ -1623,6 +1623,26 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         limit,
     )
 
+    override fun postsByAuthor(userId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage = pageFeed(
+        "${authorPostFilter()} AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
+        cursorBind(cursor, limit) + authorPostBind(userId, viewerId),
+        limit,
+    )
+
+    override fun countPostsByAuthor(userId: String, viewerId: String?): Long {
+        val row = first(
+            """
+            RETURN { count: LENGTH(
+              FOR p IN $POSTS
+                FILTER ${authorPostFilter()}
+                RETURN 1
+            )}
+            """.trimIndent(),
+            authorPostBind(userId, viewerId),
+        )
+        return long(row, "count")
+    }
+
     override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long {
         val row = first(
             """
@@ -1637,6 +1657,19 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return long(row, "count")
     }
 
+    private fun authorPostBind(userId: String, viewerId: String?): Map<String, Any?> = mapOf(
+        "userKey" to userId,
+        "viewerId" to viewerId.orEmpty(),
+    )
+
+    private fun authorPostFilter(): String = """
+        p.userKey == @userKey
+        AND (
+          p.userKey == @viewerId
+          OR ${communityVisibleFilter()}
+        )
+    """.trimIndent()
+
     private fun placePostBind(location: String, placeId: String?, viewerId: String?): Map<String, Any?> = mapOf(
         "location" to location,
         "placeId" to placeId.orEmpty(),
@@ -1649,7 +1682,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
           (@placeId == "" AND (p.placeId == null OR p.placeId == ""))
           OR (@placeId != "" AND p.placeId == @placeId)
         )
-        AND (
+        AND ${communityVisibleFilter()}
+    """.trimIndent()
+
+    private fun communityVisibleFilter(): String = """
+        (
           p.communityOnly != true
           OR (
             @viewerId != ""

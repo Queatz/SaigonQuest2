@@ -42,6 +42,8 @@ interface TownRepository {
     fun findPost(id: String): PostRecord?
     fun feedItem(id: String, viewerId: String? = null): FeedItem?
     fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage
+    fun postsByAuthor(userId: String, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
+    fun countPostsByAuthor(userId: String, viewerId: String? = null): Long
     fun recordView(id: String)
     fun recordReplyClick(id: String)
     fun recordShareClick(id: String)

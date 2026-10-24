@@ -173,6 +173,7 @@ private fun mountPager(
     var axis: String? = null
     var photoDrag = 0.0
     var peeking = false
+    var photoPress = false
 
     fun stageHeight(): Double {
         val height = num(stage.asDynamic().clientHeight)
@@ -220,6 +221,38 @@ private fun mountPager(
                 playCurrent()
             }
         }
+    }
+
+    fun endPeek() {
+        stopPhotoPeekTimer()
+        if (!peeking) return
+        peeking = false
+        slides[index]?.asDynamic()?.classList?.remove("peeking")
+    }
+
+    fun beginPeek() {
+        peeking = true
+        dragging = false
+        drag = 0.0
+        layout(0.0, true)
+        slides[index]?.asDynamic()?.classList?.add("peeking")
+    }
+
+    fun armPeek() {
+        stopPhotoPeekTimer()
+        photoPeekTimer = window.asDynamic().setTimeout({
+            photoPeekTimer = null
+            beginPeek()
+        }, Limits.PHOTO_PEEK_MILLIS)
+    }
+
+    fun tapPeek() {
+        stopPhotoPeekTimer()
+        beginPeek()
+        photoPeekTimer = window.asDynamic().setTimeout({
+            photoPeekTimer = null
+            endPeek()
+        }, Limits.PHOTO_PEEK_TAP_MILLIS)
     }
 
     fun ensureSlide(i: Int) {
@@ -281,6 +314,7 @@ private fun mountPager(
     }
 
     fun finish(delta: Int) {
+        endPeek()
         index = (index + delta).coerceIn(0, posts.lastIndex)
         drag = 0.0
         animating = false
@@ -376,25 +410,6 @@ private fun mountPager(
 
     fun currentPhotos(): PhotoPager? = photoPagers[index]
 
-    fun endPeek() {
-        stopPhotoPeekTimer()
-        if (!peeking) return
-        peeking = false
-        slides[index]?.asDynamic()?.classList?.remove("peeking")
-    }
-
-    fun armPeek() {
-        stopPhotoPeekTimer()
-        photoPeekTimer = window.asDynamic().setTimeout({
-            photoPeekTimer = null
-            peeking = true
-            dragging = false
-            drag = 0.0
-            layout(0.0, true)
-            slides[index]?.asDynamic()?.classList?.add("peeking")
-        }, Limits.PHOTO_PEEK_MILLIS)
-    }
-
     fun resistedPhoto(raw: Double): Double {
         val pager = currentPhotos() ?: return 0.0
         return when {
@@ -416,7 +431,8 @@ private fun mountPager(
         velocity = 0.0
         velocityX = 0.0
         photoDrag = 0.0
-        if (photoTarget(event.target)) armPeek()
+        photoPress = photoTarget(event.target)
+        if (photoPress) armPeek()
         if (stage.asDynamic().setPointerCapture != undefined) stage.asDynamic().setPointerCapture(event.pointerId)
     })
     stage.asDynamic().addEventListener("pointermove", { event: dynamic ->
@@ -459,6 +475,7 @@ private fun mountPager(
             dragging = false
             axis = null
             photoDrag = 0.0
+            photoPress = false
         } else if (dragging) {
             dragging = false
             stopPhotoPeekTimer()
@@ -471,6 +488,8 @@ private fun mountPager(
                     if (flung || far) pager.go(if (velocityX < -0.45 || (!flung && photoDrag < 0)) 1 else -1)
                     else pager.go(0)
                 }
+            } else if (axis == null && photoPress) {
+                tapPeek()
             } else {
                 val height = stageHeight()
                 val flung = abs(velocity) > 0.45
@@ -479,6 +498,7 @@ private fun mountPager(
             }
             axis = null
             photoDrag = 0.0
+            photoPress = false
         }
     }
     stage.asDynamic().addEventListener("pointerup", endPointer)
@@ -814,50 +834,93 @@ internal fun openMiniProfile(
     userId: String = "",
     router: HistoryRouter? = null,
 ) {
-    if (host.asDynamic().querySelector(".dialog.mini-profile") != null) return
-    val backdrop = el("div", "dialog-backdrop stacked")
-    val card = el("div", "dialog mini-profile")
+    if (host.asDynamic().querySelector(".profile-sheet") != null) return
+    val chrome = SheetChrome("comment-sheet profile-sheet", name)
+    val body = el("div", "profile-sheet-body")
+    val head = el("div", "profile-sheet-head")
     if (!photoUrl.isNullOrBlank()) {
         val face = el("img", "face large")
         face.setAttribute("alt", "")
         face.setAttribute("src", photoUrl)
-        card.appendChild(face)
+        head.appendChild(face)
     } else {
-        card.appendChild(el("span", "face large initial", text = name.take(1).uppercase()))
+        head.appendChild(el("span", "face large initial", text = name.take(1).uppercase()))
     }
-    card.appendChild(el("h2", text = name))
     if (location.isNotBlank()) {
-        card.appendChild(el("p", "mini-profile-location", text = location))
+        head.appendChild(el("p", "mini-profile-location", text = location))
     }
     if (intro.isNotBlank()) {
-        card.appendChild(el("p", "mini-profile-intro", text = intro))
+        head.appendChild(el("p", "mini-profile-intro", text = intro))
     }
     if (userId.isNotBlank()) {
         val row = el("div", "mini-communities")
-        card.appendChild(row)
+        head.appendChild(row)
         http("GET", "/api/users/${encodeQuery(userId)}/communities") { status, body ->
             if (status != 200) return@http
             readCommunities(parseJson(body).communities).forEach { community ->
-                row.appendChild(communityChip(router, community) { backdrop.asDynamic().remove() })
+                row.appendChild(communityChip(router, community) { chrome.close() })
             }
         }
     }
     if (router != null && userId.isNotBlank() && userId != Town.me?.id) {
-        card.appendChild(el("button", "primary", text = Town.t("message")) { button ->
+        head.appendChild(el("button", "primary profile-sheet-message", text = Town.t("message")) { button ->
             button.setAttribute("type", "button")
             button.onClick {
-                backdrop.asDynamic().remove()
+                chrome.close()
                 openDirectChat(host, router, userId, name)
             }
         })
     }
-    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
-        button.setAttribute("type", "button")
-        button.onClick { backdrop.asDynamic().remove() }
+    body.appendChild(head)
+    val countHead = el("h3", "profile-sheet-count")
+    countHead.asDynamic().hidden = true
+    val grid = el("div", "location-sheet-grid")
+    if (userId.isNotBlank() && router != null) {
+        body.appendChild(countHead)
+        body.appendChild(grid)
+    }
+    chrome.sheet.appendChild(body)
+
+    var cursor: String? = null
+    var loading = false
+    var done = false
+
+    fun load() {
+        if (router == null || userId.isBlank() || loading || done) return
+        loading = true
+        val next = cursor
+        val more = if (next.isNullOrBlank()) "" else "&cursor=${encodeQuery(next)}"
+        http("GET", "/api/users/${encodeQuery(userId)}/posts?limit=24$more") { status, text ->
+            loading = false
+            if (status != 200) {
+                if (grid.childElementCount == 0) {
+                    grid.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                }
+                done = true
+                return@http
+            }
+            val parsed = parseJson(text)
+            val total = num(parsed.count).toInt()
+            countHead.textContent = Town.t("postCount", mapOf("count" to total.toString()))
+            countHead.asDynamic().hidden = false
+            val posts = readLocationPosts(parsed.posts)
+            if (posts.isEmpty() && grid.childElementCount == 0) {
+                grid.appendChild(el("p", "hint", text = Town.t("noPosts")))
+            } else {
+                posts.forEach { post -> grid.appendChild(locationPostTile(post, router, showAuthor = false)) }
+            }
+            cursor = parsed.nextCursor as? String
+            if (cursor.isNullOrBlank()) done = true
+        }
+    }
+
+    body.asDynamic().addEventListener("scroll", {
+        val top = num(body.asDynamic().scrollTop)
+        val height = num(body.asDynamic().clientHeight)
+        val full = num(body.asDynamic().scrollHeight)
+        if (top + height > full - 80) load()
     })
-    backdrop.appendChild(card)
-    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
-    host.appendChild(backdrop)
+    chrome.open(host) { load() }
 }
 
 private val monthNames = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")

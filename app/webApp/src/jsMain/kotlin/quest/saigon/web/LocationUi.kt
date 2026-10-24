@@ -78,29 +78,31 @@ internal fun openLocationSheet(
     }
 }
 
-private fun locationPostTile(post: PostCard, router: HistoryRouter): HTMLElement {
+internal fun locationPostTile(post: PostCard, router: HistoryRouter, showAuthor: Boolean = true): HTMLElement {
     val tile = el("button", "location-post")
     tile.setAttribute("type", "button")
     tile.setAttribute("aria-label", post.authorName)
     if (post.photoUrl.isNotBlank()) {
         tile.asDynamic().style.backgroundImage = "url(\"${post.photoUrl}\")"
     }
-    val author = el("span", "location-post-author")
-    if (!post.authorPhotoUrl.isNullOrBlank()) {
-        val face = el("img", "face")
-        face.setAttribute("alt", "")
-        face.setAttribute("src", post.authorPhotoUrl)
-        author.appendChild(face)
-    } else {
-        author.appendChild(el("span", "face initial", text = post.authorName.take(1).uppercase()))
+    if (showAuthor) {
+        val author = el("span", "location-post-author")
+        if (!post.authorPhotoUrl.isNullOrBlank()) {
+            val face = el("img", "face")
+            face.setAttribute("alt", "")
+            face.setAttribute("src", post.authorPhotoUrl)
+            author.appendChild(face)
+        } else {
+            author.appendChild(el("span", "face initial", text = post.authorName.take(1).uppercase()))
+        }
+        author.appendChild(el("span", "location-post-name", text = post.authorName))
+        tile.appendChild(author)
     }
-    author.appendChild(el("span", "location-post-name", text = post.authorName))
-    tile.appendChild(author)
     tile.onClick { router.navigate("/p/${post.id}") }
     return tile
 }
 
-private fun readLocationPosts(array: dynamic): List<PostCard> {
+internal fun readLocationPosts(array: dynamic): List<PostCard> {
     val posts = mutableListOf<PostCard>()
     if (array == null || array == undefined) return posts
     val length = array.length as Int
