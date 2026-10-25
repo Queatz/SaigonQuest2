@@ -60,8 +60,20 @@ internal fun bindLocationMapPicker(
 
 internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     val shell = el("section", "shell page-shell events-shell")
-    shell.appendChild(pageHead(router, Town.t("events"), showProfile = true))
+    var searching = false
+    var openSearch: () -> Unit = {}
+    var closeSearch: () -> Unit = {}
     val body = el("div", "page-body events-body")
+    val head = pageHead(
+        router,
+        Town.t("discover"),
+        showProfile = true,
+        onBack = { if (searching) closeSearch() else back(router) },
+        searchAction = { openSearch() },
+    )
+    val title = head.asDynamic().querySelector("h1") as HTMLElement
+    val searchButton = head.asDynamic().querySelector(".post-search-toggle") as HTMLElement
+    shell.appendChild(head)
     val mapBox = el("div", "events-map")
     val lists = el("div", "events-lists")
     val tabs = el("div", "chip-row events-tabs")
@@ -95,6 +107,49 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(mapBox)
     body.appendChild(lists)
     shell.appendChild(body)
+    var searchView: HTMLElement? = null
+    var feedOverlay: HTMLElement? = null
+    closeSearch = {
+        if (searching) {
+            searching = false
+            searchView?.asDynamic()?.remove()
+            searchView = null
+            body.asDynamic().style.display = ""
+            title.textContent = Town.t("events")
+            searchButton.asDynamic().hidden = false
+        }
+    }
+    openSearch = {
+        if (!searching) {
+            searching = true
+            body.asDynamic().style.display = "none"
+            title.textContent = Town.t("searchPosts")
+            searchButton.asDynamic().hidden = true
+            val screen = postSearchScreen(router) { post, posts, query, cursor ->
+                if (feedOverlay == null) {
+                    lateinit var overlay: HTMLElement
+                    overlay = feedScreen(
+                        router,
+                        focusPostId = post.id,
+                        onBack = {
+                            clearFeedKeys()
+                            overlay.asDynamic().remove()
+                            feedOverlay = null
+                        },
+                        seedPosts = posts,
+                        seedCursor = cursor,
+                        searchQuery = query,
+                    )
+                    feedOverlay = overlay
+                    shell.appendChild(overlay)
+                }
+            }
+            searchView = screen
+            shell.appendChild(screen)
+            val searchInput = screen.asDynamic().querySelector(".post-search-input")
+            if (searchInput != null && searchInput != undefined) searchInput.focus()
+        }
+    }
     fun selectTab(chip: HTMLElement) {
         eventsChip.asDynamic().classList.toggle("selected", chip === eventsChip)
         peopleChip.asDynamic().classList.toggle("selected", chip === peopleChip)
@@ -158,7 +213,7 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
     button.setAttribute("type", "button")
     button.setAttribute("aria-label", Town.t("openEvents"))
     button.setAttribute("hidden", "hidden")
-    button.onClick { router.navigate("/events") }
+    button.onClick { router.navigate("/discover") }
     http("GET", "/api/events/summary") { status, body ->
         button.textContent = "📅 " + if (status == 200) {
             val parsed = parseJson(body)

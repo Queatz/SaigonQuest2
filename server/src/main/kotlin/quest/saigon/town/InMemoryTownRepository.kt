@@ -177,6 +177,35 @@ class InMemoryTownRepository : TownRepository {
         viewerId,
     )
 
+    override fun searchPosts(query: String, cursor: String?, limit: Int, viewerId: String?): FeedPage {
+        val needle = query.trim().lowercase()
+        val matching = posts.values.filter { post ->
+            if (!placePostVisible(post, viewerId)) return@filter false
+            if (needle.isBlank()) return@filter true
+            val authorName = users[post.userId]?.name.orEmpty()
+            val communityName = post.communityId?.let { communities[it]?.name }.orEmpty()
+            val eventDetails = listOfNotNull(
+                post.eventStartAt?.toString(),
+                post.eventEndAt?.toString(),
+                post.eventPrice?.toString(),
+                if (post.eventStartAt != null && (post.eventPrice == null || post.eventPrice == 0L)) "free" else null,
+            )
+            val searchable = listOf(
+                authorName,
+                post.message,
+                post.location,
+                communityName,
+                post.questionTitle,
+                post.ctaTitle,
+                post.ctaText,
+                post.ctaDestination,
+                post.ctaUrl,
+            ) + post.pollOptions + eventDetails
+            searchable.any { it.lowercase().contains(needle) }
+        }
+        return pagePosts(matching, cursor, limit, viewerId)
+    }
+
     override fun communityFeed(communityId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage = pagePosts(
         posts.values.filter { it.communityId == communityId },
         cursor,

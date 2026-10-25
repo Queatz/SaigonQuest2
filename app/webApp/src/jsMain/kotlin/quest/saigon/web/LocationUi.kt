@@ -78,7 +78,13 @@ internal fun openLocationSheet(
     }
 }
 
-internal fun locationPostTile(post: PostCard, router: HistoryRouter, showAuthor: Boolean = true): HTMLElement {
+internal fun locationPostTile(
+    post: PostCard,
+    router: HistoryRouter,
+    showAuthor: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    showMessage: Boolean = false,
+): HTMLElement {
     val tile = el("button", "location-post")
     tile.setAttribute("type", "button")
     tile.setAttribute("aria-label", post.authorName)
@@ -96,9 +102,16 @@ internal fun locationPostTile(post: PostCard, router: HistoryRouter, showAuthor:
             author.appendChild(el("span", "face initial", text = post.authorName.take(1).uppercase()))
         }
         author.appendChild(el("span", "location-post-name", text = post.authorName))
-        tile.appendChild(author)
+        if (showMessage && post.message.isNotBlank()) {
+            val caption = el("span", "location-post-caption")
+            caption.appendChild(el("span", "location-post-message", text = post.message))
+            caption.appendChild(author)
+            tile.appendChild(caption)
+        } else {
+            tile.appendChild(author)
+        }
     }
-    tile.onClick { router.navigate("/p/${post.id}") }
+    tile.onClick { if (onClick == null) router.navigate("/p/${post.id}") else onClick() }
     return tile
 }
 

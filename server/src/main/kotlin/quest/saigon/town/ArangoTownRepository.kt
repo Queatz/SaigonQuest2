@@ -308,6 +308,56 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         limit,
     )
 
+    override fun searchPosts(query: String, cursor: String?, limit: Int, viewerId: String?): FeedPage {
+        val where = """
+            ${communityVisibleFilter()}
+            AND (
+              @query == ""
+              OR CONTAINS(LOWER(TO_STRING(p.message == null ? "" : p.message)), @query)
+              OR CONTAINS(LOWER(TO_STRING(p.location == null ? "" : p.location)), @query)
+              OR (
+                DOCUMENT("$USERS", p.userKey) != null
+                AND CONTAINS(
+                  LOWER(TO_STRING(DOCUMENT("$USERS", p.userKey).name)),
+                  @query
+                )
+              )
+              OR (
+                DOCUMENT("$COMMUNITIES", p.communityKey) != null
+                AND CONTAINS(
+                  LOWER(TO_STRING(DOCUMENT("$COMMUNITIES", p.communityKey).name)),
+                  @query
+                )
+              )
+              OR (p.eventStartAt != null AND CONTAINS(LOWER(TO_STRING(p.eventStartAt)), @query))
+              OR (p.eventEndAt != null AND CONTAINS(LOWER(TO_STRING(p.eventEndAt)), @query))
+              OR (
+                p.eventStartAt != null
+                AND CONTAINS(
+                  LOWER((p.eventPrice == null OR p.eventPrice == 0) ? "free" : TO_STRING(p.eventPrice)),
+                  @query
+                )
+              )
+              OR LENGTH(
+                FOR option IN (p.pollOptions == null ? [] : p.pollOptions)
+                  FILTER CONTAINS(LOWER(TO_STRING(option == null ? "" : option)), @query)
+                  RETURN 1
+              ) > 0
+              OR CONTAINS(LOWER(TO_STRING(p.questionTitle == null ? "" : p.questionTitle)), @query)
+              OR CONTAINS(LOWER(TO_STRING(p.ctaTitle == null ? "" : p.ctaTitle)), @query)
+              OR CONTAINS(LOWER(TO_STRING(p.ctaText == null ? "" : p.ctaText)), @query)
+              OR CONTAINS(LOWER(TO_STRING(p.ctaDestination == null ? "" : p.ctaDestination)), @query)
+              OR CONTAINS(LOWER(TO_STRING(p.ctaUrl == null ? "" : p.ctaUrl)), @query)
+            )
+            AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))
+        """.trimIndent()
+        return pageFeed(
+            where,
+            cursorBind(cursor, limit) + mapOf("query" to query.trim().lowercase(), "viewerId" to viewerId.orEmpty()),
+            limit,
+        )
+    }
+
     override fun communityFeed(communityId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage = pageFeed(
         "p.communityKey == @communityKey AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
         cursorBind(cursor, limit) + mapOf("communityKey" to communityId, "viewerId" to viewerId.orEmpty()),

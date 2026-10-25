@@ -33,35 +33,64 @@ internal fun resumeFeedOnVisible() {
     feedResumeHandler?.invoke()
 }
 
+private fun feedPageUrl(feedPath: String, cursor: String? = null): String {
+    val separator = if ('?' in feedPath) "&" else "?"
+    val cursorQuery = if (cursor.isNullOrBlank()) "" else "&cursor=${encodeQuery(cursor)}"
+    return "$feedPath${separator}limit=${Limits.FEED_PAGE_SIZE}$cursorQuery"
+}
+
 internal fun feedScreen(
     router: HistoryRouter,
     focusPostId: String? = null,
     communityId: String? = null,
+    onBack: (() -> Unit)? = null,
+    seedPosts: List<PostCard>? = null,
+    seedCursor: String? = null,
+    searchQuery: String? = null,
 ): HTMLElement {
-    val shell = el("section", "shell feed-shell")
+    val shell = el(
+        "section",
+        if (onBack != null) "shell feed-shell search-feed-overlay" else "shell feed-shell",
+    )
     shell.asDynamic().style.setProperty("--avatar-enter", "${Limits.AVATAR_ENTER_PX}px")
     val stage = el("div", "stage")
     val location = el("button", "location")
     location.setAttribute("type", "button")
-    val top = el("div", if (communityId == null) "topbar" else "topbar community-top")
+    val top = el(
+        "div",
+        when {
+            communityId != null -> "topbar community-top"
+            onBack != null -> "topbar search-feed-top"
+            else -> "topbar"
+        },
+    )
     val communityTitle = el("div", "community-title")
     val members = el("button", "pill-btn", text = Town.t("communityMembers"))
     val join = el("button", "pill-btn", text = Town.t("joinCommunity"))
     members.setAttribute("type", "button")
     join.setAttribute("type", "button")
     if (communityId == null) {
+        if (onBack != null) {
+            val back = el("button", "icon-btn", text = "‹")
+            back.setAttribute("type", "button")
+            back.setAttribute("aria-label", Town.t("back"))
+            back.onClick { onBack() }
+            top.appendChild(back)
+        }
         val brand = el("div", "feed-brand")
         brand.appendChild(location)
         brand.appendChild(el("div", "feed-app-name", text = Town.t("appName")))
-        brand.appendChild(eventsSummaryButton(router))
+        if (onBack == null) brand.appendChild(eventsSummaryButton(router))
         top.appendChild(brand)
-        val actions = el("div", "top-actions")
-        if (Town.me != null) {
-            actions.appendChild(messagesButton(router))
-            actions.appendChild(notificationButton(router, shell))
+        if (onBack == null) {
+            val actions = el("div", "top-actions")
+            if (Town.me != null) {
+                actions.appendChild(messagesButton(router))
+                actions.appendChild(notificationButton(router, shell))
+            }
+            actions.appendChild(viewerButton(router, toComposer = true))
+            top.appendChild(actions)
         }
-        actions.appendChild(viewerButton(router, toComposer = true))
-        top.appendChild(actions)
     } else {
         val back = el("button", "icon-btn", text = "‹")
         back.setAttribute("type", "button")
@@ -80,16 +109,41 @@ internal fun feedScreen(
     }
     shell.appendChild(stage)
     shell.appendChild(top)
-    val feedPath = if (communityId.isNullOrBlank()) "/api/posts" else "/api/communities/${encodeQuery(communityId)}/posts"
+    val feedPath = when {
+        searchQuery != null -> "/api/posts/search?q=${encodeQuery(searchQuery)}"
+        communityId.isNullOrBlank() -> "/api/posts"
+        else -> "/api/communities/${encodeQuery(communityId)}/posts"
+    }
     val emptyTitle = if (communityId == null) Town.t("emptyFeed") else Town.t("emptyCommunity")
     val emptyHint = if (communityId == null) Town.t("emptyFeedHint") else Town.t("emptyCommunityHint")
     var feedLoading = false
     var pagerLive = false
+    fun start(posts: MutableList<PostCard>, cursor: String?) {
+        if (pagerLive) return
+        stage.clear()
+        if (posts.isEmpty()) {
+            stage.appendChild(emptyState(emptyTitle, emptyHint))
+            return
+        }
+        pagerLive = true
+        mountPager(
+            stage,
+            location,
+            shell,
+            router,
+            posts,
+            cursor,
+            focusPostId,
+            feedPath,
+            autoOpenFocusComments = onBack == null,
+        )
+    }
     fun loadFeed() {
         if (feedLoading || pagerLive) return
         feedLoading = true
-        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+        http("GET", feedPageUrl(feedPath)) { status, body ->
             feedLoading = false
+            if (shell.asDynamic().isConnected == false) return@http
             if (pagerLive) return@http
             if (status != 200) {
                 stage.clear()
@@ -101,26 +155,17 @@ internal fun feedScreen(
             val pending = if (communityId == null) Town.pending else null
             Town.pending = null
             if (pending != null && !pending.communityOnly && posts.none { it.id == pending.id }) posts.add(0, pending)
-            fun start(cursor: String?) {
-                if (pagerLive) return
-                stage.clear()
-                if (posts.isEmpty()) {
-                    stage.appendChild(emptyState(emptyTitle, emptyHint))
-                    return
-                }
-                pagerLive = true
-                mountPager(stage, location, shell, router, posts, cursor, focusPostId, feedPath)
-            }
             if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
                 http("GET", "/api/posts/${encodeQuery(focusPostId)}") { postStatus, postBody ->
+                    if (shell.asDynamic().isConnected == false) return@http
                     if (postStatus == 200) {
                         val focused = postFrom(parseJson(postBody))
                         if (posts.none { it.id == focused.id }) posts.add(0, focused)
                     }
-                    start(parsed.nextCursor as? String)
+                    start(posts, parsed.nextCursor as? String)
                 }
             } else {
-                start(parsed.nextCursor as? String)
+                start(posts, parsed.nextCursor as? String)
             }
         }
     }
@@ -128,8 +173,15 @@ internal fun feedScreen(
         feedResumeHandler = { loadFeed() }
     }
     if (communityId.isNullOrBlank()) {
-        watchFeed()
-        loadFeed()
+        if (seedPosts != null) {
+            window.asDynamic().setTimeout({
+                if (shell.asDynamic().isConnected == false) return@setTimeout
+                start(seedPosts.toMutableList(), seedCursor)
+            }, 0)
+        } else {
+            watchFeed()
+            loadFeed()
+        }
     } else {
         bindCommunityBar(shell, router, communityId, communityTitle, members, join, onReady = {
             watchFeed()
@@ -150,6 +202,7 @@ private fun mountPager(
     initialCursor: String?,
     focusPostId: String? = null,
     feedPath: String = "/api/posts",
+    autoOpenFocusComments: Boolean = true,
 ) {
     var index = focusPostId?.let { id -> posts.indexOfFirst { it.id == id }.takeIf { it >= 0 } } ?: 0
     var openedFocus = false
@@ -273,7 +326,7 @@ private fun mountPager(
         ensureSlide(index)
         ensureSlide(index + 1)
         revealAvatar()
-        if (!openedFocus && !focusPostId.isNullOrBlank() && posts.getOrNull(index)?.id == focusPostId) {
+        if (autoOpenFocusComments && !openedFocus && !focusPostId.isNullOrBlank() && posts.getOrNull(index)?.id == focusPostId) {
             openedFocus = true
             window.asDynamic().setTimeout({
                 openCommentsSheet(posts[index], host, router, focusInput = false) { next ->
@@ -290,7 +343,7 @@ private fun mountPager(
             return
         }
         loading = true
-        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}&cursor=${encodeQuery(next)}") { status, body ->
+        http("GET", feedPageUrl(feedPath, next)) { status, body ->
             loading = false
             if (status == 200) {
                 val parsed = parseJson(body)
@@ -351,7 +404,7 @@ private fun mountPager(
             return
         }
         loading = true
-        http("GET", "$feedPath?limit=${Limits.FEED_PAGE_SIZE}") { status, body ->
+        http("GET", feedPageUrl(feedPath)) { status, body ->
             loading = false
             val changed = status == 200 && applyNewer(readPosts(parseJson(body).posts))
             if (changed) {
@@ -549,6 +602,7 @@ private fun mountPager(
     }
     feedResumeHandler = { reloadQuiet() }
     rebuild()
+    if (index >= posts.lastIndex - 1) loadMore()
     startSwipeHint(host) { index < 1 }
 }
 

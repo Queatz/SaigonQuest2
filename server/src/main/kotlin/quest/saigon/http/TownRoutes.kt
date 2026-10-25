@@ -575,6 +575,19 @@ fun Route.townApi(services: TownServices) {
         )
     }
 
+    get("/posts/search") {
+        val query = call.request.queryParameters["q"].orEmpty().trim()
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 48) ?: 24
+        val viewer = call.user(services)
+        val page = services.repo.searchPosts(query, call.request.queryParameters["cursor"], limit, viewer?.id)
+        call.respondJson(
+            mapOf(
+                "posts" to page.items.map(::postPayload),
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
     get("/posts/{id}") {
         val viewer = call.user(services)
         val item = services.repo.feedItem(call.parameters["id"].orEmpty(), viewer?.id) ?: return@get call.fail("not_found")

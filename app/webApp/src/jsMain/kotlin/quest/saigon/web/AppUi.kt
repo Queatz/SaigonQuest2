@@ -28,7 +28,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.FeatureSuggestions -> featureSuggestionsScreen(router)
         route == AppRoute.Stats -> statsScreen(router)
         route == AppRoute.Admin -> adminScreen(router)
-        route == AppRoute.Events -> eventsScreen(router)
+        route == AppRoute.Discover -> eventsScreen(router)
         route == AppRoute.Messages -> messagesScreen(router)
         route is AppRoute.Chat -> chatScreen(router, route.id)
         route is AppRoute.Community -> feedScreen(router, communityId = route.id)
@@ -50,14 +50,28 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     }
 }
 
-internal fun pageHead(router: HistoryRouter, title: String, showProfile: Boolean): HTMLElement {
+internal fun pageHead(
+    router: HistoryRouter,
+    title: String,
+    showProfile: Boolean,
+    onBack: (() -> Unit)? = null,
+    searchAction: (() -> Unit)? = null,
+): HTMLElement {
     val head = el("header", if (showProfile) "page-head has-profile" else "page-head")
     head.appendChild(el("button", "icon-btn", text = "‹") { button ->
         button.setAttribute("type", "button")
         button.setAttribute("aria-label", Town.t("back"))
-        button.onClick { back(router) }
+        button.onClick { if (onBack == null) back(router) else onBack() }
     })
     head.appendChild(el("h1", text = title))
+    if (searchAction != null) {
+        val search = el("button", "icon-btn post-search-toggle")
+        search.setAttribute("type", "button")
+        search.setAttribute("aria-label", Town.t("search"))
+        search.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"""
+        search.onClick { searchAction() }
+        head.appendChild(search)
+    }
     if (showProfile) head.appendChild(viewerButton(router, toComposer = false, editBadge = true))
     return head
 }
