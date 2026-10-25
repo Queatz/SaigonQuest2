@@ -89,6 +89,7 @@ internal fun errorText(body: String, status: Int): String {
         "invalid_community" -> "invalidCommunity"
         "invalid_description" -> "invalidDescription"
         "invalid_event" -> "invalidEvent"
+        "invalid_event_end" -> "invalidEventEnd"
         "invalid_event_price" -> "invalidEventPrice"
         "invalid_poll" -> "invalidPoll"
         "invalid_question" -> "invalidQuestion"

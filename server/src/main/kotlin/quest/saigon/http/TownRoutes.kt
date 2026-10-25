@@ -447,7 +447,7 @@ fun Route.townApi(services: TownServices) {
         }
         if (eventEndAt != null && eventStartAt == null) return@post call.fail("invalid_event")
         if (eventPrice != null && eventStartAt == null) return@post call.fail("invalid_event")
-        if (eventStartAt != null && eventEndAt != null && eventEndAt < eventStartAt) return@post call.fail("invalid_event")
+        if (eventStartAt != null && eventEndAt != null && eventEndAt < eventStartAt) return@post call.fail("invalid_event_end")
         val pollRaw = (0 until Limits.POLL_OPTIONS_MAX).map { form.text("pollOption$it") }
         val pollOptions = if (pollRaw.all { it.isBlank() }) {
             emptyList()

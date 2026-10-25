@@ -272,6 +272,13 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                         show(error, Town.t("invalidEvent"))
                         return@onClick
                     }
+                    val end = event.endAt
+                    if (end != null && end < start) {
+                        post.removeAttribute("disabled")
+                        post.textContent = Town.t("postNow")
+                        show(error, Town.t("invalidEventEnd"))
+                        return@onClick
+                    }
                     form.append("eventStartAt", start.toString())
                     event.endAt?.let { form.append("eventEndAt", it.toString()) }
                     event.price?.let { form.append("eventPrice", it.toString()) }

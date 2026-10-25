@@ -2928,6 +2928,29 @@ button.busy .avatar-spinner {
 
 .event-fields { display: grid; gap: 0; }
 
+.event-end-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.event-end-row .field { margin: 8px 0; }
+
+.event-end-remove {
+    width: 44px;
+    height: 44px;
+    margin: 0 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+
 .poll-composer { margin: 8px 0 16px; }
 
 .question-composer { margin: 8px 0 16px; }

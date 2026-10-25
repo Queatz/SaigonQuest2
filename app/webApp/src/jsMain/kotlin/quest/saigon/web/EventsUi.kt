@@ -501,12 +501,19 @@ internal fun composerEventFields(): ComposerEvent {
     fields.asDynamic().hidden = true
     val start = field(Town.t("eventStart"), "datetime-local", "")
     val end = field(Town.t("eventEnd"), "datetime-local", "")
+    val endRow = el("div", "event-end-row")
+    val removeEnd = el("button", "event-end-remove", text = "×")
+    removeEnd.setAttribute("type", "button")
+    removeEnd.setAttribute("aria-label", Town.t("removeEventEnd"))
+    removeEnd.asDynamic().hidden = true
+    endRow.appendChild(end.root)
+    endRow.appendChild(removeEnd)
     val price = field(Town.t("eventPrice"), "text", Town.t("eventPriceHint"))
     price.input.setAttribute("inputmode", "numeric")
     price.input.setAttribute("pattern", "[0-9]*")
     price.input.setAttribute("autocomplete", "off")
     fields.appendChild(start.root)
-    fields.appendChild(end.root)
+    fields.appendChild(endRow)
     fields.appendChild(price.root)
     toggle.asDynamic().onchange = {
         val on = toggle.asDynamic().checked == true
@@ -515,8 +522,17 @@ internal fun composerEventFields(): ComposerEvent {
     }
     start.input.asDynamic().onchange = { state.startAt = epochFromLocalInput(start.value()) }
     start.input.asDynamic().oninput = { state.startAt = epochFromLocalInput(start.value()) }
-    end.input.asDynamic().onchange = { state.endAt = epochFromLocalInput(end.value()) }
-    end.input.asDynamic().oninput = { state.endAt = epochFromLocalInput(end.value()) }
+    fun updateEnd() {
+        state.endAt = epochFromLocalInput(end.value())
+        removeEnd.asDynamic().hidden = state.endAt == null
+    }
+    end.input.asDynamic().onchange = { updateEnd() }
+    end.input.asDynamic().oninput = { updateEnd() }
+    removeEnd.asDynamic().onclick = {
+        end.input.asDynamic().value = ""
+        state.endAt = null
+        removeEnd.asDynamic().hidden = true
+    }
     price.input.asDynamic().oninput = {
         val digits = price.value().filter { it.isDigit() }
         val amount = digits.toLongOrNull()?.coerceAtMost(Limits.EVENT_PRICE_MAX.toLong())

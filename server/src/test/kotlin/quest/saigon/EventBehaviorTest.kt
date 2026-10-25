@@ -130,6 +130,10 @@ class EventBehaviorTest {
 
         val bad = postEvent(linh, "No start", null, todayEvent, 20_000, null)
         assertEquals(HttpStatusCode.BadRequest, bad.status)
+        assertEquals("invalid_event", mapper.readTree(bad.bodyAsText()).path("error").asText())
+        val endBeforeStart = postEvent(linh, "End before start", todayEvent, todayEvent - 1, null, null)
+        assertEquals(HttpStatusCode.BadRequest, endBeforeStart.status)
+        assertEquals("invalid_event_end", mapper.readTree(endBeforeStart.bodyAsText()).path("error").asText())
         val pricey = postEvent(linh, "Too much", todayEvent, null, Limits.EVENT_PRICE_MAX.toLong() + 1, null)
         assertEquals(HttpStatusCode.BadRequest, pricey.status)
     }
