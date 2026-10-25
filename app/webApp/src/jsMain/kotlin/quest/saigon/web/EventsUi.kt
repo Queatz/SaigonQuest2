@@ -27,6 +27,37 @@ internal class PlacePick(
     var lng: Double? = null,
 )
 
+internal fun bindLocationMapPicker(
+    host: HTMLElement,
+    input: HTMLElement,
+    mapButton: HTMLElement,
+    current: PlacePick,
+    communityId: () -> String? = { null },
+) {
+    fun refreshButton() {
+        mapButton.asDynamic().classList.toggle("has-place", !current.placeId.isNullOrBlank())
+    }
+
+    refreshButton()
+    mapButton.onClick {
+        openLocationPicker(host, communityId(), current) { picked ->
+            current.name = picked.name
+            current.placeId = picked.placeId
+            current.lat = picked.lat
+            current.lng = picked.lng
+            input.asDynamic().value = picked.name
+            refreshButton()
+        }
+    }
+    input.asDynamic().oninput = {
+        current.placeId = null
+        current.lat = null
+        current.lng = null
+        current.name = (input.asDynamic().value as? String).orEmpty().trim()
+        refreshButton()
+    }
+}
+
 internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     val shell = el("section", "shell page-shell events-shell")
     shell.appendChild(pageHead(router, Town.t("events"), showProfile = true))
@@ -338,6 +369,12 @@ internal fun openLocationPicker(
         row.setAttribute("type", "button")
         row.appendChild(el("strong", text = name))
         if (address.isNotBlank() && address != name) row.appendChild(el("small", text = address))
+        row.appendChild(
+            el(
+                "small",
+                text = Town.t("postCount", mapOf("count" to num(node.postCount).toLong().toString())),
+            ),
+        )
         row.onClick {
             preview(
                 PlacePick(
@@ -404,7 +441,7 @@ internal fun composerEventFields(): ComposerEvent {
     val row = el("label", "switch-row")
     row.appendChild(toggle)
     row.appendChild(el("span", "switch-ui"))
-    row.appendChild(el("span", text = Town.t("addEvent")))
+    row.appendChild(el("span", text = "📅 ${Town.t("addEvent")}"))
     val fields = el("div", "event-fields")
     fields.asDynamic().hidden = true
     val start = field(Town.t("eventStart"), "datetime-local", "")

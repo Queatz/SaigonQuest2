@@ -47,6 +47,7 @@ interface TownRepository {
     fun recordView(id: String)
     fun recordReplyClick(id: String)
     fun recordShareClick(id: String)
+    fun updatePostMessage(id: String, message: String)
     fun updateQuickReplies(id: String, replies: List<String>)
     fun deletePost(id: String)
     fun insertComment(comment: CommentRecord): CommentRecord

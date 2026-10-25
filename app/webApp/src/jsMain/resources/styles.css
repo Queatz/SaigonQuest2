@@ -1230,6 +1230,20 @@ button.busy .avatar-spinner {
     overflow: hidden;
 }
 
+.own-post-location {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.own-post-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
 .own-post-music {
     margin: 4px 0 0;
     font-weight: 700;
@@ -2874,6 +2888,12 @@ button.busy .avatar-spinner {
     height: 44px;
     border-radius: 14px;
     margin: 0;
+}
+
+.location-map-btn.has-place {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
 }
 
 .event-composer { margin: 8px 0 16px; }

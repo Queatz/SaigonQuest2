@@ -13,7 +13,7 @@ internal fun composerCtaFields(): ComposerCta {
     val row = el("label", "switch-row")
     row.appendChild(toggle)
     row.appendChild(el("span", "switch-ui"))
-    row.appendChild(el("span", text = Town.t("addCallToAction")))
+    row.appendChild(el("span", text = "📣 ${Town.t("addCallToAction")}"))
     val fields = el("div", "cta-fields")
     fields.asDynamic().hidden = true
     val title = field(Town.t("callToActionTitle"), "text", Town.t("callToActionTitleHint"))

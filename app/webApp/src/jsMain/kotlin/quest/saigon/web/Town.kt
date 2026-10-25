@@ -17,6 +17,9 @@ internal data class Me(
     val photoUrl: String?,
     val paused: Boolean = false,
     val admin: Boolean = false,
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
 )
 
 internal data class CommentCard(
@@ -127,6 +130,9 @@ internal fun meFrom(node: dynamic): Me = Me(
     language = (node.language as? String) ?: "system",
     hasProfilePhoto = node.hasProfilePhoto == true,
     photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
+    placeId = (node.placeId as? String)?.takeIf { it.isNotBlank() },
+    lat = if (node.lat == null || node.lat == undefined) null else num(node.lat),
+    lng = if (node.lng == null || node.lng == undefined) null else num(node.lng),
     paused = node.paused == true,
     admin = node.admin == true,
 )

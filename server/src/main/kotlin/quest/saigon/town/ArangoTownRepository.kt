@@ -94,6 +94,9 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("passwordHash", user.passwordHash)
         doc.addAttribute("name", user.name)
         doc.addAttribute("location", user.location)
+        doc.addAttribute("placeId", user.placeId)
+        doc.addAttribute("lat", user.lat)
+        doc.addAttribute("lng", user.lng)
         doc.addAttribute("intro", user.intro)
         doc.addAttribute("profilePhotoPath", user.profilePhotoPath)
         doc.addAttribute("language", user.language)
@@ -607,6 +610,18 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
 
     override fun recordShareClick(id: String) {
         bump(id, "shareClicks")
+    }
+
+    override fun updatePostMessage(id: String, message: String) {
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { message: @message } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to id, "message" to message),
+        )
     }
 
     override fun updateQuickReplies(id: String, replies: List<String>) {
@@ -2503,6 +2518,9 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         intro = string(doc, "intro"),
         paused = boolean(doc, "paused"),
         lastActiveAt = long(doc, "lastActiveAt").takeIf { it > 0 } ?: long(doc, "createdAt"),
+        placeId = doc.getAttribute("placeId")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        lat = doc.getAttribute("lat")?.toString()?.toDoubleOrNull(),
+        lng = doc.getAttribute("lng")?.toString()?.toDoubleOrNull(),
     )
 
     private fun musicFrom(doc: BaseDocument) = MusicRecord(

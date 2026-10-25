@@ -12,6 +12,9 @@ data class UserRecord(
     val intro: String = "",
     val paused: Boolean = false,
     val lastActiveAt: Long = 0,
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
 )
 
 data class AdminRecord(
@@ -483,6 +486,7 @@ data class PlaceSuggestion(
     val lat: Double? = null,
     val lng: Double? = null,
     val recent: Boolean = false,
+    val postCount: Long = 0,
 )
 
 data class CommunityRecord(

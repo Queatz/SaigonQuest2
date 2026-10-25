@@ -24,7 +24,7 @@ internal fun stopMusicPreview() {
 
 internal fun musicPicker(host: HTMLElement, onSelect: (String?) -> Unit): HTMLElement {
     val box = el("div")
-    box.appendChild(el("h3", text = Town.t("selectMusic")))
+    box.appendChild(el("h3", text = "🎵 ${Town.t("selectMusic")}"))
     val search = el("input", "music-search")
     search.setAttribute("type", "search")
     search.setAttribute("placeholder", Town.t("searchMusic"))

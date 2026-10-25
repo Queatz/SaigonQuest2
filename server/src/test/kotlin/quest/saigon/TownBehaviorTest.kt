@@ -42,6 +42,59 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class TownBehaviorTest {
+    @Test
+    fun profileLocationPlaceCanBeSavedDetachedAndRejectIncompleteCoordinates() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val client = createClient { install(HttpCookies) }
+        val created = client.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901234510","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, created.status)
+        val userId = mapper.readTree(created.bodyAsText()).path("id").asText()
+
+        val selected = client.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Cát Lãi","placeId":"place-123","lat":10.78,"lng":106.7}""")
+        }
+        assertEquals(HttpStatusCode.OK, selected.status)
+        val selectedBody = mapper.readTree(selected.bodyAsText())
+        assertEquals("place-123", selectedBody.path("placeId").asText())
+        assertEquals(10.78, selectedBody.path("lat").asDouble(), 0.000001)
+        assertEquals(106.7, selectedBody.path("lng").asDouble(), 0.000001)
+        assertEquals("place-123", services.repo.findUser(userId)?.placeId)
+
+        val languageOnly = client.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"language":"vi"}""")
+        }
+        assertEquals(HttpStatusCode.OK, languageOnly.status)
+        val languageBody = mapper.readTree(languageOnly.bodyAsText())
+        assertEquals("place-123", languageBody.path("placeId").asText())
+        assertEquals(10.78, languageBody.path("lat").asDouble(), 0.000001)
+        assertEquals(106.7, languageBody.path("lng").asDouble(), 0.000001)
+
+        val incomplete = client.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Cát Lãi","placeId":"place-123","lat":10.78}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, incomplete.status)
+
+        val detached = client.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Typed location"}""")
+        }
+        assertEquals(HttpStatusCode.OK, detached.status)
+        val detachedBody = mapper.readTree(detached.bodyAsText())
+        assertTrue(detachedBody.path("placeId").isNull)
+        assertTrue(detachedBody.path("lat").isNull)
+        assertTrue(detachedBody.path("lng").isNull)
+        assertEquals(null, services.repo.findUser(userId)?.placeId)
+        assertEquals(null, services.repo.findUser(userId)?.lat)
+        assertEquals(null, services.repo.findUser(userId)?.lng)
+    }
+
     private val mapper = ObjectMapper()
 
     @Test
@@ -292,6 +345,61 @@ class TownBehaviorTest {
             setBody("""{"phone":"0901234567","password":"wrongpass"}""")
         }
         assertEquals(HttpStatusCode.Unauthorized, badLogin.status)
+    }
+
+    @Test
+    fun postMessageCanOnlyBeEditedByItsOwnerAndMustBeValid() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val owner = createClient { install(HttpCookies) }
+        val ownerCreated = owner.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901234501","password":"secretpass"}""")
+        }
+        val ownerId = mapper.readTree(ownerCreated.bodyAsText()).path("id").asText()
+        val stranger = createClient { install(HttpCookies) }
+        stranger.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Mai","phone":"0901234502","password":"secretpass"}""")
+        }
+        val post = services.repo.insertPost(
+            PostRecord("", ownerId, photoPath = "posts/photo.jpg", message = "Original", location = "Cát Lãi", createdAt = 1),
+        )
+        val path = "/api/posts/${post.id}"
+
+        val updated = owner.patch(path) {
+            contentType(ContentType.Application.Json)
+            setBody("""{"message":"Updated message"}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        assertEquals("Updated message", services.repo.findPost(post.id)?.message)
+
+        val blank = owner.patch(path) {
+            contentType(ContentType.Application.Json)
+            setBody("""{"message":"   "}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, blank.status)
+        assertEquals("invalid_message", mapper.readTree(blank.bodyAsText()).path("error").asText())
+
+        val tooLong = owner.patch(path) {
+            contentType(ContentType.Application.Json)
+            setBody(mapper.writeValueAsString(mapOf("message" to "x".repeat(Limits.MESSAGE_MAX + 1))))
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooLong.status)
+        assertEquals("invalid_message", mapper.readTree(tooLong.bodyAsText()).path("error").asText())
+
+        val forbidden = stranger.patch(path) {
+            contentType(ContentType.Application.Json)
+            setBody("""{"message":"Not yours"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, forbidden.status)
+
+        val anonymous = createClient { }
+        val denied = anonymous.patch(path) {
+            contentType(ContentType.Application.Json)
+            setBody("""{"message":"No session"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, denied.status)
     }
 
     @Test

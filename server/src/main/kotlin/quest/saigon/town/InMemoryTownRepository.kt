@@ -253,6 +253,11 @@ class InMemoryTownRepository : TownRepository {
         posts[id] = post.copy(shareClicks = post.shareClicks + 1)
     }
 
+    override fun updatePostMessage(id: String, message: String) {
+        val post = posts[id] ?: return
+        posts[id] = post.copy(message = message)
+    }
+
     override fun updateQuickReplies(id: String, replies: List<String>) {
         val post = posts[id] ?: return
         posts[id] = post.copy(quickReplies = replies.take(Limits.QUICK_REPLY_COUNT))

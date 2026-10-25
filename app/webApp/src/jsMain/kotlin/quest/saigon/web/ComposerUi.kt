@@ -127,13 +127,14 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     message.setAttribute("maxlength", Limits.MESSAGE_MAX.toString())
     message.setAttribute("placeholder", Town.t("messagePlaceholder"))
     val messageLabel = el("label", "field")
-    messageLabel.appendChild(el("span", text = Town.t("message")))
+    messageLabel.appendChild(el("span", text = "💬 ${Town.t("message")}"))
     messageLabel.appendChild(message)
     val communities = communityPicker(shell, message)
 
-    val location = field(Town.t("location"), "text", Town.t("locationHint"))
+    val location = field("📍 ${Town.t("location")}", "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
-    val pickedPlace = PlacePick(name = me.location)
+    val firstComment = area("💭 ${Town.t("firstComment")}", "", Limits.COMMENT_MAX)
+    val pickedPlace = PlacePick(name = me.location, placeId = me.placeId, lat = me.lat, lng = me.lng)
     val mapBtn = el("button", "icon-btn location-map-btn")
     mapBtn.setAttribute("type", "button")
     mapBtn.setAttribute("aria-label", Town.t("pickLocation"))
@@ -146,26 +147,9 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val poll = composerPollFields()
     val question = composerQuestionFields()
     val cta = composerCtaFields()
-    mapBtn.onClick {
-        openLocationPicker(shell, communities.second.communityId, pickedPlace) { picked ->
-            pickedPlace.name = picked.name
-            pickedPlace.placeId = picked.placeId
-            pickedPlace.lat = picked.lat
-            pickedPlace.lng = picked.lng
-            location.input.asDynamic().value = picked.name
-        }
-    }
-    location.input.asDynamic().oninput = {
-        val typed = location.value().trim()
-        if (typed != pickedPlace.name) {
-            pickedPlace.placeId = null
-            pickedPlace.lat = null
-            pickedPlace.lng = null
-            pickedPlace.name = typed
-        }
-    }
+    bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace) { communities.second.communityId }
 
-    val avatarLabel = el("h3", text = Town.t("selectAvatar"))
+    val avatarLabel = el("h3", text = "🙆 ${Town.t("selectAvatar")}")
     val avatarRow = el("div", "avatar-row")
     val studio = el("div", "studio")
     studio.asDynamic().hidden = true
@@ -270,6 +254,8 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 }
                 form.append("message", text)
                 form.append("location", place)
+                val first = firstComment.value().trim()
+                if (first.isNotEmpty()) form.append("firstComment", first)
                 val selectedPlaceId = pickedPlace.placeId
                 if (!selectedPlaceId.isNullOrBlank()) form.append("placeId", selectedPlaceId)
                 val lat = pickedPlace.lat
@@ -358,6 +344,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(messageLabel)
     body.appendChild(communities.first)
     body.appendChild(location.root)
+    body.appendChild(firstComment.root)
     body.appendChild(event.root)
     body.appendChild(poll.root)
     body.appendChild(question.root)

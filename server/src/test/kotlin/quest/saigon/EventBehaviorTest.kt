@@ -145,13 +145,13 @@ class EventBehaviorTest {
             setBody("""{"name":"Linh","phone":"0905550001","password":"secretpass"}""")
         }
 
+        postAt(linh, "Different name", "Park", "ChIJ1")
+        now += 1
         postAt(linh, "One", "Cafe", "ChIJ1")
         now += 1
         postAt(linh, "Two", "Cafe", "ChIJ1")
         now += 1
         postAt(linh, "Other id", "Cafe", "ChIJ2")
-        now += 1
-        postAt(linh, "Different name", "Park", "ChIJ1")
         now += 1
         postAt(linh, "No id", "Cafe", null)
 
@@ -168,6 +168,15 @@ class EventBehaviorTest {
         val guest = createClient { }
         val guestView = mapper.readTree(guest.get("/api/places/posts?name=Cafe&placeId=ChIJ1").bodyAsText())
         assertEquals(2, guestView.path("count").asInt())
+        val chooser = mapper.readTree(linh.get("/api/places?q=cafe").bodyAsText())
+        val recent = chooser.path("recent")
+        val chij1 = (0 until recent.size()).map { recent.path(it) }
+            .first { it.path("placeId").asText() == "ChIJ1" }
+        assertEquals(2, chij1.path("postCount").asInt())
+        val googlePlaces = chooser.path("places")
+        assertEquals(1, googlePlaces.size())
+        assertEquals("ChIJ123", googlePlaces.path(0).path("placeId").asText())
+        assertEquals(0, googlePlaces.path(0).path("postCount").asInt())
         assertEquals(HttpStatusCode.BadRequest, linh.get("/api/places/posts?name=").status)
         assertEquals(HttpStatusCode.BadRequest, linh.get("/api/places/posts").status)
     }

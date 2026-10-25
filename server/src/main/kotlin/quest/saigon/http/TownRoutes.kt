@@ -142,7 +142,18 @@ fun Route.townApi(services: TownServices) {
         if (body.has("location")) {
             val location = Jsons.text(body, "location")
             if (location.length > Limits.LOCATION_MAX) return@patch call.fail("invalid_location")
-            next = next.copy(location = location)
+            val placeId = cleanPlaceId(Jsons.text(body, "placeId"))
+            val latRaw = Jsons.text(body, "lat")
+            val lngRaw = Jsons.text(body, "lng")
+            val lat = if (latRaw.isBlank()) null else parseCoord(latRaw) ?: return@patch call.fail("invalid_location")
+            val lng = if (lngRaw.isBlank()) null else parseCoord(lngRaw) ?: return@patch call.fail("invalid_location")
+            if ((lat == null) != (lng == null)) return@patch call.fail("invalid_location")
+            next = next.copy(
+                location = location,
+                placeId = placeId,
+                lat = lat.takeIf { placeId != null },
+                lng = lng.takeIf { placeId != null },
+            )
         }
         if (body.has("intro")) {
             next = next.copy(intro = cleanIntro(Jsons.text(body, "intro")) ?: return@patch call.fail("invalid_intro"))
@@ -406,6 +417,12 @@ fun Route.townApi(services: TownServices) {
         }
         val location = form.text("location").trim().ifBlank { user.location.trim() }
         if (location.isEmpty() || location.length > Limits.LOCATION_MAX) return@post call.fail("invalid_location")
+        val firstCommentRaw = form.text("firstComment")
+        val firstComment = if (firstCommentRaw.isBlank()) {
+            null
+        } else {
+            CommentService.cleanComment(firstCommentRaw) ?: return@post call.fail("invalid_comment")
+        }
         val musicId = form.text("musicId").trim().ifBlank { null }
         val music = musicId?.let { services.repo.findMusic(it) }
         if (musicId != null && (music == null || music.status != MusicStatus.READY || music.audioPath == null)) {
@@ -507,6 +524,7 @@ fun Route.townApi(services: TownServices) {
         )
         if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
         if (community != null) services.repo.joinCommunity(community.id, user.id, services.clock())
+        if (firstComment != null) services.comments.add(user, post.id, firstComment, null)
         services.replies.enqueue(post.id, message)
         call.respondJson(
             postPayload(
@@ -662,11 +680,19 @@ fun Route.townApi(services: TownServices) {
     }
 
     get("/places") {
-        call.user(services) ?: return@get call.fail("unauthorized")
+        val viewer = call.user(services) ?: return@get call.fail("unauthorized")
         val query = call.request.queryParameters["q"].orEmpty()
         val communityId = call.request.queryParameters["communityId"]?.trim()?.ifBlank { null }
-        val recent = services.repo.recentPlaces(communityId, 8)
-        val google = if (query.trim().length >= 2) services.places.search(query) else emptyList()
+        val recent = services.repo.recentPlaces(communityId, 8).map { place ->
+            place.copy(postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer.id))
+        }
+        val google = if (query.trim().length >= 2) {
+            services.places.search(query).map { place ->
+                place.copy(postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer.id))
+            }
+        } else {
+            emptyList()
+        }
         call.respondJson(
             mapOf(
                 "recent" to recent.map(::placePayload),
@@ -1036,6 +1062,16 @@ fun Route.townApi(services: TownServices) {
                 "count" to services.repo.countPostsByAuthor(user.id, viewer?.id),
             ),
         )
+    }
+
+    patch("/posts/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@patch call.fail("not_found")
+        if (post.userId != user.id) return@patch call.fail("not_found")
+        val message = Jsons.text(Jsons.parse(call.receiveText()), "message").trim()
+        if (message.length !in 1..Limits.MESSAGE_MAX) return@patch call.fail("invalid_message")
+        services.repo.updatePostMessage(post.id, message)
+        call.respondJson(mapOf("ok" to true, "message" to message))
     }
 
     delete("/posts/{id}") {
@@ -1535,6 +1571,9 @@ private fun mePayload(user: UserRecord, services: TownServices) = mapOf(
     "name" to user.name,
     "phone" to PhoneNumbers.display(user.phone),
     "location" to user.location,
+    "placeId" to user.placeId,
+    "lat" to user.lat,
+    "lng" to user.lng,
     "intro" to user.intro,
     "language" to user.language,
     "hasProfilePhoto" to (user.profilePhotoPath != null),
@@ -1675,6 +1714,7 @@ private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
     "placeId" to place.placeId,
     "lat" to place.lat,
     "lng" to place.lng,
+    "postCount" to place.postCount,
     "recent" to place.recent,
 )
 

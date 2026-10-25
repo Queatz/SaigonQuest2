@@ -3,17 +3,22 @@ package quest.saigon
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import quest.saigon.ai.MusicRender
 import quest.saigon.ai.QuickReplyPrompts
 import quest.saigon.auth.RateLimiter
+import quest.saigon.media.ImageOps
 import quest.saigon.media.UploadStore
 import quest.saigon.town.AvatarService
 import quest.saigon.town.AvatarStatus
@@ -22,6 +27,8 @@ import quest.saigon.town.MusicService
 import quest.saigon.town.NotificationType
 import quest.saigon.town.PostRecord
 import quest.saigon.town.TownServices
+import java.awt.Color
+import java.awt.image.BufferedImage
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -241,6 +248,52 @@ class CommentBehaviorTest {
         assertEquals(0, mapper.readTree(owner.get("/api/notifications").bodyAsText()).path("unreadCount").asInt())
     }
 
+    @Test
+    fun creatingAPostCanAttachAFirstComment() = testApplication {
+        val services = services { 1_700_000_000_000L }
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val http = createClient { install(HttpCookies) }
+        http.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901110099","password":"secretpass"}""")
+        }
+        val jpeg = ImageOps().writeJpeg(solid(8, 16, Color(40, 90, 160)), 0.85f)
+        fun postBody(first: String?) = MultiPartFormDataContent(
+            formData {
+                append("message", "Coffee at 8?")
+                append("location", "D1")
+                if (first != null) append("firstComment", first)
+                append(
+                    "photo",
+                    jpeg,
+                    Headers.build {
+                        append(HttpHeaders.ContentType, "image/jpeg")
+                        append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                    },
+                )
+            },
+        )
+
+        val posted = http.post("/api/posts") { setBody(postBody("See you there")) }
+        assertEquals(HttpStatusCode.Created, posted.status)
+        val created = mapper.readTree(posted.bodyAsText())
+        assertEquals(1, created.path("commentCount").asInt())
+        assertEquals("See you there", created.path("comments").get(0).path("text").asText())
+        val comments = mapper.readTree(http.get("/api/posts/${created.path("id").asText()}/comments").bodyAsText())
+        assertEquals(1, comments.path("total").asInt())
+        assertEquals("See you there", comments.path("comments").get(0).path("text").asText())
+        assertEquals(created.path("authorId").asText(), comments.path("comments").get(0).path("userId").asText())
+
+        val blank = http.post("/api/posts") { setBody(postBody("   ")) }
+        assertEquals(HttpStatusCode.Created, blank.status)
+        val blankId = mapper.readTree(blank.bodyAsText()).path("id").asText()
+        assertEquals(0, mapper.readTree(http.get("/api/posts/$blankId/comments").bodyAsText()).path("total").asInt())
+
+        val invalid = http.post("/api/posts") { setBody(postBody("x".repeat(Limits.COMMENT_MAX + 1))) }
+        assertEquals(HttpStatusCode.BadRequest, invalid.status)
+        assertTrue(invalid.bodyAsText().contains("invalid_comment"))
+    }
+
     private fun services(clock: () -> Long): TownServices {
         val repo = InMemoryTownRepository()
         val uploads = UploadStore(File.createTempFile("sq-comment", "").apply {
@@ -270,5 +323,14 @@ class CommentBehaviorTest {
             clock = clock,
             contactLimiter = RateLimiter(1, 60_000, clock),
         )
+    }
+
+    private fun solid(width: Int, height: Int, color: Color): BufferedImage {
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        val graphics = image.createGraphics()
+        graphics.color = color
+        graphics.fillRect(0, 0, width, height)
+        graphics.dispose()
+        return image
     }
 }

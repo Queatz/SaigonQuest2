@@ -46,6 +46,16 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     phone.input.asDynamic().value = me.phone
     val location = field(Town.t("yourLocation"), "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
+    val pickedPlace = PlacePick(name = me.location, placeId = me.placeId, lat = me.lat, lng = me.lng)
+    val mapBtn = el("button", "icon-btn location-map-btn")
+    mapBtn.setAttribute("type", "button")
+    mapBtn.setAttribute("aria-label", Town.t("pickLocation"))
+    mapBtn.textContent = "🗺️"
+    val locationRow = el("div", "location-input-row")
+    location.root.asDynamic().insertBefore(locationRow, location.input)
+    locationRow.appendChild(location.input)
+    locationRow.appendChild(mapBtn)
+    bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace)
     val intro = area(Town.t("introduceYourself"), Town.t("introduceYourselfHint"), Limits.INTRO_MAX)
     intro.input.asDynamic().value = me.intro
     val languageSelect = languageField(me.language) { value ->
@@ -55,6 +65,9 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
                 name = name.value(),
                 phone = phone.value(),
                 location = location.value(),
+                placeId = pickedPlace.placeId,
+                lat = pickedPlace.lat,
+                lng = pickedPlace.lng,
                 intro = intro.value(),
                 language = value,
             )
@@ -72,6 +85,9 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
                     name = pending.name,
                     phone = pending.phone,
                     location = pending.location,
+                    placeId = pending.placeId,
+                    lat = pending.lat,
+                    lng = pending.lng,
                     intro = pending.intro,
                 )
                 Town.rememberLanguage(saved.language)
@@ -91,6 +107,9 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
         payload.name = name.value()
         payload.phone = phone.value()
         payload.location = location.value()
+        payload.placeId = pickedPlace.placeId
+        payload.lat = pickedPlace.lat
+        payload.lng = pickedPlace.lng
         payload.intro = intro.value()
         payload.language = languageSelect.asDynamic().querySelector("select").value
         http("PATCH", "/api/me", jsonStringify(payload)) { status, text ->
@@ -569,7 +588,12 @@ private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter)
     photo.setAttribute("alt", "")
     row.appendChild(photo)
     val copy = el("div", "own-post-copy")
-    copy.appendChild(el("p", "own-post-message", text = post.message as? String ?: ""))
+    val message = el("p", "own-post-message", text = post.message as? String ?: "")
+    copy.appendChild(message)
+    val location = post.location as? String
+    if (!location.isNullOrBlank()) {
+        copy.appendChild(el("p", "own-post-location", text = "📍 $location"))
+    }
     val communityId = post.communityId as? String
     val communityName = post.communityName as? String
     if (!communityId.isNullOrBlank() && !communityName.isNullOrBlank()) {
@@ -594,7 +618,12 @@ private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter)
     stats.appendChild(stat(countLabel(post.replyClicks), Town.t("repliesClicked")))
     stats.appendChild(stat(countLabel(post.shareClicks), Town.t("shareClicked")))
     copy.appendChild(stats)
-    copy.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
+    val actions = el("div", "own-post-actions")
+    actions.appendChild(el("button", "tiny", text = Town.t("edit")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { editPostDialog(shell, post, message) }
+    })
+    actions.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
         button.setAttribute("type", "button")
         button.onClick {
             confirmDialog(shell, Town.t("deletePostAsk"), Town.t("deletePostHint")) {
@@ -610,8 +639,51 @@ private fun ownPostRow(post: dynamic, shell: HTMLElement, router: HistoryRouter)
             }
         }
     })
+    copy.appendChild(actions)
     row.appendChild(copy)
     return row
+}
+
+private fun editPostDialog(host: HTMLElement, post: dynamic, messageNode: HTMLElement) {
+    if (host.asDynamic().querySelector(".edit-post-backdrop") != null) return
+    val backdrop = el("div", "dialog-backdrop edit-post-backdrop")
+    val card = el("div", "dialog")
+    card.setAttribute("role", "dialog")
+    card.setAttribute("aria-modal", "true")
+    card.appendChild(el("h2", text = Town.t("edit")))
+    val message = area(Town.t("message"), "", Limits.MESSAGE_MAX)
+    message.input.asDynamic().value = post.message as? String ?: ""
+    card.appendChild(message.root)
+    val actions = el("div", "dialog-actions")
+    actions.appendChild(el("button", "text-button", text = Town.t("cancel")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { backdrop.asDynamic().remove() }
+    })
+    actions.appendChild(el("button", "primary", text = Town.t("save")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick {
+            val text = message.value().trim()
+            val payload = js("({})")
+            payload.message = text
+            button.setAttribute("disabled", "disabled")
+            button.textContent = Town.t("saving")
+            http("PATCH", "/api/posts/${post.id}", jsonStringify(payload)) { status, body ->
+                button.removeAttribute("disabled")
+                button.textContent = Town.t("save")
+                if (status == 200) {
+                    post.message = text
+                    messageNode.textContent = text
+                    backdrop.asDynamic().remove()
+                } else {
+                    toast(host, errorText(body, status))
+                }
+            }
+        }
+    })
+    card.appendChild(actions)
+    backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
+    host.appendChild(backdrop)
 }
 
 private fun stat(count: String, label: String): HTMLElement {

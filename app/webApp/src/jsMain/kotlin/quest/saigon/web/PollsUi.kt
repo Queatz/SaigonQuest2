@@ -11,7 +11,7 @@ internal fun composerPollFields(): ComposerPoll {
     val row = el("label", "switch-row")
     row.appendChild(toggle)
     row.appendChild(el("span", "switch-ui"))
-    row.appendChild(el("span", text = Town.t("addPoll")))
+    row.appendChild(el("span", text = "📊 ${Town.t("addPoll")}"))
     val fields = el("div", "poll-fields")
     fields.asDynamic().hidden = true
     val optionsBox = el("div", "poll-option-fields")

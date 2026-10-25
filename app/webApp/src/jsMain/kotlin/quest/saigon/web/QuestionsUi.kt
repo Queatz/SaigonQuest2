@@ -11,7 +11,7 @@ internal fun composerQuestionFields(): ComposerQuestion {
     val row = el("label", "switch-row")
     row.appendChild(toggle)
     row.appendChild(el("span", "switch-ui"))
-    row.appendChild(el("span", text = Town.t("askQuestion")))
+    row.appendChild(el("span", text = "❓ ${Town.t("askQuestion")}"))
     val fields = el("div", "question-fields")
     fields.asDynamic().hidden = true
     val title = field(Town.t("questionTitle"), "text", Town.t("questionTitleHint"))

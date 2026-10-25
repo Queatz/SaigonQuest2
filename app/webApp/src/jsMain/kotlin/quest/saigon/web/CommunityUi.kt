@@ -58,7 +58,7 @@ internal fun communityChip(
 internal fun communityPicker(host: HTMLElement, message: HTMLElement): Pair<HTMLElement, CommunityChoice> {
     val choice = CommunityChoice()
     val box = el("div", "community-picker")
-    val open = el("button", "community-open", text = Town.t("chooseCommunity"))
+    val open = el("button", "community-open", text = "👥 ${Town.t("chooseCommunity")}")
     open.setAttribute("type", "button")
     open.setAttribute("aria-haspopup", "dialog")
     val suggest = el("button", "community-suggest")
