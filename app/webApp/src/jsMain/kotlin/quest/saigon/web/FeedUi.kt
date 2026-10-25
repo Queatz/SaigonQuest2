@@ -961,7 +961,9 @@ internal fun openMiniProfile(
             if (posts.isEmpty() && grid.childElementCount == 0) {
                 grid.appendChild(el("p", "hint", text = Town.t("noPosts")))
             } else {
-                posts.forEach { post -> grid.appendChild(locationPostTile(post, router, showAuthor = false)) }
+                posts.forEach { post ->
+                    grid.appendChild(locationPostTile(post, router, showAuthor = false, showMessage = true))
+                }
             }
             cursor = parsed.nextCursor as? String
             if (cursor.isNullOrBlank()) done = true
