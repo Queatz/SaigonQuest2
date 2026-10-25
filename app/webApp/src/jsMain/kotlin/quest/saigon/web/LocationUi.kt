@@ -59,7 +59,7 @@ internal fun openLocationSheet(
             if (posts.isEmpty() && grid.childElementCount == 0) {
                 grid.appendChild(el("p", "hint", text = Town.t("noPosts")))
             } else {
-                posts.forEach { post -> grid.appendChild(locationPostTile(post, router)) }
+                posts.forEach { post -> grid.appendChild(locationPostTile(post, router, showMessage = true)) }
             }
             cursor = parsed.nextCursor as? String
             if (cursor.isNullOrBlank()) done = true
@@ -91,7 +91,7 @@ internal fun locationPostTile(
     if (post.photoUrl.isNotBlank()) {
         tile.asDynamic().style.backgroundImage = "url(\"${post.photoUrl}\")"
     }
-    if (showAuthor) {
+    val author = if (showAuthor) {
         val author = el("span", "location-post-author")
         if (!post.authorPhotoUrl.isNullOrBlank()) {
             val face = el("img", "face")
@@ -102,14 +102,17 @@ internal fun locationPostTile(
             author.appendChild(el("span", "face initial", text = post.authorName.take(1).uppercase()))
         }
         author.appendChild(el("span", "location-post-name", text = post.authorName))
-        if (showMessage && post.message.isNotBlank()) {
-            val caption = el("span", "location-post-caption")
-            caption.appendChild(el("span", "location-post-message", text = post.message))
-            caption.appendChild(author)
-            tile.appendChild(caption)
-        } else {
-            tile.appendChild(author)
-        }
+        author
+    } else {
+        null
+    }
+    if (showMessage && post.message.isNotBlank()) {
+        val caption = el("span", "location-post-caption")
+        caption.appendChild(el("span", "location-post-message", text = post.message))
+        if (author != null) caption.appendChild(author)
+        tile.appendChild(caption)
+    } else if (author != null) {
+        tile.appendChild(author)
     }
     tile.onClick { if (onClick == null) router.navigate("/p/${post.id}") else onClick() }
     return tile
