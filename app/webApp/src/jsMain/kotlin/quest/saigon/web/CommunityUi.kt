@@ -413,6 +413,13 @@ private fun createCommunity(
 
 internal fun communitiesPanel(host: HTMLElement, router: HistoryRouter): HTMLElement {
     val box = el("div", "community-panel")
+    val head = el("div", "section-head")
+    head.appendChild(el("h3", text = Town.t("communities")))
+    val seeAll = el("button", "see-all", text = Town.t("seeAll"))
+    seeAll.setAttribute("type", "button")
+    seeAll.asDynamic().hidden = true
+    seeAll.onClick { go(router, "/profile/communities") }
+    head.appendChild(seeAll)
     val joined = el("div", "community-list")
     val search = el("input")
     search.setAttribute("type", "search")
@@ -427,14 +434,17 @@ internal fun communitiesPanel(host: HTMLElement, router: HistoryRouter): HTMLEle
             }
             val items = readCommunities(parseJson(body).communities)
             if (items.isEmpty()) {
+                seeAll.asDynamic().hidden = true
                 joined.appendChild(el("p", "hint", text = Town.t("noCommunities")))
                 return@http
             }
-            items.forEach { community ->
+            seeAll.asDynamic().hidden = false
+            items.take(3).forEach { community ->
                 joined.appendChild(communityActionRow(host, router, community, leaving = true, onDone = { loadJoined() }))
             }
         }
     }
+    box.appendChild(head)
     box.appendChild(joined)
     box.appendChild(communityCreateToggle(host) { loadJoined() })
     box.appendChild(search)
@@ -468,6 +478,38 @@ internal fun communitiesPanel(host: HTMLElement, router: HistoryRouter): HTMLEle
     }
     loadJoined()
     return box
+}
+
+internal fun myCommunitiesScreen(router: HistoryRouter): HTMLElement {
+    if (Town.me == null) return el("section", "shell")
+    val shell = el("section", "shell page-shell")
+    shell.appendChild(pageHead(router, Town.t("communities"), showProfile = false))
+    val body = el("div", "page-body")
+    val list = el("div", "community-list")
+    body.appendChild(list)
+    shell.appendChild(body)
+    loadOwnCommunities(list, shell, router)
+    return shell
+}
+
+private fun loadOwnCommunities(list: HTMLElement, shell: HTMLElement, router: HistoryRouter) {
+    list.clear()
+    http("GET", "/api/me/communities") { status, body ->
+        if (status != 200) {
+            list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            return@http
+        }
+        val items = readCommunities(parseJson(body).communities)
+        if (items.isEmpty()) {
+            list.appendChild(el("p", "hint", text = Town.t("noCommunities")))
+            return@http
+        }
+        items.forEach { community ->
+            list.appendChild(communityActionRow(shell, router, community, leaving = true) {
+                loadOwnCommunities(list, shell, router)
+            })
+        }
+    }
 }
 
 internal fun bindCommunityBar(

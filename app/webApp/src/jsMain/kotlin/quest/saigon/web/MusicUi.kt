@@ -149,7 +149,15 @@ internal fun musicPicker(host: HTMLElement, onSelect: (String?) -> Unit): HTMLEl
 
 internal fun musicStudio(host: HTMLElement, router: HistoryRouter): HTMLElement {
     val box = el("div", "studio")
+    val head = el("div", "section-head")
+    head.appendChild(el("h3", text = Town.t("yourMusic")))
+    val seeAll = el("button", "see-all", text = Town.t("seeAll"))
+    seeAll.setAttribute("type", "button")
+    seeAll.asDynamic().hidden = true
+    seeAll.onClick { go(router, "/profile/music") }
+    head.appendChild(seeAll)
     val list = el("div", "music-list")
+    box.appendChild(head)
     box.appendChild(list)
     box.appendChild(musicPromptForm(host) { created ->
         pollMusic(created.id as String) { refresh(router) }
@@ -162,10 +170,39 @@ internal fun musicStudio(host: HTMLElement, router: HistoryRouter): HTMLElement 
             list.appendChild(el("p", "hint", text = Town.t("noMusicYet")))
             return@http
         }
+        seeAll.asDynamic().hidden = false
+        val length = items.length as Int
+        for (i in 0 until minOf(length, 3)) list.appendChild(musicTile(items[i], router))
+    }
+    return box
+}
+
+internal fun myMusicScreen(router: HistoryRouter): HTMLElement {
+    if (Town.me == null) return el("section", "shell")
+    val shell = el("section", "shell page-shell")
+    shell.appendChild(pageHead(router, Town.t("yourMusic"), showProfile = false))
+    val body = el("div", "page-body")
+    val list = el("div", "music-list")
+    body.appendChild(list)
+    shell.appendChild(body)
+    loadOwnMusic(list, router)
+    return shell
+}
+
+private fun loadOwnMusic(list: HTMLElement, router: HistoryRouter) {
+    http("GET", "/api/me/music") { status, body ->
+        if (status != 200) {
+            list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            return@http
+        }
+        val items = parseJson(body).music
+        if (items == null || items.length == 0) {
+            list.appendChild(el("p", "hint", text = Town.t("noMusicYet")))
+            return@http
+        }
         val length = items.length as Int
         for (i in 0 until length) list.appendChild(musicTile(items[i], router))
     }
-    return box
 }
 
 internal fun musicPromptForm(host: HTMLElement, onCreated: (dynamic) -> Unit): HTMLElement {
