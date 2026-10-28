@@ -2860,6 +2860,13 @@ button.busy .avatar-spinner {
 
 .mini-communities .community-chip { margin: 0; }
 
+.mini-communities .mini-communities-more {
+    width: auto;
+    margin: 0;
+    padding: 4px 8px;
+    color: var(--muted);
+}
+
 .member-list { max-height: 50vh; overflow: auto; }
 
 .member-row {

@@ -911,8 +911,25 @@ internal fun openMiniProfile(
         head.appendChild(row)
         http("GET", "/api/users/${encodeQuery(userId)}/communities") { status, body ->
             if (status != 200) return@http
-            readCommunities(parseJson(body).communities).forEach { community ->
+            val communities = readCommunities(parseJson(body).communities)
+            communities.take(Limits.MINI_PROFILE_COMMUNITIES).forEach { community ->
                 row.appendChild(communityChip(router, community) { chrome.close() })
+            }
+            val remaining = communities.drop(Limits.MINI_PROFILE_COMMUNITIES)
+            if (remaining.isNotEmpty()) {
+                val more = el(
+                    "button",
+                    "text-button mini-communities-more",
+                    text = Town.t("moreCommunities", mapOf("count" to remaining.size.toString())),
+                )
+                more.setAttribute("type", "button")
+                more.onClick {
+                    remaining.forEach { community ->
+                        row.appendChild(communityChip(router, community) { chrome.close() })
+                    }
+                    more.asDynamic().remove()
+                }
+                row.appendChild(more)
             }
         }
     }
