@@ -391,7 +391,7 @@ private fun loadProductOrders(list: HTMLElement, host: HTMLElement, router: Hist
         for (i in 0 until count) list.appendChild(productOrderCard(orders[i], host, router))
         val next = parsed.nextCursor as? String
         if (!next.isNullOrBlank()) {
-            list.appendChild(el("button", "text-button", text = Town.t("loadMore")) { button ->
+            list.appendChild(el("button", "text-button product-order-load-more", text = Town.t("loadMore")) { button ->
                 button.setAttribute("type", "button")
                 button.onClick {
                     button.asDynamic().remove()
@@ -476,13 +476,30 @@ private fun productOrderCard(order: dynamic, host: HTMLElement, router: HistoryR
             payload.resolved = !resolved
             http("PATCH", "/api/orders/${order.id}", jsonStringify(payload)) { status, body ->
                 if (status == 200) {
-                    card.asDynamic().replaceWith(productOrderCard(parseJson(body), host, router))
+                    val updatedCard = productOrderCard(parseJson(body), host, router)
+                    card.asDynamic().replaceWith(updatedCard)
+                    repositionProductOrderCard(updatedCard, unresolved = !resolved)
                 } else toast(host, errorText(body, status))
             }
         }
     })
     card.appendChild(actions)
     return card
+}
+
+private fun repositionProductOrderCard(card: HTMLElement, unresolved: Boolean) {
+    val list = card.parentElement ?: return
+    val loadMore = list.asDynamic().querySelector(".product-order-load-more")
+    if (unresolved) {
+        val firstResolved = list.asDynamic().querySelector(".product-order.resolved")
+        val before = if (firstResolved != null) firstResolved else loadMore
+        if (before != null) list.asDynamic().insertBefore(card, before) else list.appendChild(card)
+    } else {
+        val openCards = list.asDynamic().querySelectorAll(".product-order:not(.resolved)")
+        val lastOpen = if (openCards.length > 0) openCards.item(openCards.length - 1) else null
+        val before = if (lastOpen != null) lastOpen.nextSibling else loadMore
+        if (before != null) list.asDynamic().insertBefore(card, before) else list.appendChild(card)
+    }
 }
 
 private fun productPrice(value: dynamic): String = formatVnd(num(value).toLong())

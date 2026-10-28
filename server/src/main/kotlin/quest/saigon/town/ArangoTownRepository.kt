@@ -1765,17 +1765,23 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     }
 
     override fun productOrdersForSeller(sellerId: String, cursor: String?, limit: Int): ProductOrderPage {
-        val parsed = Cursors.parse(cursor)
+        val parsed = Cursors.parseProductOrder(cursor)
         val rows = queryList(
             """
             FOR o IN $PRODUCT_ORDERS
               FILTER o.sellerKey == @sellerKey
-              FILTER @hasCursor == false OR o.createdAt < @cursorAt OR (o.createdAt == @cursorAt AND o._key < @cursorKey)
-              SORT o.createdAt DESC, o._key DESC
+              LET resolved = o.resolved == true
+              FILTER @hasCursor == false
+                OR (@cursorResolved == false AND resolved == true)
+                OR (resolved == @cursorResolved AND (
+                  o.createdAt < @cursorAt OR (o.createdAt == @cursorAt AND o._key < @cursorKey)
+                ))
+              SORT resolved ASC, o.createdAt DESC, o._key DESC
               LIMIT @limit
               LET buyer = DOCUMENT("$USERS", o.buyerKey)
               FILTER buyer != null
               RETURN MERGE(o, {
+                resolved: resolved,
                 buyerName: buyer.name,
                 buyerPhone: buyer.phone,
                 buyerPhotoPath: buyer.profilePhotoPath,
@@ -1787,12 +1793,19 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 "sellerKey" to sellerId,
                 "limit" to limit + 1,
                 "hasCursor" to (parsed != null),
-                "cursorAt" to (parsed?.first ?: 0L),
-                "cursorKey" to (parsed?.second ?: ""),
+                "cursorResolved" to (parsed?.resolved ?: false),
+                "cursorAt" to (parsed?.createdAt ?: 0L),
+                "cursorKey" to (parsed?.id ?: ""),
             ),
         )
         val page = rows.take(limit)
-        val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(long(it, "createdAt"), it.key) } else null
+        val next = if (rows.size > limit) {
+            page.lastOrNull()?.let {
+                Cursors.encodeProductOrder(boolean(it, "resolved"), long(it, "createdAt"), it.key)
+            }
+        } else {
+            null
+        }
         val openCount = long(
             first(
                 """

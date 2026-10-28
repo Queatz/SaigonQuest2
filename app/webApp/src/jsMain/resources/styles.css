@@ -4174,6 +4174,7 @@ span.event-face {
 .chat-product-attachment-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-product-attachment-copy span { color: var(--accent); font-weight: 800; }
 .product-order { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.product-order:not(.resolved) { border-color: var(--accent); }
 .product-order h3 { margin: 0; }
 .product-order.resolved { opacity: .75; }
 .product-order-status { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }

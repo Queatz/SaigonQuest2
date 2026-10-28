@@ -57,6 +57,7 @@ internal fun composerCtaFields(): ComposerCta {
         destHint.textContent = when (state.destination) {
             CallToAction.MESSAGE -> Town.t("ctaSendMessageHint")
             CallToAction.ZALO -> Town.t("ctaZaloMessageHint")
+            CallToAction.PROFILE -> Town.t("ctaShowProfileHint")
             else -> ""
         }
         destHint.asDynamic().hidden = destHint.textContent == ""
@@ -72,6 +73,7 @@ internal fun composerCtaFields(): ComposerCta {
         CallToAction.MESSAGE to "ctaSendMessage",
         CallToAction.ZALO to "ctaZaloMessage",
         CallToAction.WEBSITE to "ctaOpenWebsite",
+        CallToAction.PROFILE to "ctaShowProfile",
     ).forEach { (dest, key) ->
         val chip = el("button", if (dest == state.destination) "chip selected" else "chip", text = Town.t(key))
         chip.setAttribute("type", "button")
@@ -126,6 +128,15 @@ internal fun ctaCard(post: PostCard, host: HTMLElement, router: HistoryRouter): 
 
 private fun activateCta(post: PostCard, host: HTMLElement, router: HistoryRouter) {
     when (post.ctaDestination) {
+        CallToAction.PROFILE -> openMiniProfile(
+            host = host,
+            name = post.authorName,
+            photoUrl = post.authorPhotoUrl,
+            location = post.authorLocation,
+            intro = post.authorIntro,
+            userId = post.authorId,
+            router = router,
+        )
         CallToAction.MESSAGE -> openDirectChat(host, router, post.authorId, post.authorName)
         CallToAction.ZALO -> {
             val url = CallToAction.httpUrl(post.authorZaloUrl)

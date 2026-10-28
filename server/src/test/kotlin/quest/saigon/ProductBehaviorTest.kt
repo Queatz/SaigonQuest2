@@ -24,6 +24,7 @@ import quest.saigon.media.ImageOps
 import quest.saigon.town.AvatarService
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
+import quest.saigon.town.ProductOrderRecord
 import quest.saigon.town.TownServices
 import java.io.File
 import java.io.ByteArrayInputStream
@@ -122,6 +123,59 @@ class ProductBehaviorTest {
         assertEquals(secondUrl, orderedUrls.path(0).asText())
         assertNotEquals(firstUrl, orderedUrls.path(1).asText())
         assertEquals(firstUrl, orderedUrls.path(2).asText())
+    }
+
+    @Test
+    fun unresolvedProductOrdersComeFirstAcrossPages() = testApplication {
+        val services = services()
+        application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
+        val seller = createClient { install(HttpCookies) }
+        val buyer = createClient { install(HttpCookies) }
+        register(seller, "Seller", "0905550123")
+        register(buyer, "Buyer", "0905550124")
+        val sellerId = mapper.readTree(seller.get("/api/me").bodyAsText()).path("id").asText()
+        val buyerId = mapper.readTree(buyer.get("/api/me").bodyAsText()).path("id").asText()
+        val productId = mapper.readTree(createProduct(seller, "Item", "1000", "", "").bodyAsText())
+            .path("id").asText()
+        services.repo.insertProductOrder(
+            ProductOrderRecord(
+                id = "order_open",
+                buyerId = buyerId,
+                sellerId = sellerId,
+                productId = productId,
+                productName = "Item",
+                price = 1000,
+                contactMethod = "messages",
+                message = "",
+                createdAt = 100,
+            ),
+        )
+        services.repo.insertProductOrder(
+            ProductOrderRecord(
+                id = "order_resolved",
+                buyerId = buyerId,
+                sellerId = sellerId,
+                productId = productId,
+                productName = "Item",
+                price = 1000,
+                contactMethod = "messages",
+                message = "",
+                createdAt = 200,
+            ),
+        )
+
+        val resolved = seller.patch("/api/orders/order_resolved") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"resolved":true}""")
+        }
+        assertEquals(HttpStatusCode.OK, resolved.status)
+        val firstPage = mapper.readTree(seller.get("/api/me/orders?limit=1").bodyAsText())
+        assertEquals("order_open", firstPage.path("orders").path(0).path("id").asText())
+        val cursor = firstPage.path("nextCursor").asText()
+        assertTrue(cursor.isNotBlank())
+        val secondPage = mapper.readTree(seller.get("/api/me/orders?limit=1&cursor=$cursor").bodyAsText())
+        assertEquals("order_resolved", secondPage.path("orders").path(0).path("id").asText())
+        assertTrue(secondPage.path("nextCursor").isNull)
     }
 
     @Test

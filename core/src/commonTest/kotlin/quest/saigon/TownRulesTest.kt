@@ -146,6 +146,7 @@ class TownRulesTest {
         assertEquals("Add a call to action", Copy.text(Language.EN, "addCallToAction"))
         assertEquals("Thêm lời kêu gọi hành động", Copy.text(Language.VI, "addCallToAction"))
         assertEquals("Book now", CallToAction.parse("", "Book now", "message", "")?.text)
+        assertEquals("profile", CallToAction.parse("", "Show your profile", "profile", "")?.destination)
         assertEquals("https://saigon.town/menu", CallToAction.parse("", "Open", "website", "saigon.town/menu")?.url)
         assertEquals("http://saigon.town/menu", CallToAction.parse("", "Open", "website", "http://saigon.town/menu")?.url)
         assertEquals(
@@ -153,6 +154,10 @@ class TownRulesTest {
             Copy.text(Language.EN, "ctaSendMessageHint"),
         )
         assertEquals("Sends them to your Zalo profile.", Copy.text(Language.EN, "ctaZaloMessageHint"))
+        assertEquals("Show your profile", Copy.text(Language.EN, "ctaShowProfile"))
+        assertEquals("Opens your profile.", Copy.text(Language.EN, "ctaShowProfileHint"))
+        assertEquals("Xem hồ sơ của bạn", Copy.text(Language.VI, "ctaShowProfile"))
+        assertEquals("Mở hồ sơ của bạn.", Copy.text(Language.VI, "ctaShowProfileHint"))
         assertNull(CallToAction.parse("", "", "message", ""))
         assertNull(CallToAction.parse("", "Open", "website", "javascript:alert(1)"))
         assertNull(CallToAction.parse("", "Open", "email", ""))

@@ -4,8 +4,9 @@ object CallToAction {
     const val MESSAGE = "message"
     const val ZALO = "zalo"
     const val WEBSITE = "website"
+    const val PROFILE = "profile"
 
-    val destinations = setOf(MESSAGE, ZALO, WEBSITE)
+    val destinations = setOf(MESSAGE, ZALO, WEBSITE, PROFILE)
 
     data class Value(
         val title: String,

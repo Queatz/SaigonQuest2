@@ -870,17 +870,23 @@ class InMemoryTownRepository : TownRepository {
 
     override fun productOrdersForSeller(sellerId: String, cursor: String?, limit: Int): ProductOrderPage {
         val sorted = productOrders.values.filter { it.sellerId == sellerId }
-            .sortedWith(compareByDescending<ProductOrderRecord> { it.createdAt }.thenByDescending { it.id })
-        val parsed = Cursors.parse(cursor)
+            .sortedWith(compareBy<ProductOrderRecord> { it.resolved }.thenByDescending { it.createdAt }.thenByDescending { it.id })
+        val parsed = Cursors.parseProductOrder(cursor)
         val filtered = if (parsed == null) sorted else sorted.filter {
-            it.createdAt < parsed.first || (it.createdAt == parsed.first && it.id < parsed.second)
+            (it.resolved && !parsed.resolved) ||
+                (it.resolved == parsed.resolved &&
+                    (it.createdAt < parsed.createdAt || (it.createdAt == parsed.createdAt && it.id < parsed.id)))
         }
         val page = filtered.take(limit + 1)
         val items = page.take(limit).mapNotNull { order ->
             val buyer = users[order.buyerId] ?: return@mapNotNull null
             ProductOrderView(order, buyer.name, buyer.phone, buyer.profilePhotoPath, buyer.location, buyer.intro)
         }
-        val next = if (page.size > limit) page.getOrNull(limit - 1)?.let { Cursors.encode(it.createdAt, it.id) } else null
+        val next = if (page.size > limit) {
+            page.getOrNull(limit - 1)?.let { Cursors.encodeProductOrder(it.resolved, it.createdAt, it.id) }
+        } else {
+            null
+        }
         val openCount = productOrders.values.count { it.sellerId == sellerId && !it.resolved }.toLong()
         return ProductOrderPage(items, next, openCount)
     }

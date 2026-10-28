@@ -73,6 +73,15 @@ class CallToActionBehaviorTest {
         val fetched = mapper.readTree(linh.get("/api/posts/${zaloBody.path("id").asText()}").bodyAsText())
         assertEquals("Zalo me", fetched.path("ctaText").asText())
         assertEquals("https://zalo.me/84905550101", fetched.path("authorZaloUrl").asText())
+
+        val profile = postCta(linh, "", "Show your profile", "profile", "")
+        assertEquals(HttpStatusCode.Created, profile.status)
+        val profileBody = mapper.readTree(profile.bodyAsText())
+        assertEquals(CallToAction.PROFILE, profileBody.path("ctaDestination").asText())
+        assertTrue(profileBody.path("ctaUrl").isMissingNode || profileBody.path("ctaUrl").isNull)
+        val fetchedProfile = mapper.readTree(linh.get("/api/posts/${profileBody.path("id").asText()}").bodyAsText())
+        assertEquals(CallToAction.PROFILE, fetchedProfile.path("ctaDestination").asText())
+        assertEquals("Show your profile", fetchedProfile.path("ctaText").asText())
     }
 
     @Test
