@@ -50,6 +50,7 @@ interface TownRepository {
     fun updateProduct(product: ProductRecord): ProductRecord?
     fun deleteProduct(id: String): ProductRecord?
     fun productsByUser(userId: String, cursor: String?, limit: Int): ProductPage
+    fun searchProducts(query: String, cursor: String?, limit: Int): ProductPage
     fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord
     fun productOrdersForSeller(sellerId: String, cursor: String?, limit: Int): ProductOrderPage
     fun updateProductOrderResolved(id: String, sellerId: String, resolved: Boolean): ProductOrderView?

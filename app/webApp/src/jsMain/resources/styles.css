@@ -4137,6 +4137,12 @@ span.event-face {
 .product-photo-picker .photo-thumb { width: 40px; height: 40px; aspect-ratio: 1; }
 .product-photo-picker .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .product-card { display: flex; gap: 12px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); cursor: pointer; }
+.shop-body { gap: 12px; }
+.shop-search-input { flex: 0 0 auto; margin-bottom: 8px; }
+.shop-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 10px; }
+.shop-product-card { flex-direction: column; gap: 8px; padding: 8px; }
+.shop-product-card .product-card-photo { width: 100%; height: auto; aspect-ratio: 1; flex: 0 0 auto; }
+.shop-product-card .product-name { display: -webkit-box; overflow: hidden; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .product-card-photo { width: 92px; height: 92px; flex: 0 0 92px; border-radius: 12px; object-fit: cover; background: var(--card); }
 .product-photo-placeholder,
 .product-detail-placeholder { display: grid; place-items: center; font-size: 30px; color: var(--muted); }

@@ -3,7 +3,82 @@ package quest.saigon.web
 import quest.saigon.Limits
 import quest.saigon.ProductContactMethod
 import web.html.HTMLElement
+import web.window.window
 import kotlin.js.unsafeCast
+
+internal fun shopScreen(router: HistoryRouter): HTMLElement {
+    val shell = el("section", "shell page-shell shop-shell")
+    shell.appendChild(pageHead(router, Town.t("shop"), showProfile = true))
+    val body = el("div", "page-body shop-body")
+    val search = el("input", "shop-search-input")
+    search.setAttribute("type", "search")
+    search.setAttribute("placeholder", Town.t("searchShopProducts"))
+    search.setAttribute("aria-label", Town.t("search"))
+    search.setAttribute("autocomplete", "off")
+    val grid = el("div", "shop-product-grid")
+    body.appendChild(search)
+    body.appendChild(grid)
+    shell.appendChild(body)
+
+    var cursor: String? = null
+    var activeQuery = ""
+    var loading = false
+    var done = false
+    var request = 0
+    var debounceTimer: dynamic = null
+
+    fun load(reset: Boolean = false) {
+        if (reset) {
+            request += 1
+            loading = false
+            done = false
+            cursor = null
+            activeQuery = (search.asDynamic().value as? String).orEmpty().trim()
+            grid.clear()
+        }
+        if (loading || done) return
+        loading = true
+        val token = ++request
+        val next = cursor
+        val more = if (next.isNullOrBlank()) "" else "&cursor=${encodeQuery(next)}"
+        http("GET", "/api/products/search?q=${encodeQuery(activeQuery)}&limit=50$more") { status, text ->
+            if (token != request) return@http
+            loading = false
+            if (status != 200) {
+                if (grid.childElementCount == 0) grid.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                done = true
+                return@http
+            }
+            val parsed = parseJson(text)
+            val products = parsed.products
+            val count = productCount(products)
+            if (count == 0 && grid.childElementCount == 0) {
+                val key = if (activeQuery.isBlank()) "noProducts" else "noProductMatches"
+                grid.appendChild(el("p", "hint", text = Town.t(key)))
+            } else {
+                for (i in 0 until count) grid.appendChild(productCard(products[i], shell, router, vertical = true))
+            }
+            cursor = parsed.nextCursor as? String
+            if (cursor.isNullOrBlank()) done = true
+        }
+    }
+
+    body.asDynamic().addEventListener("scroll", {
+        val top = num(body.asDynamic().scrollTop)
+        val height = num(body.asDynamic().clientHeight)
+        val full = num(body.asDynamic().scrollHeight)
+        if (top + height > full - 80) load()
+    })
+    search.asDynamic().oninput = {
+        if (debounceTimer != null && debounceTimer != undefined) window.asDynamic().clearTimeout(debounceTimer)
+        debounceTimer = window.asDynamic().setTimeout({
+            debounceTimer = null
+            load(reset = true)
+        }, 220)
+    }
+    load()
+    return shell
+}
 
 internal fun myProductsScreen(router: HistoryRouter): HTMLElement {
     val shell = el("section", "shell page-shell")
@@ -275,8 +350,8 @@ private fun productManageCard(product: dynamic, shell: HTMLElement, router: Hist
     return card
 }
 
-private fun productCard(product: dynamic, host: HTMLElement, router: HistoryRouter): HTMLElement {
-    val card = el("article", "product-card")
+private fun productCard(product: dynamic, host: HTMLElement, router: HistoryRouter, vertical: Boolean = false): HTMLElement {
+    val card = el("article", if (vertical) "product-card shop-product-card" else "product-card")
     val photos = product.photoUrls
     val photoUrl = if (photos != null && photos != undefined && (photos.length as Int) > 0) photos.unsafeCast<Array<String>>()[0] else null
     if (!photoUrl.isNullOrBlank()) {
@@ -430,9 +505,9 @@ internal fun openProductDetails(host: HTMLElement, router: HistoryRouter, produc
     val body = el("div", "product-sheet-body")
     body.appendChild(photos)
     body.appendChild(el("h2", "product-detail-name", text = name))
-    body.appendChild(el("p", "product-detail-price", text = productPrice(product.price)))
     val category = product.category as? String
     if (!category.isNullOrBlank()) body.appendChild(el("p", "product-detail-category", text = category))
+    body.appendChild(el("p", "product-detail-price", text = productPrice(product.price)))
     if (ownerId.isNotBlank()) {
         val seller = el("button", "attendee-profile product-sheet-seller")
         seller.setAttribute("type", "button")

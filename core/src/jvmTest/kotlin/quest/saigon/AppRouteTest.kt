@@ -54,6 +54,12 @@ class AppRouteTest {
     }
 
     @Test
+    fun shopPathOpensTheShop() {
+        assertEquals(AppRoute.Shop, matchAppRoute("/shop"))
+        assertEquals(AppRoute.Shop, matchAppRoute("/shop/"))
+    }
+
+    @Test
     fun unknownPathIsNotFound() {
         val route = matchAppRoute("/about")
         assertIs<AppRoute.NotFound>(route)

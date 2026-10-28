@@ -35,6 +35,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.Stats -> statsScreen(router)
         route == AppRoute.Admin -> adminScreen(router)
         route == AppRoute.Discover -> eventsScreen(router)
+        route == AppRoute.Shop -> shopScreen(router)
         route == AppRoute.Messages -> messagesScreen(router)
         route is AppRoute.Chat -> chatScreen(router, route.id)
         route is AppRoute.Community -> feedScreen(router, communityId = route.id)
@@ -66,6 +67,7 @@ internal fun pageHead(
     showProfile: Boolean,
     onBack: (() -> Unit)? = null,
     searchAction: (() -> Unit)? = null,
+    shopAction: (() -> Unit)? = null,
 ): HTMLElement {
     val head = el("header", if (showProfile) "page-head has-profile" else "page-head")
     head.appendChild(el("button", "icon-btn", text = "‹") { button ->
@@ -81,6 +83,14 @@ internal fun pageHead(
         search.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"""
         search.onClick { searchAction() }
         head.appendChild(search)
+    }
+    if (shopAction != null) {
+        val shop = el("button", "icon-btn shop-toggle")
+        shop.setAttribute("type", "button")
+        shop.setAttribute("aria-label", Town.t("openShop"))
+        shop.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"""
+        shop.onClick { shopAction() }
+        head.appendChild(shop)
     }
     if (showProfile) head.appendChild(viewerButton(router, toComposer = false, editBadge = true))
     return head

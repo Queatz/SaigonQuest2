@@ -24,6 +24,7 @@ import quest.saigon.media.ImageOps
 import quest.saigon.town.AvatarService
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
+import quest.saigon.town.ProductRecord
 import quest.saigon.town.ProductOrderRecord
 import quest.saigon.town.TownServices
 import java.io.File
@@ -335,6 +336,65 @@ class ProductBehaviorTest {
         }
         assertEquals(HttpStatusCode.BadRequest, selfOrder.status)
         assertFalse(mapper.readTree(seller.get("/api/me/orders").bodyAsText()).path("orders").size() > 0)
+    }
+
+    @Test
+    fun publicProductSearchMatchesAllFieldsAndPaginatesLatestProducts() = testApplication {
+        val services = services()
+        application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
+        val seller = createClient { install(HttpCookies) }
+        val guest = createClient { }
+        register(seller, "Seller", "0905550101")
+        val sellerId = mapper.readTree(seller.get("/api/me").bodyAsText()).path("id").asText()
+
+        (0..50).forEach { index ->
+            services.repo.insertProduct(
+                ProductRecord(
+                    id = "latest_$index",
+                    userId = sellerId,
+                    name = "Latest $index",
+                    price = 1000,
+                    category = "General",
+                    description = "New product",
+                    photoPaths = emptyList(),
+                    createdAt = index.toLong(),
+                ),
+            )
+        }
+        services.repo.insertProduct(
+            ProductRecord("shop_name", sellerId, "Silk Scarf", 2000, "Textile", "Soft fabric", emptyList(), 100),
+        )
+        services.repo.insertProduct(
+            ProductRecord("shop_description", sellerId, "Travel Bottle", 3000, "Accessories", "Riverwalk edition", emptyList(), 101),
+        )
+        services.repo.insertProduct(
+            ProductRecord("shop_category", sellerId, "Handmade Bowl", 4000, "Ceramics", "Local craft", emptyList(), 102),
+        )
+
+        val firstPage = guest.get("/api/products/search?limit=100")
+        assertEquals(HttpStatusCode.OK, firstPage.status)
+        val firstBody = mapper.readTree(firstPage.bodyAsText())
+        assertEquals(50, firstBody.path("products").size())
+        assertEquals("Handmade Bowl", firstBody.path("products").path(0).path("name").asText())
+        assertEquals("shop_category", firstBody.path("products").path(0).path("id").asText())
+        val cursor = firstBody.path("nextCursor").asText()
+        assertTrue(cursor.isNotBlank())
+        val secondPage = guest.get("/api/products/search?limit=50&cursor=$cursor")
+        assertEquals(HttpStatusCode.OK, secondPage.status)
+        val secondBody = mapper.readTree(secondPage.bodyAsText())
+        assertEquals(4, secondBody.path("products").size())
+        assertEquals("latest_3", secondBody.path("products").path(0).path("id").asText())
+        assertTrue(secondBody.path("nextCursor").isNull)
+
+        suspend fun matching(query: String): List<String> {
+            val response = guest.get("/api/products/search?q=$query&limit=50")
+            assertEquals(HttpStatusCode.OK, response.status)
+            val products = mapper.readTree(response.bodyAsText()).path("products")
+            return (0 until products.size()).map { products.path(it).path("id").asText() }
+        }
+        assertEquals(listOf("shop_name"), matching("sIlK"))
+        assertEquals(listOf("shop_description"), matching("RIVERWALK"))
+        assertEquals(listOf("shop_category"), matching("cerAMics"))
     }
 
     private suspend fun register(client: io.ktor.client.HttpClient, name: String, phone: String) {

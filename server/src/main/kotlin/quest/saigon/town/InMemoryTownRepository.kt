@@ -862,6 +862,22 @@ class InMemoryTownRepository : TownRepository {
         return ProductPage(items, sorted.size.toLong(), next)
     }
 
+    override fun searchProducts(query: String, cursor: String?, limit: Int): ProductPage {
+        val needle = query.trim().lowercase()
+        val matching = products.values.filter { product ->
+            needle.isBlank() || listOf(product.name, product.description, product.category)
+                .any { it.lowercase().contains(needle) }
+        }.sortedWith(compareByDescending<ProductRecord> { it.createdAt }.thenByDescending { it.id })
+        val parsed = Cursors.parse(cursor)
+        val filtered = if (parsed == null) matching else matching.filter {
+            it.createdAt < parsed.first || (it.createdAt == parsed.first && it.id < parsed.second)
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit)
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return ProductPage(items, matching.size.toLong(), next)
+    }
+
     override fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord {
         val stored = order.copy(id = order.id.ifBlank { newId() })
         productOrders[stored.id] = stored

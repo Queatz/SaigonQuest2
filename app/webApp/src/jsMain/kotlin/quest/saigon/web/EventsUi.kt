@@ -73,6 +73,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         showProfile = true,
         onBack = { if (searching) closeSearch() else back(router) },
         searchAction = { openSearch() },
+        shopAction = { go(router, "/shop") },
     )
     val title = head.asDynamic().querySelector("h1") as HTMLElement
     val searchButton = head.asDynamic().querySelector(".post-search-toggle") as HTMLElement

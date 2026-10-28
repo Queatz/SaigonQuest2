@@ -236,6 +236,19 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("products" to page.items.map { productPayload(it, seller) }, "count" to page.count, "nextCursor" to page.nextCursor))
     }
 
+    get("/products/search") {
+        val query = call.request.queryParameters["q"].orEmpty().trim()
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50
+        val page = services.repo.searchProducts(query, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "products" to page.items.map { product -> productPayload(product, services.repo.findUser(product.userId)) },
+                "count" to page.count,
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
     get("/products/{id}") {
         val product = services.repo.findProduct(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
         call.respondJson(productPayload(product, services.repo.findUser(product.userId)))

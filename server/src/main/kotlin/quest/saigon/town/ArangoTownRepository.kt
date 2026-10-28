@@ -1758,6 +1758,50 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return ProductPage(page.map(::productFrom), count, next)
     }
 
+    override fun searchProducts(query: String, cursor: String?, limit: Int): ProductPage {
+        val needle = query.trim().lowercase()
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "query" to needle,
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val searchFilter = """
+            @query == ""
+            OR CONTAINS(LOWER(TO_STRING(p.name == null ? "" : p.name)), @query)
+            OR CONTAINS(LOWER(TO_STRING(p.description == null ? "" : p.description)), @query)
+            OR CONTAINS(LOWER(TO_STRING(p.category == null ? "" : p.category)), @query)
+        """.trimIndent()
+        val rows = queryList(
+            """
+            FOR p IN $PRODUCTS
+              FILTER ($searchFilter)
+              FILTER @hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey)
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT @limit
+              RETURN p
+            """.trimIndent(),
+            bind,
+        )
+        val count = long(
+            first(
+                """
+                FOR p IN $PRODUCTS
+                  FILTER ($searchFilter)
+                  COLLECT WITH COUNT INTO total
+                  RETURN { total }
+                """.trimIndent(),
+                mapOf("query" to needle),
+            ),
+            "total",
+        )
+        val page = rows.take(limit)
+        val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(long(it, "createdAt"), it.key) } else null
+        return ProductPage(page.map(::productFrom), count, next)
+    }
+
     override fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord {
         val doc = productOrderDocument(order)
         val key = db.collection(PRODUCT_ORDERS).insertDocument(doc).key
