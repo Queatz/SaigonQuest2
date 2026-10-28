@@ -218,7 +218,7 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
     button.setAttribute("hidden", "hidden")
     button.onClick { router.navigate("/discover") }
     http("GET", "/api/events/summary") { status, body ->
-        button.textContent = "📅 " + if (status == 200) {
+        val eventsLabel = "📅 " + if (status == 200) {
             val parsed = parseJson(body)
             val today = num(parsed.today).toInt()
             val tomorrow = num(parsed.tomorrow).toInt()
@@ -235,7 +235,24 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
         } else {
             Town.t("noUpcomingEvents")
         }
+        val messages = listOf(
+            eventsLabel,
+            "🛍️ Search for products",
+            "🫂 Find a community",
+            "🙆 Discover new people",
+        )
+        var index = 0
+        fun show() {
+            if (button.asDynamic().isConnected == false) return
+            button.textContent = messages[index]
+            index = (index + 1) % messages.size
+        }
+        show()
         button.removeAttribute("hidden")
+        window.asDynamic().setInterval({
+            if (button.asDynamic().isConnected == false) return@setInterval
+            show()
+        }, 3000)
     }
     return button
 }

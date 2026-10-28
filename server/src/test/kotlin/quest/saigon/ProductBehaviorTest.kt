@@ -186,6 +186,13 @@ class ProductBehaviorTest {
         val buyer = createClient { install(HttpCookies) }
         register(seller, "Seller", "0905550121")
         register(buyer, "Buyer", "0905550122")
+        val sellerId = mapper.readTree(seller.get("/api/me").bodyAsText()).path("id").asText()
+        val sellerRecord = requireNotNull(services.repo.findUser(sellerId))
+        services.repo.updateUser(sellerRecord.copy(
+            location = "District 2",
+            profilePhotoPath = "seller.jpg",
+            intro = "Handmade ceramics",
+        ))
         val buyerId = mapper.readTree(buyer.get("/api/me").bodyAsText()).path("id").asText()
         val buyerRecord = requireNotNull(services.repo.findUser(buyerId))
         services.repo.updateUser(buyerRecord.copy(
@@ -201,10 +208,19 @@ class ProductBehaviorTest {
         assertEquals("Ceramic cup", product.path("name").asText())
         assertEquals(125000, product.path("price").asInt())
         assertEquals(0, product.path("photoUrls").size())
+        assertEquals("Seller", product.path("sellerName").asText())
+        assertEquals("/api/users/$sellerId/photo", product.path("sellerPhotoUrl").asText())
+        assertEquals("District 2", product.path("sellerLocation").asText())
+        assertEquals("Handmade ceramics", product.path("sellerIntro").asText())
+
+        val fetchedProduct = mapper.readTree(buyer.get("/api/products/$productId").bodyAsText())
+        assertEquals("Seller", fetchedProduct.path("sellerName").asText())
+        assertEquals("/api/users/$sellerId/photo", fetchedProduct.path("sellerPhotoUrl").asText())
 
         val publicPage = mapper.readTree(buyer.get("/api/users/${product.path("userId").asText()}/products").bodyAsText())
         assertEquals(1, publicPage.path("count").asInt())
         assertEquals(productId, publicPage.path("products").path(0).path("id").asText())
+        assertEquals("Seller", publicPage.path("products").path(0).path("sellerName").asText())
 
         val ownOrder = buyer.post("/api/products/$productId/orders") {
             contentType(ContentType.Application.Json)

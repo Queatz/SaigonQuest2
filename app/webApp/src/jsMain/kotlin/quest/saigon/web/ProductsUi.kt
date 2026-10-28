@@ -413,6 +413,9 @@ private fun productEditorDialog(host: HTMLElement, router: HistoryRouter, produc
 internal fun openProductDetails(host: HTMLElement, router: HistoryRouter, product: dynamic) {
     if (host.asDynamic().querySelector(".product-sheet") != null) return
     val name = product.name as? String ?: ""
+    val ownerId = product.userId as? String ?: ""
+    val sellerName = product.sellerName as? String ?: ""
+    val sellerPhotoUrl = product.sellerPhotoUrl as? String
     val chrome = SheetChrome("comment-sheet product-sheet", name)
     val photos = el("div", "product-detail-photos")
     val urls = product.photoUrls
@@ -430,9 +433,37 @@ internal fun openProductDetails(host: HTMLElement, router: HistoryRouter, produc
     body.appendChild(el("p", "product-detail-price", text = productPrice(product.price)))
     val category = product.category as? String
     if (!category.isNullOrBlank()) body.appendChild(el("p", "product-detail-category", text = category))
+    if (ownerId.isNotBlank()) {
+        val seller = el("button", "attendee-profile product-sheet-seller")
+        seller.setAttribute("type", "button")
+        if (!sellerPhotoUrl.isNullOrBlank()) {
+            val photo = el("img", "face")
+            photo.setAttribute("src", prefixServerOrigin(sellerPhotoUrl))
+            photo.setAttribute("alt", "")
+            seller.appendChild(photo)
+        } else {
+            seller.appendChild(el("span", "face initial", text = sellerName.take(1).uppercase()))
+        }
+        val sellerCopy = el("span", "member-copy")
+        sellerCopy.appendChild(el("strong", text = sellerName))
+        val sellerLocation = product.sellerLocation as? String ?: ""
+        if (sellerLocation.isNotBlank()) sellerCopy.appendChild(el("small", text = sellerLocation))
+        seller.appendChild(sellerCopy)
+        seller.onClick {
+            openMiniProfile(
+                host,
+                sellerName,
+                sellerPhotoUrl?.takeIf { it.isNotBlank() }?.let { prefixServerOrigin(it) },
+                product.sellerLocation as? String ?: "",
+                product.sellerIntro as? String ?: "",
+                ownerId,
+                router,
+            )
+        }
+        body.appendChild(seller)
+    }
     body.appendChild(linkedParagraph(product.description as? String ?: "", "product-detail-description"))
     chrome.sheet.appendChild(body)
-    val ownerId = product.userId as? String ?: ""
     if (ownerId != Town.me?.id) {
         val dock = el("div", "product-buy-dock")
         dock.appendChild(el("button", "primary", text = Town.t("buy")) { button ->

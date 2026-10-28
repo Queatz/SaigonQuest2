@@ -4153,11 +4153,12 @@ span.event-face {
 .mini-product-row .product-card { width: 230px; min-width: 230px; scroll-snap-align: start; }
 .product-sheet { display: flex; flex-direction: column; }
 .product-sheet .product-sheet-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 16px 18px; }
+.product-sheet-body .product-sheet-seller { width: 100%; margin: 10px 0; }
 .product-detail-photos { display: flex; gap: 10px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px; scroll-padding: 16px; scroll-snap-type: x mandatory; }
 .product-detail-photo,
 .product-detail-placeholder { width: min(84vw, 420px); height: min(84vw, 420px); flex: 0 0 min(84vw, 420px); border-radius: 16px; object-fit: cover; background: var(--card); scroll-snap-align: center; }
-.product-detail-name { margin: 8px 0; }
-.product-detail-category { color: var(--muted); font-weight: 700; }
+.product-detail-name { margin: 0; }
+.product-detail-category { margin: 0; color: var(--muted); font-weight: 700; }
 .product-detail-description { white-space: pre-wrap; overflow-wrap: anywhere; }
 .product-buy-dock { position: sticky; z-index: 2; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
 .product-buy-dock .primary { width: 100%; }

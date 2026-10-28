@@ -218,27 +218,27 @@ fun Route.townApi(services: TownServices) {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
         val page = services.products.list(user.id, call.request.queryParameters["cursor"], limit)
-        call.respondJson(mapOf("products" to page.items.map(::productPayload), "count" to page.count, "nextCursor" to page.nextCursor))
+        call.respondJson(mapOf("products" to page.items.map { productPayload(it, user) }, "count" to page.count, "nextCursor" to page.nextCursor))
     }
 
     get("/me/products") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
         val page = services.products.list(user.id, call.request.queryParameters["cursor"], limit)
-        call.respondJson(mapOf("products" to page.items.map(::productPayload), "count" to page.count, "nextCursor" to page.nextCursor))
+        call.respondJson(mapOf("products" to page.items.map { productPayload(it, user) }, "count" to page.count, "nextCursor" to page.nextCursor))
     }
 
     get("/users/{id}/products") {
         val id = call.parameters["id"].orEmpty()
-        if (services.repo.findUser(id) == null) return@get call.fail("not_found")
+        val seller = services.repo.findUser(id) ?: return@get call.fail("not_found")
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
         val page = services.products.list(id, call.request.queryParameters["cursor"], limit)
-        call.respondJson(mapOf("products" to page.items.map(::productPayload), "count" to page.count, "nextCursor" to page.nextCursor))
+        call.respondJson(mapOf("products" to page.items.map { productPayload(it, seller) }, "count" to page.count, "nextCursor" to page.nextCursor))
     }
 
     get("/products/{id}") {
         val product = services.repo.findProduct(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
-        call.respondJson(productPayload(product))
+        call.respondJson(productPayload(product, services.repo.findUser(product.userId)))
     }
 
     post("/products") {
@@ -260,7 +260,7 @@ fun Route.townApi(services: TownServices) {
             paths.forEach(services.uploads::delete)
             return@post call.fail(error.code)
         }
-        call.respondJson(productPayload(product), HttpStatusCode.Created)
+        call.respondJson(productPayload(product, user), HttpStatusCode.Created)
     }
 
     patch("/products/{id}") {
@@ -324,7 +324,7 @@ fun Route.townApi(services: TownServices) {
             (paths - current.photoPaths.toSet()).forEach(services.uploads::delete)
             return@patch call.fail(error.code)
         }
-        call.respondJson(productPayload(product))
+        call.respondJson(productPayload(product, user))
     }
 
     delete("/products/{id}") {
@@ -1774,7 +1774,7 @@ private fun avatarPayload(avatar: AvatarRecord) = mapOf(
     "createdAt" to avatar.createdAt,
 )
 
-private fun productPayload(product: ProductRecord) = mapOf(
+private fun productPayload(product: ProductRecord, seller: UserRecord?) = mapOf(
     "id" to product.id,
     "userId" to product.userId,
     "name" to product.name,
@@ -1782,6 +1782,10 @@ private fun productPayload(product: ProductRecord) = mapOf(
     "category" to product.category,
     "description" to product.description,
     "photoUrls" to product.photoPaths.map { "/media/$it" },
+    "sellerName" to seller?.name,
+    "sellerPhotoUrl" to seller?.let { user -> user.profilePhotoPath?.let { "/api/users/${user.id}/photo" } },
+    "sellerLocation" to seller?.location,
+    "sellerIntro" to seller?.intro,
     "createdAt" to product.createdAt,
 )
 
