@@ -55,7 +55,6 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     location.root.asDynamic().insertBefore(locationRow, location.input)
     locationRow.appendChild(location.input)
     locationRow.appendChild(mapBtn)
-    bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace)
     val intro = area(Town.t("introduceYourself"), Town.t("introduceYourselfHint"), Limits.INTRO_MAX)
     intro.input.asDynamic().value = me.intro
     val languageSelect = languageField(me.language) { value ->
@@ -100,6 +99,23 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     }
     val save = el("button", "primary", text = Town.t("save"))
     save.setAttribute("type", "button")
+    val bar = el("div", "dock dock-wide")
+    bar.appendChild(save)
+    fun updateSaveVisibility() {
+        val changed = name.value() != me.name ||
+            phone.value() != me.phone ||
+            location.value() != me.location ||
+            pickedPlace.placeId != me.placeId ||
+            pickedPlace.lat != me.lat ||
+            pickedPlace.lng != me.lng ||
+            intro.value() != me.intro
+        save.asDynamic().hidden = !changed
+        bar.asDynamic().hidden = !changed
+    }
+    name.input.asDynamic().addEventListener("input", { updateSaveVisibility() })
+    phone.input.asDynamic().addEventListener("input", { updateSaveVisibility() })
+    intro.input.asDynamic().addEventListener("input", { updateSaveVisibility() })
+    bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace, onChange = { updateSaveVisibility() })
     save.onClick {
         save.setAttribute("disabled", "disabled")
         save.textContent = Town.t("saving")
@@ -157,9 +173,8 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     })
     body.appendChild(suggestFeaturePanel(shell, router, me.admin))
     shell.appendChild(body)
-    val bar = el("div", "dock dock-wide")
-    bar.appendChild(save)
     shell.appendChild(bar)
+    updateSaveVisibility()
     return shell
 }
 

@@ -32,6 +32,7 @@ internal fun bindLocationMapPicker(
     input: HTMLElement,
     mapButton: HTMLElement,
     current: PlacePick,
+    onChange: () -> Unit = {},
     communityId: () -> String? = { null },
 ) {
     fun refreshButton() {
@@ -47,6 +48,7 @@ internal fun bindLocationMapPicker(
             current.lng = picked.lng
             input.asDynamic().value = picked.name
             refreshButton()
+            onChange()
         }
     }
     input.asDynamic().oninput = {
@@ -55,6 +57,7 @@ internal fun bindLocationMapPicker(
         current.lng = null
         current.name = (input.asDynamic().value as? String).orEmpty().trim()
         refreshButton()
+        onChange()
     }
 }
 
