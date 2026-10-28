@@ -5,8 +5,9 @@ object CallToAction {
     const val ZALO = "zalo"
     const val WEBSITE = "website"
     const val PROFILE = "profile"
+    const val PRODUCT = "product"
 
-    val destinations = setOf(MESSAGE, ZALO, WEBSITE, PROFILE)
+    val destinations = setOf(MESSAGE, ZALO, WEBSITE, PROFILE, PRODUCT)
 
     data class Value(
         val title: String,
@@ -20,12 +21,19 @@ object CallToAction {
         if (dest !in destinations) return null
         val cleanedTitle = cleanTitle(title) ?: return null
         val cleanedText = cleanText(text) ?: return null
-        val cleanedUrl = if (dest == WEBSITE) {
-            cleanUrl(url) ?: return null
-        } else {
-            ""
+        val cleanedUrl = when (dest) {
+            WEBSITE -> cleanUrl(url) ?: return null
+            PRODUCT -> cleanProductId(url) ?: return null
+            else -> ""
         }
         return Value(cleanedTitle, cleanedText, dest, cleanedUrl)
+    }
+
+    private fun cleanProductId(raw: String): String? {
+        val id = raw.trim()
+        if (id.length !in 1..Limits.CTA_URL_MAX) return null
+        if (id.any { it.isISOControl() || it.isWhitespace() }) return null
+        return id
     }
 
     fun cleanTitle(raw: String): String? {

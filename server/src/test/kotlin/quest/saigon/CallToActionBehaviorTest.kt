@@ -82,6 +82,26 @@ class CallToActionBehaviorTest {
         val fetchedProfile = mapper.readTree(linh.get("/api/posts/${profileBody.path("id").asText()}").bodyAsText())
         assertEquals(CallToAction.PROFILE, fetchedProfile.path("ctaDestination").asText())
         assertEquals("Show your profile", fetchedProfile.path("ctaText").asText())
+
+        val productId = createProduct(linh)
+        val product = postCta(linh, "Featured", "See this product", "product", productId)
+        assertEquals(HttpStatusCode.Created, product.status)
+        val productBody = mapper.readTree(product.bodyAsText())
+        assertEquals(CallToAction.PRODUCT, productBody.path("ctaDestination").asText())
+        assertEquals(productId, productBody.path("ctaUrl").asText())
+        val fetchedProduct = mapper.readTree(linh.get("/api/posts/${productBody.path("id").asText()}").bodyAsText())
+        assertEquals(CallToAction.PRODUCT, fetchedProduct.path("ctaDestination").asText())
+        assertEquals(productId, fetchedProduct.path("ctaUrl").asText())
+
+        val seller = createClient { install(HttpCookies) }
+        seller.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Seller","phone":"0905550102","password":"secretpass"}""")
+        }
+        val foreignProductId = createProduct(seller)
+        val foreignProductCta = postCta(linh, "Featured", "See this product", "product", foreignProductId)
+        assertEquals(HttpStatusCode.BadRequest, foreignProductCta.status)
+        assertEquals("invalid_cta", mapper.readTree(foreignProductCta.bodyAsText()).path("error").asText())
     }
 
     @Test
@@ -110,6 +130,31 @@ class CallToActionBehaviorTest {
         val badDest = postCta(linh, "", "Open", "email", "")
         assertEquals(HttpStatusCode.BadRequest, badDest.status)
         assertEquals("invalid_cta", mapper.readTree(badDest.bodyAsText()).path("error").asText())
+
+        val missingProduct = postCta(linh, "", "See this product", "product", "")
+        assertEquals(HttpStatusCode.BadRequest, missingProduct.status)
+        assertEquals("invalid_cta", mapper.readTree(missingProduct.bodyAsText()).path("error").asText())
+
+        val unknownProduct = postCta(linh, "", "See this product", "product", "missing-product-id")
+        assertEquals(HttpStatusCode.BadRequest, unknownProduct.status)
+        assertEquals("invalid_cta", mapper.readTree(unknownProduct.bodyAsText()).path("error").asText())
+    }
+
+    private suspend fun createProduct(client: io.ktor.client.HttpClient): String {
+        val response = client.post("/api/products") {
+            setBody(
+                MultiPartFormDataContent(
+                    formData {
+                        append("name", "CTA product")
+                        append("price", "12000")
+                        append("category", "")
+                        append("description", "")
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+        return mapper.readTree(response.bodyAsText()).path("id").asText()
     }
 
     private suspend fun postCta(

@@ -5,7 +5,7 @@ import quest.saigon.Limits
 import web.html.HTMLElement
 import web.window.window
 
-internal fun composerCtaFields(): ComposerCta {
+internal fun composerCtaFields(host: HTMLElement): ComposerCta {
     val state = ComposerCta()
     val box = el("div", "cta-composer")
     val toggle = el("input")
@@ -52,12 +52,15 @@ internal fun composerCtaFields(): ComposerCta {
     url.input.asDynamic().oninput = { rememberUrl() }
     url.input.asDynamic().onblur = { prefixUrl() }
     val urlRoot = url.root
+    val productRoot = productPicker(host) { productId -> state.productId = productId }
     fun paintDestination() {
         urlRoot.asDynamic().hidden = state.destination != CallToAction.WEBSITE
+        productRoot.asDynamic().hidden = state.destination != CallToAction.PRODUCT
         destHint.textContent = when (state.destination) {
             CallToAction.MESSAGE -> Town.t("ctaSendMessageHint")
             CallToAction.ZALO -> Town.t("ctaZaloMessageHint")
             CallToAction.PROFILE -> Town.t("ctaShowProfileHint")
+            CallToAction.PRODUCT -> Town.t("ctaShowProductHint")
             else -> ""
         }
         destHint.asDynamic().hidden = destHint.textContent == ""
@@ -74,6 +77,7 @@ internal fun composerCtaFields(): ComposerCta {
         CallToAction.ZALO to "ctaZaloMessage",
         CallToAction.WEBSITE to "ctaOpenWebsite",
         CallToAction.PROFILE to "ctaShowProfile",
+        CallToAction.PRODUCT to "ctaShowProduct",
     ).forEach { (dest, key) ->
         val chip = el("button", if (dest == state.destination) "chip selected" else "chip", text = Town.t(key))
         chip.setAttribute("type", "button")
@@ -95,6 +99,7 @@ internal fun composerCtaFields(): ComposerCta {
     fields.appendChild(destRow)
     fields.appendChild(destHint)
     fields.appendChild(urlRoot)
+    fields.appendChild(productRoot)
     paintDestination()
     box.appendChild(row)
     box.appendChild(fields)
@@ -108,6 +113,7 @@ internal class ComposerCta {
     var text: String = ""
     var destination: String = CallToAction.MESSAGE
     var url: String = ""
+    var productId: String? = null
     lateinit var root: HTMLElement
 }
 
@@ -152,6 +158,17 @@ private fun activateCta(post: PostCard, host: HTMLElement, router: HistoryRouter
                 toast(host, Town.t("invalidCallToActionUrl"))
             } else {
                 window.asDynamic().open(url, "_blank")
+            }
+        }
+        CallToAction.PRODUCT -> {
+            val productId = post.ctaUrl.trim()
+            if (productId.isEmpty()) {
+                toast(host, Town.t("unavailable"))
+            } else {
+                http("GET", "/api/products/${encodeQuery(productId)}") { status, body ->
+                    if (status == 200) openProductDetails(host, router, parseJson(body))
+                    else toast(host, Town.t("unavailable"))
+                }
             }
         }
         else -> toast(host, Town.t("errorGeneric"))

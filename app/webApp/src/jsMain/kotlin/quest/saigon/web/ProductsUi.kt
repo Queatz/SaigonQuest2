@@ -99,6 +99,130 @@ internal fun miniProfileProducts(userId: String, router: HistoryRouter, host: HT
     return section
 }
 
+internal fun productPicker(host: HTMLElement, onPick: (String) -> Unit): HTMLElement {
+    var selectedId: String? = null
+    val button = el("button", "community-open", text = Town.t("chooseProduct"))
+    button.setAttribute("type", "button")
+    button.setAttribute("aria-haspopup", "dialog")
+    button.onClick {
+        openProductChooser(host, selectedId) { id, name ->
+            selectedId = id
+            button.textContent = name
+            onPick(id)
+        }
+    }
+    return button
+}
+
+private fun openProductChooser(host: HTMLElement, currentId: String?, onPick: (String, String) -> Unit) {
+    if (host.asDynamic().querySelector(".product-chooser") != null) return
+    val backdrop = el("div", "dialog-backdrop product-chooser")
+    val card = el("div", "dialog community-dialog")
+    card.setAttribute("role", "dialog")
+    card.setAttribute("aria-modal", "true")
+    card.appendChild(el("h2", text = Town.t("chooseProduct")))
+    val search = el("input")
+    search.setAttribute("type", "search")
+    search.setAttribute("placeholder", Town.t("searchProducts"))
+    val results = el("div", "community-list chooser-list")
+    val products = mutableListOf<dynamic>()
+    var nextCursor: String? = null
+    var query = ""
+    var loading = false
+    lateinit var load: (String?) -> Unit
+
+    fun close() {
+        backdrop.asDynamic().remove()
+    }
+
+    fun choose(product: dynamic) {
+        val id = product.id as? String ?: return
+        val name = product.name as? String ?: ""
+        close()
+        onPick(id, name)
+    }
+
+    fun paint() {
+        results.clear()
+        val matches = products.filter { product ->
+            val name = (product.name as? String).orEmpty()
+            name.contains(query, ignoreCase = true)
+        }
+        if (matches.isEmpty()) {
+            val key = if (products.isEmpty()) "noProducts" else "noProductMatches"
+            results.appendChild(el("p", "hint", text = Town.t(key)))
+        } else {
+            matches.forEach { product ->
+                val id = product.id as? String ?: return@forEach
+                val name = product.name as? String ?: ""
+                val row = el("button", if (id == currentId) "chooser-row selected" else "chooser-row")
+                row.setAttribute("type", "button")
+                val copy = el("div", "chooser-copy")
+                copy.appendChild(el("span", text = name))
+                copy.appendChild(el("small", text = productPrice(product.price)))
+                row.appendChild(copy)
+                row.onClick { choose(product) }
+                results.appendChild(row)
+            }
+        }
+        val cursor = nextCursor
+        if (!cursor.isNullOrBlank()) {
+            results.appendChild(el("button", "text-button", text = Town.t("loadMore")) { more ->
+                more.setAttribute("type", "button")
+                more.onClick {
+                    more.setAttribute("disabled", "disabled")
+                    load(cursor)
+                }
+            })
+        }
+    }
+
+    load = load@{ cursor ->
+        if (loading) return@load
+        loading = true
+        if (cursor.isNullOrBlank()) {
+            products.clear()
+            results.clear()
+            results.appendChild(el("p", "hint", text = Town.t("loading")))
+        }
+        val suffix = if (cursor.isNullOrBlank()) "" else "&cursor=${encodeQuery(cursor)}"
+        http("GET", "/api/me/products?limit=50$suffix") { status, body ->
+            loading = false
+            if (status != 200) {
+                if (products.isEmpty()) {
+                    results.clear()
+                    results.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                } else {
+                    paint()
+                    toast(host, Town.t("unavailable"))
+                }
+                return@http
+            }
+            val parsed = parseJson(body)
+            val items = parsed.products
+            val count = productCount(items)
+            for (i in 0 until count) products.add(items[i])
+            nextCursor = parsed.nextCursor as? String
+            paint()
+        }
+    }
+
+    search.asDynamic().oninput = {
+        query = (search.asDynamic().value as? String).orEmpty().trim()
+        paint()
+    }
+    card.appendChild(search)
+    card.appendChild(results)
+    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { close() }
+    })
+    backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { close() }
+    host.appendChild(backdrop)
+    load(null)
+}
+
 private fun loadMyProducts(list: HTMLElement, shell: HTMLElement, router: HistoryRouter, cursor: String?) {
     val suffix = if (cursor.isNullOrBlank()) "" else "&cursor=${encodeQuery(cursor)}"
     http("GET", "/api/me/products?limit=20$suffix") { status, text ->

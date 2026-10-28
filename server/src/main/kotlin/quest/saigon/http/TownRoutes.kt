@@ -648,6 +648,10 @@ fun Route.townApi(services: TownServices) {
                 return@post call.fail(fail)
             }
         }
+        if (cta?.destination == CallToAction.PRODUCT) {
+            val product = services.repo.findProduct(cta.url)
+            if (product == null || product.userId != user.id) return@post call.fail("invalid_cta")
+        }
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")

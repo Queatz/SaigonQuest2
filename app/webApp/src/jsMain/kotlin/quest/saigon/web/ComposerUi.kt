@@ -46,7 +46,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val event = composerEventFields()
     val poll = composerPollFields()
     val question = composerQuestionFields()
-    val cta = composerCtaFields()
+    val cta = composerCtaFields(shell)
     bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace) { communities.second.communityId }
 
     val avatarLabel = el("h3", text = "🙆 ${Town.t("selectAvatar")}")
@@ -201,7 +201,12 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                     if (title.isNotEmpty()) form.append("questionTitle", title)
                 }
                 if (cta.enabled) {
-                    val parsed = CallToAction.parse(cta.title, cta.text, cta.destination, cta.url)
+                    val destinationValue = if (cta.destination == CallToAction.PRODUCT) {
+                        cta.productId.orEmpty()
+                    } else {
+                        cta.url
+                    }
+                    val parsed = CallToAction.parse(cta.title, cta.text, cta.destination, destinationValue)
                     if (parsed == null) {
                         post.removeAttribute("disabled")
                         post.textContent = Town.t("postNow")

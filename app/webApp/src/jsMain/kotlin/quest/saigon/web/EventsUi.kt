@@ -118,7 +118,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
             searchView?.asDynamic()?.remove()
             searchView = null
             body.asDynamic().style.display = ""
-            title.textContent = Town.t("events")
+            title.textContent = Town.t("discover")
             searchButton.asDynamic().hidden = false
         }
     }
