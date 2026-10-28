@@ -25,6 +25,8 @@ class InMemoryTownRepository : TownRepository {
     private val questionAnswers = ConcurrentHashMap<String, QuestionAnswerRecord>()
     private val features = ConcurrentHashMap<String, FeatureSuggestionRecord>()
     private val featureVotes = ConcurrentHashMap<String, FeatureVote>()
+    private val products = ConcurrentHashMap<String, ProductRecord>()
+    private val productOrders = ConcurrentHashMap<String, ProductOrderRecord>()
     private val chats = ConcurrentHashMap<String, ChatRecord>()
     private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
     private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
@@ -831,6 +833,66 @@ class InMemoryTownRepository : TownRepository {
     override fun countPostsByAuthor(userId: String, viewerId: String?): Long =
         authorPosts(userId, viewerId).size.toLong()
 
+    override fun insertProduct(product: ProductRecord): ProductRecord {
+        val stored = product.copy(id = product.id.ifBlank { newId() })
+        products[stored.id] = stored
+        return stored
+    }
+
+    override fun findProduct(id: String): ProductRecord? = products[id]
+
+    override fun updateProduct(product: ProductRecord): ProductRecord? {
+        if (!products.containsKey(product.id)) return null
+        products[product.id] = product
+        return product
+    }
+
+    override fun deleteProduct(id: String): ProductRecord? = products.remove(id)
+
+    override fun productsByUser(userId: String, cursor: String?, limit: Int): ProductPage {
+        val sorted = products.values.filter { it.userId == userId }
+            .sortedWith(compareByDescending<ProductRecord> { it.createdAt }.thenByDescending { it.id })
+        val parsed = Cursors.parse(cursor)
+        val filtered = if (parsed == null) sorted else sorted.filter {
+            it.createdAt < parsed.first || (it.createdAt == parsed.first && it.id < parsed.second)
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit)
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return ProductPage(items, sorted.size.toLong(), next)
+    }
+
+    override fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord {
+        val stored = order.copy(id = order.id.ifBlank { newId() })
+        productOrders[stored.id] = stored
+        return stored
+    }
+
+    override fun productOrdersForSeller(sellerId: String, cursor: String?, limit: Int): ProductOrderPage {
+        val sorted = productOrders.values.filter { it.sellerId == sellerId }
+            .sortedWith(compareByDescending<ProductOrderRecord> { it.createdAt }.thenByDescending { it.id })
+        val parsed = Cursors.parse(cursor)
+        val filtered = if (parsed == null) sorted else sorted.filter {
+            it.createdAt < parsed.first || (it.createdAt == parsed.first && it.id < parsed.second)
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).mapNotNull { order ->
+            val buyer = users[order.buyerId] ?: return@mapNotNull null
+            ProductOrderView(order, buyer.name, buyer.phone, buyer.profilePhotoPath, buyer.location, buyer.intro)
+        }
+        val next = if (page.size > limit) page.getOrNull(limit - 1)?.let { Cursors.encode(it.createdAt, it.id) } else null
+        val openCount = productOrders.values.count { it.sellerId == sellerId && !it.resolved }.toLong()
+        return ProductOrderPage(items, next, openCount)
+    }
+
+    override fun updateProductOrderResolved(id: String, sellerId: String, resolved: Boolean): ProductOrderView? {
+        val current = productOrders[id]?.takeIf { it.sellerId == sellerId } ?: return null
+        val updated = current.copy(resolved = resolved)
+        productOrders[id] = updated
+        val buyer = users[updated.buyerId] ?: return null
+        return ProductOrderView(updated, buyer.name, buyer.phone, buyer.profilePhotoPath, buyer.location, buyer.intro)
+    }
+
     private fun placePosts(location: String, placeId: String?, viewerId: String?): List<PostRecord> {
         val pid = placeId?.takeIf { it.isNotBlank() }
         return posts.values.filter { post ->
@@ -1335,6 +1397,7 @@ class InMemoryTownRepository : TownRepository {
             photoPaths = message.photoPaths,
             createdAt = message.createdAt,
             reactions = chatReactionCounts(message.id, viewerId),
+            attachment = message.attachment,
         )
     }
 

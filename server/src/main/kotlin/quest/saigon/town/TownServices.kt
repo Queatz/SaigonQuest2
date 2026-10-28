@@ -42,6 +42,7 @@ class TownServices(
     val questions: QuestionService = QuestionService(repo, hub, clock, pusher),
     val chatHub: NotificationHub = NotificationHub(),
     val chats: ChatService = ChatService(repo, chatHub, clock, pusher),
+    val products: ProductService = ProductService(repo, uploads, hub, clock, pusher, chats),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock, pusher)
 

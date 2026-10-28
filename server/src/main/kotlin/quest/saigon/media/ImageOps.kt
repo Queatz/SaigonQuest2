@@ -24,6 +24,11 @@ class ImageOps {
         return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
     }
 
+    fun prepareProductPhoto(bytes: ByteArray): ByteArray {
+        val image = centerCropSquare(read(bytes))
+        return writeJpeg(limitEdge(image, Limits.PHOTO_MAX_EDGE), Limits.JPEG_QUALITY.toFloat())
+    }
+
     fun prepareChatPhoto(bytes: ByteArray): ByteArray {
         val fitted = limitEdge(read(bytes), Limits.PHOTO_MAX_EDGE)
         return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
@@ -63,6 +68,13 @@ class ImageOps {
             y = (image.height - cropHeight) / 2
         }
         return image.getSubimage(x, y, min(cropWidth, image.width - x), min(cropHeight, image.height - y))
+    }
+
+    fun centerCropSquare(image: BufferedImage): BufferedImage {
+        val edge = min(image.width, image.height)
+        val x = (image.width - edge) / 2
+        val y = (image.height - edge) / 2
+        return image.getSubimage(x, y, edge, edge)
     }
 
     fun orientMask(mask: BufferedImage): BufferedImage {

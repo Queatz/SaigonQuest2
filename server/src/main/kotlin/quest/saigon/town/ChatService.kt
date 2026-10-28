@@ -24,7 +24,7 @@ class ChatService(
         return repo.chatSummary(chat.id, actor.id)
     }
 
-    fun createDirect(actor: UserRecord, userId: String, text: String): ChatSummary {
+    fun createDirect(actor: UserRecord, userId: String, text: String, attachment: ChatAttachment? = null): ChatSummary {
         if (userId.isBlank() || userId == actor.id) throw TownException("not_found")
         val other = repo.findUser(userId) ?: throw TownException("not_found")
         val existing = repo.findDirectChat(actor.id, other.id)
@@ -55,8 +55,8 @@ class ChatService(
             existing
         }
         val cleaned = cleanMessage(text) ?: throw TownException("invalid_chat_message")
-        if (cleaned.isEmpty()) throw TownException("invalid_chat_message")
-        send(actor, chat.id, cleaned, emptyList())
+        if (cleaned.isEmpty() && attachment == null) throw TownException("invalid_chat_message")
+        send(actor, chat.id, cleaned, emptyList(), attachment)
         return repo.chatSummary(chat.id, actor.id) ?: throw TownException("not_found")
     }
 
@@ -84,10 +84,16 @@ class ChatService(
         return repo.chatMessages(chatId, cursor, limit.coerceIn(1, Limits.CHAT_MESSAGE_PAGE_SIZE), actor.id)
     }
 
-    fun send(actor: UserRecord, chatId: String, text: String, photoPaths: List<String>): ChatMessageItem {
+    fun send(
+        actor: UserRecord,
+        chatId: String,
+        text: String,
+        photoPaths: List<String>,
+        attachment: ChatAttachment? = null,
+    ): ChatMessageItem {
         requireMember(actor, chatId)
         val cleaned = cleanMessage(text) ?: throw TownException("invalid_chat_message")
-        if (cleaned.isEmpty() && photoPaths.isEmpty()) throw TownException("invalid_chat_message")
+        if (cleaned.isEmpty() && photoPaths.isEmpty() && attachment == null) throw TownException("invalid_chat_message")
         if (photoPaths.size > Limits.PHOTOS_MAX) throw TownException("too_many_photos")
         val chat = repo.findChat(chatId) ?: throw TownException("not_found")
         val now = clock()
@@ -99,9 +105,10 @@ class ChatService(
                 text = cleaned,
                 photoPaths = photoPaths,
                 createdAt = now,
+                attachment = attachment,
             ),
         )
-        val preview = cleaned.ifBlank { "📷" }.take(80)
+        val preview = cleaned.ifBlank { attachment?.productName ?: "📷" }.take(80)
         repo.updateChat(
             chat.copy(
                 lastMessageAt = now,
@@ -136,7 +143,9 @@ class ChatService(
             repo.updateChat(
                 chat.copy(
                     lastMessageId = latest?.id.orEmpty(),
-                    lastMessageText = latest?.text?.ifBlank { if (latest.photoPaths.isNotEmpty()) "📷" else "" }.orEmpty().take(80),
+                    lastMessageText = latest?.text?.ifBlank {
+                        latest.attachment?.productName ?: if (latest.photoPaths.isNotEmpty()) "📷" else ""
+                    }.orEmpty().take(80),
                     lastMessageSenderId = latest?.userId.orEmpty(),
                     lastMessageSenderName = latest?.authorName.orEmpty(),
                     lastMessageAt = latest?.createdAt ?: chat.createdAt,
@@ -470,6 +479,15 @@ class ChatService(
             "authorPhotoUrl" to item.authorPhotoPath?.let { "/api/users/${item.userId}/photo" },
             "text" to item.text,
             "photoUrls" to item.photoPaths.map { mediaUrl(item.chatId, it) },
+            "attachment" to item.attachment?.let { attachment ->
+                mapOf(
+                    "type" to attachment.type,
+                    "productId" to attachment.productId,
+                    "productName" to attachment.productName,
+                    "price" to attachment.price,
+                    "photoUrl" to attachment.photoPath?.let { "/media/$it" },
+                )
+            },
             "createdAt" to item.createdAt,
             "reactions" to item.reactions.map(::reactionPayload),
         )

@@ -255,7 +255,7 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
             applyMessageReactions(thread, chatId, message.id, message.reactions)
             return
         }
-        val node = messageBubble(message, shell, chatId, owner, defaults)
+        val node = messageBubble(message, shell, chatId, owner, defaults, router)
         if (prepend) thread.asDynamic().insertBefore(node, thread.firstChild)
         else thread.appendChild(node)
     }
@@ -842,6 +842,7 @@ private fun messageBubble(
     chatId: String,
     owner: Boolean,
     defaults: List<String>,
+    router: HistoryRouter,
 ): HTMLElement {
     val mine = message.userId == Town.me?.id
     val bubble = el("div", if (mine) "chat-bubble mine" else "chat-bubble")
@@ -858,6 +859,30 @@ private fun messageBubble(
         bubble.appendChild(meta)
     }
     if (message.text.isNotBlank()) bubble.appendChild(linkedParagraph(message.text, "chat-text"))
+    message.attachment?.let { attachment ->
+        val product = el("button", "chat-product-attachment")
+        product.setAttribute("type", "button")
+        product.setAttribute("aria-label", Town.t("viewProduct"))
+        if (!attachment.photoUrl.isNullOrBlank()) {
+            val image = el("img", "chat-product-attachment-photo")
+            image.setAttribute("src", attachment.photoUrl)
+            image.setAttribute("alt", "")
+            product.appendChild(image)
+        }
+        val copy = el("span", "chat-product-attachment-copy")
+        copy.appendChild(el("small", text = Town.t("productAttachment")))
+        copy.appendChild(el("strong", text = attachment.name))
+        copy.appendChild(el("span", text = formatVnd(attachment.price)))
+        product.appendChild(copy)
+        product.asDynamic().addEventListener("click", { event: dynamic ->
+            event.stopPropagation()
+            http("GET", "/api/products/${encodeQuery(attachment.productId)}") { status, body ->
+                if (status == 200) openProductDetails(host, router, parseJson(body))
+                else toast(host, Town.t("unavailable"))
+            }
+        })
+        bubble.appendChild(product)
+    }
     if (message.photoUrls.isNotEmpty()) {
         val photos = el("div", "chat-photos")
         message.photoUrls.forEach { url ->
@@ -1116,6 +1141,14 @@ private data class ChatMessage(
     val photoUrls: List<String>,
     val createdAt: Long,
     val reactions: List<ReactionChip>,
+    val attachment: ProductAttachment?,
+)
+
+private data class ProductAttachment(
+    val productId: String,
+    val name: String,
+    val price: Long,
+    val photoUrl: String?,
 )
 
 private data class ReactionChip(val emoji: String, val count: Int, val mine: Boolean)
@@ -1165,7 +1198,18 @@ private fun messageFrom(node: dynamic) = ChatMessage(
     photoUrls = readStringList(node.photoUrls).map(::prefixServerOrigin),
     createdAt = num(node.createdAt).toLong(),
     reactions = readReactions(node.reactions),
+    attachment = productAttachmentFrom(node.attachment),
 )
+
+private fun productAttachmentFrom(node: dynamic): ProductAttachment? {
+    if (node == null || node == undefined || node.type != "product") return null
+    return ProductAttachment(
+        productId = (node.productId as? String).orEmpty(),
+        name = (node.productName as? String).orEmpty(),
+        price = num(node.price).toLong(),
+        photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
+    )
+}
 
 private fun readMessages(node: dynamic): List<ChatMessage> {
     val items = mutableListOf<ChatMessage>()

@@ -11,6 +11,9 @@ object Limits {
     const val LOCATION_MAX = 80
     const val PLACE_ID_MAX = 256
     const val EVENT_PRICE_MAX = 100_000_000
+    const val PRODUCT_NAME_MAX = 120
+    const val PRODUCT_CATEGORY_MAX = 80
+    const val PRODUCT_DESCRIPTION_MAX = 5000
     const val POLL_OPTIONS_MIN = 2
     const val POLL_OPTIONS_MAX = 5
     const val POLL_OPTION_MAX = 40
@@ -45,4 +48,9 @@ object Limits {
     const val PHOTO_PEEK_MILLIS = 750
     const val PHOTO_PEEK_TAP_MILLIS = 2000
     const val PUSH_ENDPOINT_MAX = 2048
+}
+
+object ProductContactMethod {
+    const val ZALO = "zalo"
+    const val MESSAGES = "messages"
 }

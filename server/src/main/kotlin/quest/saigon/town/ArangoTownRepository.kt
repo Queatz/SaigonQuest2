@@ -16,7 +16,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
-            POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
+            POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
+            CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -41,6 +42,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(FEATURE_SUGGESTIONS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey"), PersistentIndexOptions())
+        db.collection(PRODUCTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
+        db.collection(PRODUCT_ORDERS).ensurePersistentIndex(listOf("sellerKey", "createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -1708,6 +1711,141 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return long(row, "count")
     }
 
+    override fun insertProduct(product: ProductRecord): ProductRecord {
+        val doc = productDocument(product)
+        val key = db.collection(PRODUCTS).insertDocument(doc).key
+        return product.copy(id = key)
+    }
+
+    override fun findProduct(id: String): ProductRecord? =
+        db.collection(PRODUCTS).getDocument(id, BaseDocument::class.java)?.let(::productFrom)
+
+    override fun updateProduct(product: ProductRecord): ProductRecord? {
+        if (!db.collection(PRODUCTS).documentExists(product.id)) return null
+        db.collection(PRODUCTS).replaceDocument(product.id, productDocument(product.id, product))
+        return product
+    }
+
+    override fun deleteProduct(id: String): ProductRecord? {
+        val product = findProduct(id) ?: return null
+        db.collection(PRODUCTS).deleteDocument(id)
+        return product
+    }
+
+    override fun productsByUser(userId: String, cursor: String?, limit: Int): ProductPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "userKey" to userId,
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val rows = queryList(
+            """
+            FOR p IN $PRODUCTS
+              FILTER p.userKey == @userKey
+              FILTER @hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey)
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT @limit
+              RETURN p
+            """.trimIndent(),
+            bind,
+        )
+        val count = long(first("FOR p IN $PRODUCTS FILTER p.userKey == @userKey COLLECT WITH COUNT INTO total RETURN { total }", mapOf("userKey" to userId)), "total")
+        val page = rows.take(limit)
+        val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(long(it, "createdAt"), it.key) } else null
+        return ProductPage(page.map(::productFrom), count, next)
+    }
+
+    override fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord {
+        val doc = productOrderDocument(order)
+        val key = db.collection(PRODUCT_ORDERS).insertDocument(doc).key
+        return order.copy(id = key)
+    }
+
+    override fun productOrdersForSeller(sellerId: String, cursor: String?, limit: Int): ProductOrderPage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR o IN $PRODUCT_ORDERS
+              FILTER o.sellerKey == @sellerKey
+              FILTER @hasCursor == false OR o.createdAt < @cursorAt OR (o.createdAt == @cursorAt AND o._key < @cursorKey)
+              SORT o.createdAt DESC, o._key DESC
+              LIMIT @limit
+              LET buyer = DOCUMENT("$USERS", o.buyerKey)
+              FILTER buyer != null
+              RETURN MERGE(o, {
+                buyerName: buyer.name,
+                buyerPhone: buyer.phone,
+                buyerPhotoPath: buyer.profilePhotoPath,
+                buyerLocation: buyer.location,
+                buyerIntro: buyer.intro
+              })
+            """.trimIndent(),
+            mapOf(
+                "sellerKey" to sellerId,
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(long(it, "createdAt"), it.key) } else null
+        val openCount = long(
+            first(
+                """
+                RETURN { count: LENGTH(
+                  FOR o IN $PRODUCT_ORDERS
+                    FILTER o.sellerKey == @sellerKey AND o.resolved == false
+                    RETURN 1
+                ) }
+                """.trimIndent(),
+                mapOf("sellerKey" to sellerId),
+            ),
+            "count",
+        )
+        return ProductOrderPage(page.map {
+            ProductOrderView(
+                productOrderFrom(it),
+                string(it, "buyerName"),
+                string(it, "buyerPhone"),
+                string(it, "buyerPhotoPath").takeIf { value -> value.isNotBlank() && value != "null" },
+                string(it, "buyerLocation"),
+                string(it, "buyerIntro"),
+            )
+        }, next, openCount)
+    }
+
+    override fun updateProductOrderResolved(id: String, sellerId: String, resolved: Boolean): ProductOrderView? {
+        val row = first(
+            """
+            FOR o IN $PRODUCT_ORDERS
+              FILTER o._key == @id AND o.sellerKey == @sellerKey
+              LET buyer = DOCUMENT("$USERS", o.buyerKey)
+              FILTER buyer != null
+              UPDATE o WITH { resolved: @resolved } IN $PRODUCT_ORDERS
+              RETURN MERGE(NEW, {
+                buyerName: buyer.name,
+                buyerPhone: buyer.phone,
+                buyerPhotoPath: buyer.profilePhotoPath,
+                buyerLocation: buyer.location,
+                buyerIntro: buyer.intro
+              })
+            """.trimIndent(),
+            mapOf("id" to id, "sellerKey" to sellerId, "resolved" to resolved),
+        ) ?: return null
+        return ProductOrderView(
+            productOrderFrom(row),
+            string(row, "buyerName"),
+            string(row, "buyerPhone"),
+            string(row, "buyerPhotoPath").takeIf { it.isNotBlank() && it != "null" },
+            string(row, "buyerLocation"),
+            string(row, "buyerIntro"),
+        )
+    }
+
     override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long {
         val row = first(
             """
@@ -2296,6 +2434,13 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("text", message.text)
         doc.addAttribute("photoPaths", message.photoPaths)
         doc.addAttribute("createdAt", message.createdAt)
+        message.attachment?.let { attachment ->
+            doc.addAttribute("attachmentType", attachment.type)
+            doc.addAttribute("attachmentProductId", attachment.productId)
+            doc.addAttribute("attachmentProductName", attachment.productName)
+            doc.addAttribute("attachmentPrice", attachment.price)
+            attachment.photoPath?.let { doc.addAttribute("attachmentPhotoPath", it) }
+        }
         val key = db.collection(CHAT_MESSAGES).insertDocument(doc).key
         return message.copy(id = key)
     }
@@ -2590,6 +2735,67 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         lyrics = doc.getAttribute("lyrics")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
     )
 
+    private fun productDocument(product: ProductRecord): BaseDocument =
+        BaseDocument().apply {
+            addAttribute("userKey", product.userId)
+            addAttribute("name", product.name)
+            addAttribute("price", product.price)
+            addAttribute("category", product.category)
+            addAttribute("description", product.description)
+            addAttribute("photoPaths", product.photoPaths)
+            addAttribute("createdAt", product.createdAt)
+        }
+
+    private fun productDocument(key: String, product: ProductRecord): BaseDocument =
+        BaseDocument(key).apply {
+            addAttribute("userKey", product.userId)
+            addAttribute("name", product.name)
+            addAttribute("price", product.price)
+            addAttribute("category", product.category)
+            addAttribute("description", product.description)
+            addAttribute("photoPaths", product.photoPaths)
+            addAttribute("createdAt", product.createdAt)
+        }
+
+    private fun productFrom(doc: BaseDocument) = ProductRecord(
+        id = doc.key,
+        userId = string(doc, "userKey"),
+        name = string(doc, "name"),
+        price = long(doc, "price"),
+        category = string(doc, "category"),
+        description = string(doc, "description"),
+        photoPaths = stringList(doc, "photoPaths"),
+        createdAt = long(doc, "createdAt"),
+    )
+
+    private fun productOrderDocument(order: ProductOrderRecord): BaseDocument =
+        BaseDocument().apply {
+            addAttribute("buyerKey", order.buyerId)
+            addAttribute("sellerKey", order.sellerId)
+            addAttribute("productKey", order.productId)
+            addAttribute("productName", order.productName)
+            addAttribute("price", order.price)
+            addAttribute("contactMethod", order.contactMethod)
+            addAttribute("message", order.message)
+            addAttribute("contactChatId", order.contactChatId)
+            addAttribute("resolved", order.resolved)
+            addAttribute("createdAt", order.createdAt)
+        }
+
+    private fun productOrderFrom(doc: BaseDocument) = ProductOrderRecord(
+        id = doc.key,
+        buyerId = string(doc, "buyerKey"),
+        sellerId = string(doc, "sellerKey"),
+        productId = string(doc, "productKey"),
+        productName = string(doc, "productName"),
+        price = long(doc, "price"),
+        contactMethod = string(doc, "contactMethod"),
+        message = string(doc, "message"),
+        contactChatId = doc.getAttribute("contactChatId")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        resolved = boolean(doc, "resolved"),
+        createdAt = long(doc, "createdAt"),
+    )
+
     private fun escapeLike(value: String): String =
         value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -2842,6 +3048,15 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         text = string(doc, "text"),
         photoPaths = stringList(doc, "photoPaths"),
         createdAt = long(doc, "createdAt"),
+        attachment = string(doc, "attachmentType").takeIf { it.isNotBlank() }?.let { type ->
+            ChatAttachment(
+                type = type,
+                productId = string(doc, "attachmentProductId"),
+                productName = string(doc, "attachmentProductName"),
+                price = long(doc, "attachmentPrice"),
+                photoPath = string(doc, "attachmentPhotoPath").takeIf { it.isNotBlank() && it != "null" },
+            )
+        },
     )
 
     private fun chatReactionFrom(doc: BaseDocument) = ChatReactionRecord(
@@ -2888,6 +3103,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             photoPaths = message.photoPaths,
             createdAt = message.createdAt,
             reactions = chatReactionCounts(message.id, viewerId),
+            attachment = message.attachment,
         )
     }
 
@@ -2976,6 +3192,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val QUESTION_ANSWERS = "questionAnswers"
         private const val FEATURE_SUGGESTIONS = "featureSuggestions"
         private const val FEATURE_VOTES = "featureVotes"
+        private const val PRODUCTS = "products"
+        private const val PRODUCT_ORDERS = "productOrders"
         private const val CHATS = "chats"
         private const val CHAT_MEMBERS = "chatMembers"
         private const val CHAT_MESSAGES = "chatMessages"

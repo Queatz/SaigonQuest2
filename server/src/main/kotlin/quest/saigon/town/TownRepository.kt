@@ -45,6 +45,14 @@ interface TownRepository {
     fun postsByUser(userId: String, cursor: String?, limit: Int): OwnedPostPage
     fun postsByAuthor(userId: String, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
     fun countPostsByAuthor(userId: String, viewerId: String? = null): Long
+    fun insertProduct(product: ProductRecord): ProductRecord
+    fun findProduct(id: String): ProductRecord?
+    fun updateProduct(product: ProductRecord): ProductRecord?
+    fun deleteProduct(id: String): ProductRecord?
+    fun productsByUser(userId: String, cursor: String?, limit: Int): ProductPage
+    fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord
+    fun productOrdersForSeller(sellerId: String, cursor: String?, limit: Int): ProductOrderPage
+    fun updateProductOrderResolved(id: String, sellerId: String, resolved: Boolean): ProductOrderView?
     fun recordView(id: String)
     fun recordReplyClick(id: String)
     fun recordShareClick(id: String)

@@ -14,114 +14,14 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val body = el("div", "page-body")
     val error = el("p", "form-error")
     error.asDynamic().hidden = true
-    val photos = mutableListOf<ComposerPhoto>()
-    var selectedPhoto = 0
+    val photoPicker = PhotoPicker(
+        crop916 = true,
+        onError = { key -> show(error, Town.t(key)) },
+        onPhotoAdded = { error.asDynamic().hidden = true },
+    )
+    val photos = photoPicker.photos
     var selectedAvatar: String? = null
     var selectedMusicId: String? = null
-
-    val photosWrap = el("div", "composer-photos")
-    val stage = el("div", "composer-photo-stage")
-    val upload = el("button", "upload")
-    upload.setAttribute("type", "button")
-    val preview = el("img", "upload-preview")
-    preview.asDynamic().hidden = true
-    upload.appendChild(preview)
-    val label = el("span", "upload-label", text = Town.t("uploadPrompt1"))
-    upload.appendChild(label)
-    rotateUploadPrompts(label)
-    val remove = el("button", "icon-btn composer-photo-remove", text = "🗑️")
-    remove.setAttribute("type", "button")
-    remove.setAttribute("aria-label", Town.t("removePhoto"))
-    remove.asDynamic().hidden = true
-    val thumbs = el("div", "photo-thumbs")
-    thumbs.asDynamic().hidden = true
-    val picker = el("input")
-    picker.setAttribute("type", "file")
-    picker.setAttribute("accept", "image/*")
-    picker.setAttribute("multiple", "multiple")
-    picker.asDynamic().hidden = true
-    stage.appendChild(upload)
-    stage.appendChild(remove)
-    photosWrap.appendChild(stage)
-    photosWrap.appendChild(thumbs)
-
-    fun refreshPhotos() {
-        if (photos.isEmpty()) {
-            preview.removeAttribute("src")
-            preview.asDynamic().hidden = true
-            label.asDynamic().hidden = false
-            remove.asDynamic().hidden = true
-            thumbs.asDynamic().hidden = true
-            thumbs.clear()
-            selectedPhoto = 0
-            return
-        }
-        selectedPhoto = selectedPhoto.coerceIn(0, photos.lastIndex)
-        preview.setAttribute("src", photos[selectedPhoto].url)
-        preview.asDynamic().hidden = false
-        label.asDynamic().hidden = true
-        remove.asDynamic().hidden = false
-        thumbs.asDynamic().hidden = false
-        renderPhotoThumbs(thumbs, photos, selectedPhoto, photos.size < Limits.PHOTOS_MAX, { index ->
-            selectedPhoto = index
-            refreshPhotos()
-        }, { from, to ->
-            if (from == to || from !in photos.indices || to !in photos.indices) return@renderPhotoThumbs
-            val moved = photos.removeAt(from)
-            photos.add(to, moved)
-            selectedPhoto = to
-            refreshPhotos()
-        }, {
-            picker.asDynamic().click()
-        })
-    }
-
-    fun removeSelectedPhoto() {
-        if (selectedPhoto !in photos.indices) return
-        val gone = photos.removeAt(selectedPhoto)
-        window.asDynamic().URL.revokeObjectURL(gone.url)
-        if (selectedPhoto > photos.lastIndex) selectedPhoto = photos.lastIndex.coerceAtLeast(0)
-        refreshPhotos()
-    }
-
-    fun addPhotoFiles(list: dynamic) {
-        if (list == null || list == undefined) return
-        val length = list.length as Int
-        val remaining = Limits.PHOTOS_MAX - photos.size
-        if (remaining <= 0) {
-            show(error, Town.t("tooManyPhotos"))
-            return
-        }
-        if (length > remaining) show(error, Town.t("tooManyPhotos"))
-        val take = minOf(length, remaining)
-        fun next(i: Int) {
-            if (i >= take) return
-            val file = list[i] ?: return next(i + 1)
-            preparePhoto(file, crop916 = true, { blob ->
-                if (photos.size >= Limits.PHOTOS_MAX) return@preparePhoto
-                photos += ComposerPhoto(
-                    blob = blob,
-                    url = window.asDynamic().URL.createObjectURL(blob) as String,
-                )
-                selectedPhoto = photos.lastIndex
-                error.asDynamic().hidden = true
-                refreshPhotos()
-                next(i + 1)
-            }, {
-                error.textContent = Town.t("invalidPhoto")
-                error.asDynamic().hidden = false
-                next(i + 1)
-            })
-        }
-        next(0)
-    }
-
-    upload.onClick { if (photos.isEmpty()) picker.asDynamic().click() }
-    remove.onClick { removeSelectedPhoto() }
-    picker.asDynamic().onchange = {
-        addPhotoFiles(picker.asDynamic().files)
-        picker.asDynamic().value = ""
-    }
 
     val message = el("textarea")
     message.setAttribute("maxlength", Limits.MESSAGE_MAX.toString())
@@ -346,8 +246,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
         }
     }
 
-    body.appendChild(photosWrap)
-    body.appendChild(picker)
+    body.appendChild(photoPicker.root)
     body.appendChild(messageLabel)
     body.appendChild(communities.first)
     body.appendChild(location.root)
@@ -368,9 +267,128 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     return shell
 }
 
-private class ComposerPhoto(val blob: dynamic, val url: String)
+internal class ComposerPhoto(val blob: dynamic?, val url: String, val existingPath: String? = null)
 
-private fun renderPhotoThumbs(
+internal class PhotoPicker(
+    private val crop916: Boolean,
+    private val cropSquare: Boolean = false,
+    initialPhotos: List<ComposerPhoto> = emptyList(),
+    wrapperClass: String = "composer-photos",
+    uploadPrompt: String = Town.t("uploadPrompt1"),
+    rotatePrompts: Boolean = false,
+    private val onError: (String) -> Unit,
+    private val onPhotoAdded: () -> Unit = {},
+) {
+    val photos = initialPhotos.toMutableList()
+    val root = el("div", wrapperClass)
+    private val stage = el("div", "composer-photo-stage")
+    private val upload = el("button", "upload")
+    private val preview = el("img", "upload-preview")
+    private val label = el("span", "upload-label", text = uploadPrompt)
+    private val remove = el("button", "icon-btn composer-photo-remove", text = "🗑️")
+    private val thumbs = el("div", "photo-thumbs")
+    private val input = el("input")
+    private var selectedPhoto = 0
+
+    init {
+        upload.setAttribute("type", "button")
+        preview.asDynamic().hidden = true
+        upload.appendChild(preview)
+        upload.appendChild(label)
+        if (rotatePrompts) rotateUploadPrompts(label)
+        remove.setAttribute("type", "button")
+        remove.setAttribute("aria-label", Town.t("removePhoto"))
+        remove.asDynamic().hidden = true
+        thumbs.asDynamic().hidden = true
+        input.setAttribute("type", "file")
+        input.setAttribute("accept", "image/*")
+        input.setAttribute("multiple", "multiple")
+        input.asDynamic().hidden = true
+        stage.appendChild(upload)
+        stage.appendChild(remove)
+        root.appendChild(stage)
+        root.appendChild(thumbs)
+        root.appendChild(input)
+        upload.onClick { if (photos.isEmpty()) input.asDynamic().click() }
+        remove.onClick { removeSelectedPhoto() }
+        input.asDynamic().onchange = {
+            addPhotoFiles(input.asDynamic().files)
+            input.asDynamic().value = ""
+        }
+        refreshPhotos()
+    }
+
+    private fun refreshPhotos() {
+        if (photos.isEmpty()) {
+            preview.removeAttribute("src")
+            preview.asDynamic().hidden = true
+            label.asDynamic().hidden = false
+            remove.asDynamic().hidden = true
+            thumbs.asDynamic().hidden = true
+            thumbs.clear()
+            selectedPhoto = 0
+            return
+        }
+        selectedPhoto = selectedPhoto.coerceIn(0, photos.lastIndex)
+        preview.setAttribute("src", photos[selectedPhoto].url)
+        preview.asDynamic().hidden = false
+        label.asDynamic().hidden = true
+        remove.asDynamic().hidden = false
+        thumbs.asDynamic().hidden = false
+        renderPhotoThumbs(thumbs, photos, selectedPhoto, photos.size < Limits.PHOTOS_MAX, { index ->
+            selectedPhoto = index
+            refreshPhotos()
+        }, { from, to ->
+            if (from == to || from !in photos.indices || to !in photos.indices) return@renderPhotoThumbs
+            val moved = photos.removeAt(from)
+            photos.add(to, moved)
+            selectedPhoto = to
+            refreshPhotos()
+        }, {
+            input.asDynamic().click()
+        })
+    }
+
+    private fun removeSelectedPhoto() {
+        if (selectedPhoto !in photos.indices) return
+        val removed = photos.removeAt(selectedPhoto)
+        if (removed.existingPath == null && removed.blob != null) {
+            window.asDynamic().URL.revokeObjectURL(removed.url)
+        }
+        selectedPhoto = selectedPhoto.coerceAtMost(photos.lastIndex.coerceAtLeast(0))
+        refreshPhotos()
+    }
+
+    private fun addPhotoFiles(list: dynamic) {
+        if (list == null || list == undefined) return
+        val length = list.length as Int
+        val remaining = Limits.PHOTOS_MAX - photos.size
+        if (remaining <= 0) {
+            onError("tooManyPhotos")
+            return
+        }
+        if (length > remaining) onError("tooManyPhotos")
+        val take = minOf(length, remaining)
+        fun next(index: Int) {
+            if (index >= take) return
+            val file = list[index] ?: return next(index + 1)
+            preparePhoto(file, crop916 = crop916, done = { blob ->
+                if (photos.size >= Limits.PHOTOS_MAX) return@preparePhoto
+                photos += ComposerPhoto(blob, window.asDynamic().URL.createObjectURL(blob) as String)
+                selectedPhoto = photos.lastIndex
+                onPhotoAdded()
+                refreshPhotos()
+                next(index + 1)
+            }, fail = {
+                onError("invalidPhoto")
+                next(index + 1)
+            }, cropSquare = cropSquare)
+        }
+        next(0)
+    }
+}
+
+internal fun renderPhotoThumbs(
     row: HTMLElement,
     photos: List<ComposerPhoto>,
     selected: Int,

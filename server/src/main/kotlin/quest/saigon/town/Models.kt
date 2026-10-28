@@ -198,6 +198,52 @@ data class OwnedPostPage(
     val nextCursor: String?,
 )
 
+data class ProductRecord(
+    val id: String,
+    val userId: String,
+    val name: String,
+    val price: Long,
+    val category: String,
+    val description: String,
+    val photoPaths: List<String>,
+    val createdAt: Long,
+)
+
+data class ProductPage(
+    val items: List<ProductRecord>,
+    val count: Long,
+    val nextCursor: String?,
+)
+
+data class ProductOrderRecord(
+    val id: String,
+    val buyerId: String,
+    val sellerId: String,
+    val productId: String,
+    val productName: String,
+    val price: Long,
+    val contactMethod: String,
+    val message: String,
+    val contactChatId: String? = null,
+    val resolved: Boolean = false,
+    val createdAt: Long,
+)
+
+data class ProductOrderView(
+    val order: ProductOrderRecord,
+    val buyerName: String,
+    val buyerPhone: String,
+    val buyerPhotoPath: String?,
+    val buyerLocation: String,
+    val buyerIntro: String,
+)
+
+data class ProductOrderPage(
+    val items: List<ProductOrderView>,
+    val nextCursor: String?,
+    val openCount: Long = 0,
+)
+
 data class DayStats(
     val day: String,
     val visitorVisits: Long = 0,
@@ -281,6 +327,7 @@ data class NotificationPage(
 )
 
 object NotificationType {
+    const val PRODUCT_ORDER = "product_order"
     const val POST_COMMENT = "post_comment"
     const val THREAD_COMMENT = "thread_comment"
     const val EVENT_JOINED = "event_joined"
@@ -334,6 +381,15 @@ data class ChatMessageRecord(
     val text: String,
     val photoPaths: List<String> = emptyList(),
     val createdAt: Long,
+    val attachment: ChatAttachment? = null,
+)
+
+data class ChatAttachment(
+    val type: String,
+    val productId: String,
+    val productName: String,
+    val price: Long,
+    val photoPath: String? = null,
 )
 
 data class ChatReactionRecord(
@@ -396,6 +452,7 @@ data class ChatMessageItem(
     val photoPaths: List<String>,
     val createdAt: Long,
     val reactions: List<ReactionCount> = emptyList(),
+    val attachment: ChatAttachment? = null,
 )
 
 data class ChatMessagePage(

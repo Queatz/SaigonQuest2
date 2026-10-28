@@ -221,6 +221,8 @@ class TownRulesTest {
         )
         assertEquals("I'm down", NotificationCopy.body("I'm down"))
         assertEquals("/p/abc123", NotificationCopy.path("abc123"))
+        assertEquals("/profile/orders", NotificationCopy.path("product_order", "order123"))
+        assertEquals("Mai placed an order for Ceramic cup", NotificationCopy.title(Language.EN, "product_order", "Mai", "Ceramic cup"))
         assertEquals(AppRoute.Post("abc123"), matchAppRoute(NotificationCopy.path("abc123")))
     }
 

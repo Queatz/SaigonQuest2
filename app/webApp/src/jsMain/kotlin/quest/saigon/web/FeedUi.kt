@@ -943,6 +943,7 @@ internal fun openMiniProfile(
         })
     }
     body.appendChild(head)
+    if (userId.isNotBlank() && router != null) body.appendChild(miniProfileProducts(userId, router, host))
     val countHead = el("h3", "profile-sheet-count")
     countHead.asDynamic().hidden = true
     val grid = el("div", "location-sheet-grid")
@@ -998,7 +999,7 @@ internal fun openMiniProfile(
 
 private val monthNames = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-private fun shortPostTime(createdAt: Long): String {
+internal fun shortPostTime(createdAt: Long): String {
     val now = num(js("Date.now()")).toLong()
     return PostAge.relative(createdAt, now, Town.language) ?: absolutePostDate(createdAt)
 }

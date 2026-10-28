@@ -46,6 +46,9 @@ import quest.saigon.town.FeedItem
 import quest.saigon.town.MusicRecord
 import quest.saigon.town.MusicStatus
 import quest.saigon.town.OwnedPost
+import quest.saigon.town.ProductOrderRecord
+import quest.saigon.town.ProductOrderView
+import quest.saigon.town.ProductRecord
 import quest.saigon.town.PostRecord
 import quest.saigon.town.PushSubscriptionRecord
 import quest.saigon.town.TownException
@@ -209,6 +212,169 @@ fun Route.townApi(services: TownServices) {
                 "nextCursor" to page.nextCursor,
             ),
         )
+    }
+
+    get("/products") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.products.list(user.id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(mapOf("products" to page.items.map(::productPayload), "count" to page.count, "nextCursor" to page.nextCursor))
+    }
+
+    get("/me/products") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.products.list(user.id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(mapOf("products" to page.items.map(::productPayload), "count" to page.count, "nextCursor" to page.nextCursor))
+    }
+
+    get("/users/{id}/products") {
+        val id = call.parameters["id"].orEmpty()
+        if (services.repo.findUser(id) == null) return@get call.fail("not_found")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.products.list(id, call.request.queryParameters["cursor"], limit)
+        call.respondJson(mapOf("products" to page.items.map(::productPayload), "count" to page.count, "nextCursor" to page.nextCursor))
+    }
+
+    get("/products/{id}") {
+        val product = services.repo.findProduct(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        call.respondJson(productPayload(product))
+    }
+
+    post("/products") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val parts = call.formParts()
+        val price = try {
+            parseVnd(parts.text("price")) ?: return@post call.fail("invalid_product_price")
+        } catch (_: TownException) {
+            return@post call.fail("invalid_product_price")
+        }
+        val paths = try {
+            productPhotoPaths(services, parts.files("photos"))
+        } catch (_: Exception) {
+            return@post call.fail("invalid_photo")
+        }
+        val product = try {
+            services.products.create(user, parts.text("name"), price, parts.text("category"), parts.text("description"), paths)
+        } catch (error: TownException) {
+            paths.forEach(services.uploads::delete)
+            return@post call.fail(error.code)
+        }
+        call.respondJson(productPayload(product), HttpStatusCode.Created)
+    }
+
+    patch("/products/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val id = call.parameters["id"].orEmpty()
+        val current = services.repo.findProduct(id) ?: return@patch call.fail("not_found")
+        if (current.userId != user.id) return@patch call.fail("not_found")
+        val parts = call.formParts()
+        val price = try {
+            parseVnd(parts.text("price")) ?: return@patch call.fail("invalid_product_price")
+        } catch (_: TownException) {
+            return@patch call.fail("invalid_product_price")
+        }
+        val uploadedPaths = try {
+            productPhotoPaths(services, parts.files("photos"))
+        } catch (_: Exception) {
+            return@patch call.fail("invalid_photo")
+        }
+        val photoOrder = parts.text("photoOrder")
+        val paths = try {
+            if (photoOrder.isBlank()) {
+                when {
+                    uploadedPaths.isNotEmpty() -> uploadedPaths
+                    parts.text("removePhotos") == "true" -> emptyList()
+                    else -> current.photoPaths
+                }
+            } else {
+                val order = Jsons.parse(photoOrder)
+                if (!order.isArray) throw TownException("invalid_photo")
+                val usedUploads = mutableSetOf<Int>()
+                val orderedPaths = mutableListOf<String>()
+                order.forEach { item ->
+                    val token = item.asText()
+                    if (token.startsWith("new:")) {
+                        val index = token.removePrefix("new:").toIntOrNull()
+                        if (index == null || index !in uploadedPaths.indices || !usedUploads.add(index)) {
+                            throw TownException("invalid_photo")
+                        }
+                        orderedPaths += uploadedPaths[index]
+                    } else {
+                        val path = current.photoPaths.firstOrNull { "/media/$it" == token }
+                            ?: throw TownException("invalid_photo")
+                        if (orderedPaths.contains(path)) throw TownException("invalid_photo")
+                        orderedPaths += path
+                    }
+                }
+                if (usedUploads.size != uploadedPaths.size) throw TownException("invalid_photo")
+                if (orderedPaths.size > Limits.PHOTOS_MAX) throw TownException("too_many_photos")
+                orderedPaths
+            }
+        } catch (error: TownException) {
+            uploadedPaths.forEach(services.uploads::delete)
+            return@patch call.fail(error.code)
+        } catch (_: Exception) {
+            uploadedPaths.forEach(services.uploads::delete)
+            return@patch call.fail("invalid_photo")
+        }
+        val product = try {
+            services.products.update(user, id, parts.text("name"), price, parts.text("category"), parts.text("description"), paths)
+        } catch (error: TownException) {
+            (paths - current.photoPaths.toSet()).forEach(services.uploads::delete)
+            return@patch call.fail(error.code)
+        }
+        call.respondJson(productPayload(product))
+    }
+
+    delete("/products/{id}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        try {
+            services.products.delete(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    post("/products/{id}/orders") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val order = try {
+            services.products.order(
+                user,
+                call.parameters["id"].orEmpty(),
+                Jsons.text(body, "contactMethod"),
+                Jsons.text(body, "message"),
+            )
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(productOrderPayload(order), HttpStatusCode.Created)
+    }
+
+    get("/me/orders") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val page = services.products.orders(user, call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "orders" to page.items.map(::productOrderViewPayload),
+                "nextCursor" to page.nextCursor,
+                "openCount" to page.openCount,
+            ),
+        )
+    }
+
+    patch("/orders/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val view = try {
+            services.products.resolve(user, call.parameters["id"].orEmpty(), body.path("resolved").asBoolean(false))
+        } catch (error: TownException) {
+            return@patch call.fail(error.code)
+        }
+        call.respondJson(productOrderViewPayload(view))
     }
 
     get("/features") {
@@ -1604,6 +1770,39 @@ private fun avatarPayload(avatar: AvatarRecord) = mapOf(
     "createdAt" to avatar.createdAt,
 )
 
+private fun productPayload(product: ProductRecord) = mapOf(
+    "id" to product.id,
+    "userId" to product.userId,
+    "name" to product.name,
+    "price" to product.price,
+    "category" to product.category,
+    "description" to product.description,
+    "photoUrls" to product.photoPaths.map { "/media/$it" },
+    "createdAt" to product.createdAt,
+)
+
+private fun productOrderPayload(order: ProductOrderRecord) = mapOf(
+    "id" to order.id,
+    "buyerId" to order.buyerId,
+    "sellerId" to order.sellerId,
+    "productId" to order.productId,
+    "productName" to order.productName,
+    "price" to order.price,
+    "contactMethod" to order.contactMethod,
+    "message" to order.message,
+    "contactChatId" to order.contactChatId,
+    "resolved" to order.resolved,
+    "createdAt" to order.createdAt,
+)
+
+private fun productOrderViewPayload(view: ProductOrderView) = productOrderPayload(view.order) + mapOf(
+    "buyerName" to view.buyerName,
+    "buyerPhone" to view.buyerPhone,
+    "buyerPhotoUrl" to view.buyerPhotoPath?.let { "/api/users/${view.order.buyerId}/photo" },
+    "buyerLocation" to view.buyerLocation,
+    "buyerIntro" to view.buyerIntro,
+)
+
 private fun musicPayload(music: MusicRecord) = mapOf(
     "id" to music.id,
     "name" to music.name,
@@ -1868,6 +2067,20 @@ private fun clientIp(call: ApplicationCall, trustProxy: Boolean): String {
 }
 
 private suspend fun ApplicationCall.fileBytes(field: String): ByteArray? = formParts().file(field)
+
+private fun productPhotoPaths(services: TownServices, photos: List<ByteArray>): List<String> {
+    if (photos.size > Limits.PHOTOS_MAX) throw TownException("too_many_photos")
+    val paths = mutableListOf<String>()
+    try {
+        photos.forEach { photo ->
+            paths += services.uploads.writeProduct(services.images.prepareProductPhoto(photo))
+        }
+    } catch (error: Exception) {
+        paths.forEach(services.uploads::delete)
+        throw error
+    }
+    return paths
+}
 
 private fun deletePostPhotos(services: TownServices, post: PostRecord) {
     services.uploads.delete(post.photoPath)

@@ -152,6 +152,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(intro.root)
     body.appendChild(error)
     body.appendChild(communitiesPanel(shell, router))
+    body.appendChild(productsPreview(shell, router))
     body.appendChild(el("h3", text = Town.t("createAvatar")))
     body.appendChild(avatarStudio(shell, router, me))
     body.appendChild(musicStudio(shell, router))

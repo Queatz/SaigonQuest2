@@ -17,6 +17,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     val loggedOutGate = Town.signedOut && (
         route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts ||
             route == AppRoute.MyCommunities || route == AppRoute.MyMusic ||
+            route == AppRoute.MyProducts || route == AppRoute.MyOrders ||
             route == AppRoute.FeatureSuggestions ||
             route == AppRoute.Messages || route is AppRoute.Chat
         )
@@ -28,6 +29,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.MyPosts -> myPostsScreen(router)
         route == AppRoute.MyCommunities -> myCommunitiesScreen(router)
         route == AppRoute.MyMusic -> myMusicScreen(router)
+        route == AppRoute.MyProducts -> myProductsScreen(router)
+        route == AppRoute.MyOrders -> myOrdersScreen(router)
         route == AppRoute.FeatureSuggestions -> featureSuggestionsScreen(router)
         route == AppRoute.Stats -> statsScreen(router)
         route == AppRoute.Admin -> adminScreen(router)
@@ -44,6 +47,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             AppRoute.MyPosts -> "/profile/posts"
             AppRoute.MyCommunities -> "/profile/communities"
             AppRoute.MyMusic -> "/profile/music"
+            AppRoute.MyProducts -> "/profile/products"
+            AppRoute.MyOrders -> "/profile/orders"
             AppRoute.FeatureSuggestions -> "/profile/features"
             AppRoute.Messages -> "/messages"
             is AppRoute.Chat -> "/messages/${route.id}"
