@@ -904,6 +904,13 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(placePayload(details))
     }
 
+    get("/places/{id}") {
+        val viewer = call.user(services)
+        val place = services.repo.findPlace(call.parameters["id"].orEmpty(), viewer?.id)
+            ?: return@get call.fail("not_found")
+        call.respondJson(placePayload(place))
+    }
+
     get("/places/posts") {
         val name = call.request.queryParameters["name"]?.trim().orEmpty()
         if (name.isEmpty() || name.length > Limits.LOCATION_MAX) return@get call.fail("invalid_location")
@@ -1242,6 +1249,19 @@ fun Route.townApi(services: TownServices) {
                 "communities" to services.repo.communitiesForUser(user.id).map { community ->
                     communityPayload(community, viewer != null && services.repo.isMember(community.id, viewer.id))
                 },
+            ),
+        )
+    }
+
+    get("/users/{id}") {
+        val user = services.repo.findUser(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        call.respondJson(
+            mapOf(
+                "id" to user.id,
+                "name" to user.name,
+                "photoUrl" to user.profilePhotoPath?.let { "/api/users/${user.id}/photo" },
+                "location" to user.location,
+                "intro" to user.intro,
             ),
         )
     }

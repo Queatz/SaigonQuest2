@@ -69,6 +69,12 @@ class CommunityBehaviorTest {
             setBody("""{"name":"Minh","phone":"0904440002","password":"secretpass"}""")
         }
         val linhId = mapper.readTree(linh.get("/api/me").bodyAsText()).path("id").asText()
+        val publicProfile = mapper.readTree(linh.get("/api/users/$linhId").bodyAsText())
+        assertEquals(linhId, publicProfile.path("id").asText())
+        assertEquals("Linh", publicProfile.path("name").asText())
+        assertFalse(publicProfile.has("phone"))
+        assertFalse(publicProfile.has("passwordHash"))
+        assertEquals(HttpStatusCode.NotFound, linh.get("/api/users/missing").status)
 
         val suggested = linh.post("/api/communities/suggest") {
             contentType(ContentType.Application.Json)

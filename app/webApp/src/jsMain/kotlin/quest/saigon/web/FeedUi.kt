@@ -942,6 +942,9 @@ internal fun openMiniProfile(
             }
         })
     }
+    if (userId.isNotBlank()) {
+        head.appendChild(copyLinkButton(host, "/u/$userId", "text-button profile-sheet-copy-link"))
+    }
     body.appendChild(head)
     if (userId.isNotBlank() && router != null) body.appendChild(miniProfileProducts(userId, router, host))
     val countHead = el("h3", "profile-sheet-count")

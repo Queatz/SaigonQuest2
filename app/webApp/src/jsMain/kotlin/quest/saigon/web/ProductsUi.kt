@@ -488,6 +488,7 @@ private fun productEditorDialog(host: HTMLElement, router: HistoryRouter, produc
 internal fun openProductDetails(host: HTMLElement, router: HistoryRouter, product: dynamic) {
     if (host.asDynamic().querySelector(".product-sheet") != null) return
     val name = product.name as? String ?: ""
+    val productId = product.id as? String ?: ""
     val ownerId = product.userId as? String ?: ""
     val sellerName = product.sellerName as? String ?: ""
     val sellerPhotoUrl = product.sellerPhotoUrl as? String
@@ -504,7 +505,17 @@ internal fun openProductDetails(host: HTMLElement, router: HistoryRouter, produc
     }
     val body = el("div", "product-sheet-body")
     body.appendChild(photos)
-    body.appendChild(el("h2", "product-detail-name", text = name))
+    val title = el("div", "product-detail-title-row")
+    title.appendChild(el("h2", "product-detail-name", text = name))
+    if (productId.isNotBlank()) {
+        val copy = el("button", "icon-btn product-link-copy")
+        copy.setAttribute("type", "button")
+        copy.setAttribute("aria-label", Town.t("copyLink"))
+        copy.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3A5 5 0 0 0 13 2.93l-1.72 1.72m2.72 6.35a5 5 0 0 0-7.07 0l-3 3A5 5 0 0 0 11 21.07l1.72-1.72" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"""
+        copy.onClick { copyLink(host, "/product/$productId") }
+        title.appendChild(copy)
+    }
+    body.appendChild(title)
     val category = product.category as? String
     if (!category.isNullOrBlank()) body.appendChild(el("p", "product-detail-category", text = category))
     body.appendChild(el("p", "product-detail-price", text = productPrice(product.price)))

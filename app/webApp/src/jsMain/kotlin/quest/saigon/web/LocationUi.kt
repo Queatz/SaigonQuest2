@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.encodeLocationToken
 import web.html.HTMLElement
 import web.window.WindowTarget
 import web.window._blank
@@ -28,6 +29,8 @@ internal fun openLocationSheet(
     val canShowMap = lat != null && lng != null && !placeId.isNullOrBlank()
     if (canShowMap) body.appendChild(mapBox)
     body.appendChild(directions)
+    val linkId = placeId?.takeIf { it.isNotBlank() } ?: encodeLocationToken(place)
+    body.appendChild(copyLinkButton(host, "/l/$linkId", "text-button location-sheet-copy-link"))
     body.appendChild(countHead)
     body.appendChild(grid)
     chrome.sheet.appendChild(body)

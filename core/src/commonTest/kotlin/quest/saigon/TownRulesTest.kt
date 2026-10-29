@@ -7,6 +7,16 @@ import kotlin.test.assertTrue
 
 class TownRulesTest {
     @Test
+    fun locationTokensRoundTripNamesAndRejectInvalidTokens() {
+        listOf("Cafe", "  Quán cà phê  ").forEach { name ->
+            assertEquals(name.trim(), decodeLocationToken(encodeLocationToken(name)))
+        }
+        assertTrue(encodeLocationToken("Cafe").matches(Regex("[A-Za-z0-9_-]+")))
+        assertNull(decodeLocationToken("abc!"))
+        assertNull(decodeLocationToken("a"))
+    }
+
+    @Test
     fun vietnameseLocalNumberBecomesZaloDigits() {
         assertEquals("84901234567", PhoneNumbers.canonicalize("090 123 4567"))
         assertEquals("84901234567", PhoneNumbers.canonicalize("+84 90-123-4567"))

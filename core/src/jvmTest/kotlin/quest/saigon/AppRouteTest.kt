@@ -54,6 +54,16 @@ class AppRouteTest {
     }
 
     @Test
+    fun sharedEntityPathsOpenTheirSheets() {
+        assertEquals(AppRoute.User("abc123"), matchAppRoute("/u/abc123"))
+        assertEquals(AppRoute.User("abc123"), matchAppRoute("/u/abc123/"))
+        assertEquals(AppRoute.Product("abc123"), matchAppRoute("/product/abc123"))
+        assertEquals(AppRoute.Product("abc123"), matchAppRoute("/product/abc123/"))
+        assertEquals(AppRoute.Location("abc123"), matchAppRoute("/l/abc123"))
+        assertEquals(AppRoute.Location("abc123"), matchAppRoute("/l/abc123/"))
+    }
+
+    @Test
     fun shopPathOpensTheShop() {
         assertEquals(AppRoute.Shop, matchAppRoute("/shop"))
         assertEquals(AppRoute.Shop, matchAppRoute("/shop/"))
@@ -64,5 +74,7 @@ class AppRouteTest {
         val route = matchAppRoute("/about")
         assertIs<AppRoute.NotFound>(route)
         assertEquals("/about", route.path)
+        assertIs<AppRoute.NotFound>(matchAppRoute("/u/"))
+        assertIs<AppRoute.NotFound>(matchAppRoute("/product/name.with.dot"))
     }
 }

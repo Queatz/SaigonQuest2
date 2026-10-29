@@ -22,7 +22,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             route == AppRoute.Messages || route is AppRoute.Chat
         )
     val page = when {
-        loggedOutGate || route == AppRoute.Home || route is AppRoute.Post ->
+        loggedOutGate || route == AppRoute.Home || route is AppRoute.Post || route is AppRoute.User ||
+            route is AppRoute.Product || route is AppRoute.Location ->
             feedScreen(router, (route as? AppRoute.Post)?.id)
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
@@ -58,6 +59,50 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })
     } else if (route == AppRoute.Home && Town.signedOut) {
         showVisitorWelcome(page)
+    }
+    when (route) {
+        is AppRoute.User -> http("GET", "/api/users/${encodeQuery(route.id)}") { status, text ->
+            if (status == 200 && page.asDynamic().isConnected != false) {
+                val user = parseJson(text)
+                openMiniProfile(
+                    page,
+                    user.name as? String ?: "",
+                    (user.photoUrl as? String)?.let(::prefixServerOrigin),
+                    user.location as? String ?: "",
+                    user.intro as? String ?: "",
+                    user.id as? String ?: route.id,
+                    router,
+                )
+            } else if (status != 200 && page.asDynamic().isConnected != false) {
+                toast(page, Town.t("unavailable"))
+            }
+        }
+        is AppRoute.Product -> http("GET", "/api/products/${encodeQuery(route.id)}") { status, text ->
+            if (status == 200 && page.asDynamic().isConnected != false) {
+                openProductDetails(page, router, parseJson(text))
+            } else if (status != 200 && page.asDynamic().isConnected != false) {
+                toast(page, Town.t("unavailable"))
+            }
+        }
+        is AppRoute.Location -> http("GET", "/api/places/${encodeQuery(route.id)}") { status, text ->
+            if (status == 200 && page.asDynamic().isConnected != false) {
+                val place = parseJson(text)
+                val lat = if (place.lat == null || place.lat == undefined) null else num(place.lat)
+                val lng = if (place.lng == null || place.lng == undefined) null else num(place.lng)
+                val placeId = (place.placeId as? String)?.takeIf { it.isNotBlank() }
+                openLocationSheet(
+                    page,
+                    router,
+                    place.name as? String ?: "",
+                    placeId,
+                    lat,
+                    lng,
+                )
+            } else if (status != 200 && page.asDynamic().isConnected != false) {
+                toast(page, Town.t("unavailable"))
+            }
+        }
+        else -> Unit
     }
 }
 

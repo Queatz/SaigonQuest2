@@ -159,6 +159,17 @@ class EventBehaviorTest {
         now += 1
         postAt(linh, "No id", "Cafe", null)
 
+        val place = mapper.readTree(linh.get("/api/places/ChIJ1").bodyAsText())
+        assertEquals("Cafe", place.path("name").asText())
+        assertEquals("ChIJ1", place.path("placeId").asText())
+        assertEquals(10.77, place.path("lat").asDouble())
+        val nameOnlyPlace = mapper.readTree(linh.get("/api/places/${encodeLocationToken("Cafe")}").bodyAsText())
+        assertEquals("Cafe", nameOnlyPlace.path("name").asText())
+        assertTrue(nameOnlyPlace.path("placeId").isMissingNode || nameOnlyPlace.path("placeId").isNull)
+        val missingToken = encodeLocationToken("Not a real place")
+        assertEquals(HttpStatusCode.NotFound, linh.get("/api/places/$missingToken").status)
+        assertEquals(HttpStatusCode.NotFound, linh.get("/api/places/missing").status)
+
         val matched = mapper.readTree(linh.get("/api/places/posts?name=Cafe&placeId=ChIJ1").bodyAsText())
         assertEquals(2, matched.path("count").asInt())
         assertEquals(2, matched.path("posts").size())

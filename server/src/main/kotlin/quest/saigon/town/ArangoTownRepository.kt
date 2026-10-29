@@ -9,6 +9,7 @@ import com.arangodb.model.PersistentIndexOptions
 import com.arangodb.serde.jackson.JacksonSerde
 import quest.saigon.AppConfig
 import quest.saigon.Limits
+import quest.saigon.decodeLocationToken
 import java.time.LocalDate
 
 class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
@@ -1677,6 +1678,50 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             if (places.size >= limit) break
         }
         return places
+    }
+
+    override fun findPlace(placeId: String, viewerId: String?): PlaceSuggestion? {
+        val location = decodeLocationToken(placeId)
+        val nameOnlyPlace = location?.let {
+            first(
+                """
+                FOR p IN $POSTS
+                  FILTER p.location == @location AND (p.placeId == null OR p.placeId == "")
+                  FILTER ${communityVisibleFilter()}
+                  SORT p.createdAt DESC, p._key DESC
+                  LIMIT 1
+                  RETURN {name: p.location, lat: p.lat, lng: p.lng}
+                """.trimIndent(),
+                mapOf("location" to it, "viewerId" to viewerId.orEmpty()),
+            )?.let { row ->
+                PlaceSuggestion(
+                    name = string(row, "name"),
+                    placeId = null,
+                    lat = doubleOrNull(row, "lat"),
+                    lng = doubleOrNull(row, "lng"),
+                )
+            }
+        }
+        if (nameOnlyPlace != null) return nameOnlyPlace
+
+        return first(
+            """
+            FOR p IN $POSTS
+              FILTER p.placeId == @placeId AND p.location != null AND p.location != ""
+              FILTER ${communityVisibleFilter()}
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT 1
+              RETURN {name: p.location, placeId: p.placeId, lat: p.lat, lng: p.lng}
+            """.trimIndent(),
+            mapOf("placeId" to placeId, "viewerId" to viewerId.orEmpty()),
+        )?.let { row ->
+            PlaceSuggestion(
+                name = string(row, "name"),
+                placeId = optional(row, "placeId"),
+                lat = doubleOrNull(row, "lat"),
+                lng = doubleOrNull(row, "lng"),
+            )
+        }
     }
 
     override fun postsAtPlace(

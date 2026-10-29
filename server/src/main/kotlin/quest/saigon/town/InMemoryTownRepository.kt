@@ -3,6 +3,7 @@ package quest.saigon.town
 import quest.saigon.CallToAction
 import quest.saigon.Limits
 import quest.saigon.PhoneNumbers
+import quest.saigon.decodeLocationToken
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -814,6 +815,31 @@ class InMemoryTownRepository : TownRepository {
                 }
             }
         return places.take(limit)
+    }
+
+    override fun findPlace(placeId: String, viewerId: String?): PlaceSuggestion? {
+        val location = decodeLocationToken(placeId)
+        if (location != null) {
+            val nameOnlyPost = posts.values
+                .filter {
+                    it.location == location && it.placeId.isNullOrBlank() && placePostVisible(it, viewerId)
+                }
+                .maxWithOrNull(compareBy<PostRecord> { it.createdAt }.thenBy { it.id })
+            if (nameOnlyPost != null) {
+                return PlaceSuggestion(
+                    name = nameOnlyPost.location,
+                    placeId = null,
+                    lat = nameOnlyPost.lat,
+                    lng = nameOnlyPost.lng,
+                )
+            }
+        }
+        return posts.values
+            .filter { it.placeId == placeId && it.location.isNotBlank() && placePostVisible(it, viewerId) }
+            .maxWithOrNull(compareBy<PostRecord> { it.createdAt }.thenBy { it.id })
+            ?.let { post ->
+                PlaceSuggestion(name = post.location, placeId = post.placeId, lat = post.lat, lng = post.lng)
+            }
     }
 
     override fun postsAtPlace(

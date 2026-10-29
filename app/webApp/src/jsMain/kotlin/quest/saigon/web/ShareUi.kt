@@ -28,6 +28,25 @@ internal fun shareButton(post: PostCard, host: HTMLElement): HTMLElement =
         }
     }
 
+internal fun copyLinkButton(host: HTMLElement, path: String, className: String = "text-button"): HTMLElement =
+    el("button", className, text = Town.t("copyLink")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { copyLink(host, path) }
+    }
+
+internal fun copyLink(host: HTMLElement, path: String) {
+    val origin = (window.asDynamic().location.origin as? String).orEmpty().trimEnd('/')
+    val link = "$origin$path"
+    try {
+        window.asDynamic().navigator.clipboard.writeText(link).then(
+            { _: dynamic -> toast(host, Town.t("linkCopied")) },
+            { _: dynamic -> toast(host, Town.t("copyLinkFailed")) },
+        )
+    } catch (_: Throwable) {
+        toast(host, Town.t("copyLinkFailed"))
+    }
+}
+
 internal fun openShare(post: PostCard, host: HTMLElement) {
     if (host.asDynamic().querySelector(".share-sheet") != null) return
     val backdrop = el("div", "dialog-backdrop share-sheet")

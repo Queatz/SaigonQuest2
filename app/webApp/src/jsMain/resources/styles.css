@@ -2047,7 +2047,9 @@ button.busy .avatar-spinner {
 }
 
 .location-sheet-directions,
-.profile-sheet-message {
+.profile-sheet-message,
+.location-sheet-copy-link,
+.profile-sheet-copy-link {
     width: 100%;
     flex: 0 0 auto;
 }
@@ -4160,6 +4162,9 @@ span.event-face {
 .product-sheet { display: flex; flex-direction: column; }
 .product-sheet .product-sheet-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 16px 18px; }
 .product-sheet-body .product-sheet-seller { width: 100%; margin: 10px 0; }
+.product-detail-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.product-detail-title-row .product-detail-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.product-link-copy { flex: 0 0 44px; color: var(--text); border-color: var(--line); background: var(--surface); }
 .product-detail-photos { display: flex; gap: 10px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px; scroll-padding: 16px; scroll-snap-type: x mandatory; }
 .product-detail-photo,
 .product-detail-placeholder { width: min(84vw, 420px); height: min(84vw, 420px); flex: 0 0 min(84vw, 420px); border-radius: 16px; object-fit: cover; background: var(--card); scroll-snap-align: center; }
