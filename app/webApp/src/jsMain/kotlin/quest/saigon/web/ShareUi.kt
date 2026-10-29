@@ -34,6 +34,14 @@ internal fun copyLinkButton(host: HTMLElement, path: String, className: String =
         button.onClick { copyLink(host, path) }
     }
 
+internal fun copyLinkIconButton(host: HTMLElement, path: String, className: String): HTMLElement =
+    el("button", "icon-btn $className") { button ->
+        button.setAttribute("type", "button")
+        button.setAttribute("aria-label", Town.t("copyLink"))
+        button.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3A5 5 0 0 0 13 2.93l-1.72 1.72m2.72 6.35a5 5 0 0 0-7.07 0l-3 3A5 5 0 0 0 11 21.07l1.72-1.72" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"""
+        button.onClick { copyLink(host, path) }
+    }
+
 internal fun copyLink(host: HTMLElement, path: String) {
     val origin = (window.asDynamic().location.origin as? String).orEmpty().trimEnd('/')
     val link = "$origin$path"

@@ -2046,13 +2046,15 @@ button.busy .avatar-spinner {
     flex: 0 0 auto;
 }
 
-.location-sheet-directions,
 .profile-sheet-message,
-.location-sheet-copy-link,
 .profile-sheet-copy-link {
     width: 100%;
     flex: 0 0 auto;
 }
+
+.location-sheet-actions { display: flex; align-items: center; gap: 12px; }
+.location-sheet-actions .location-sheet-directions { flex: 1 1 auto; min-width: 0; }
+.location-sheet-copy-link { flex: 0 0 44px; color: var(--text); border-color: var(--line); background: var(--surface); }
 
 .location-sheet-count,
 .profile-sheet-count {

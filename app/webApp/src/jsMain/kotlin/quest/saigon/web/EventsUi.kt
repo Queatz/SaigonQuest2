@@ -238,9 +238,9 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
         }
         val messages = listOf(
             eventsLabel,
-            "🛍️ Search for products",
-            "🫂 Find a community",
-            "🙆 Discover new people",
+            "🛍️ ${Town.t("searchForProducts")}",
+            "🫂 ${Town.t("findACommunity")}",
+            "🙆 ${Town.t("discoverNewPeople")}",
         )
         var index = 0
         fun show() {

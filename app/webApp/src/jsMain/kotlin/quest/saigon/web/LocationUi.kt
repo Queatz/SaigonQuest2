@@ -23,14 +23,16 @@ internal fun openLocationSheet(
     val directions = el("button", "primary location-sheet-directions", text = Town.t("directions"))
     directions.setAttribute("type", "button")
     directions.onClick { window.open(mapsUrl(place, placeId), WindowTarget._blank) }
+    val actions = el("div", "location-sheet-actions")
+    actions.appendChild(directions)
     val countHead = el("h3", "location-sheet-count")
     countHead.asDynamic().hidden = true
     val grid = el("div", "location-sheet-grid")
     val canShowMap = lat != null && lng != null && !placeId.isNullOrBlank()
     if (canShowMap) body.appendChild(mapBox)
-    body.appendChild(directions)
     val linkId = placeId?.takeIf { it.isNotBlank() } ?: encodeLocationToken(place)
-    body.appendChild(copyLinkButton(host, "/l/$linkId", "text-button location-sheet-copy-link"))
+    actions.appendChild(copyLinkIconButton(host, "/l/$linkId", "location-sheet-copy-link"))
+    body.appendChild(actions)
     body.appendChild(countHead)
     body.appendChild(grid)
     chrome.sheet.appendChild(body)
