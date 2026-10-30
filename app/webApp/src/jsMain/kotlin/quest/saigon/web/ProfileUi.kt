@@ -46,7 +46,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     phone.input.asDynamic().value = me.phone
     val location = field(Town.t("yourLocation"), "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
-    val pickedPlace = PlacePick(name = me.location, placeId = me.placeId, lat = me.lat, lng = me.lng)
+    val pickedPlace = PlacePick(name = me.location, placeId = me.placeId, lat = me.lat, lng = me.lng, id = me.locationId)
     val mapBtn = el("button", "icon-btn location-map-btn")
     mapBtn.setAttribute("type", "button")
     mapBtn.setAttribute("aria-label", Town.t("pickLocation"))
@@ -67,6 +67,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
                 placeId = pickedPlace.placeId,
                 lat = pickedPlace.lat,
                 lng = pickedPlace.lng,
+                locationId = pickedPlace.id,
                 intro = intro.value(),
                 language = value,
             )
@@ -87,6 +88,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
                     placeId = pending.placeId,
                     lat = pending.lat,
                     lng = pending.lng,
+                    locationId = pending.locationId,
                     intro = pending.intro,
                 )
                 Town.rememberLanguage(saved.language)
@@ -106,6 +108,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
             phone.value() != me.phone ||
             location.value() != me.location ||
             pickedPlace.placeId != me.placeId ||
+            pickedPlace.id != me.locationId ||
             pickedPlace.lat != me.lat ||
             pickedPlace.lng != me.lng ||
             intro.value() != me.intro
@@ -124,6 +127,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
         payload.phone = phone.value()
         payload.location = location.value()
         payload.placeId = pickedPlace.placeId
+        payload.locationId = pickedPlace.id
         payload.lat = pickedPlace.lat
         payload.lng = pickedPlace.lng
         payload.intro = intro.value()

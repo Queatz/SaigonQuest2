@@ -90,6 +90,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
                 val lat = if (place.lat == null || place.lat == undefined) null else num(place.lat)
                 val lng = if (place.lng == null || place.lng == undefined) null else num(place.lng)
                 val placeId = (place.placeId as? String)?.takeIf { it.isNotBlank() }
+                val customLocationId = (place.id as? String)?.takeIf { it.isNotBlank() }
                 openLocationSheet(
                     page,
                     router,
@@ -97,6 +98,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
                     placeId,
                     lat,
                     lng,
+                    customLocationId = customLocationId,
                 )
             } else if (status != 200 && page.asDynamic().isConnected != false) {
                 toast(page, Town.t("unavailable"))

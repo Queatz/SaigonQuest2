@@ -103,11 +103,23 @@ interface TownRepository {
     fun attendeeIds(postId: String): List<String>
     fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
     fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary
+    fun insertUserLocation(name: String, lat: Double, lng: Double, createdBy: String, createdAt: Long): UserLocationRecord
+    fun searchUserLocations(query: String, limit: Int): List<UserLocationRecord>
+    fun userLocations(): List<UserLocationRecord>
+    fun postedGooglePlaces(viewerId: String?): List<PlaceSuggestion>
+    fun findUserLocation(id: String): UserLocationRecord?
     fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion>
-    fun latestPostPhotoAtPlace(location: String, placeId: String?, viewerId: String?): String?
+    fun latestPostPhotoAtPlace(location: String, placeId: String?, viewerId: String?, locationId: String? = null): String?
     fun findPlace(placeId: String, viewerId: String? = null): PlaceSuggestion?
-    fun postsAtPlace(location: String, placeId: String?, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
-    fun countPostsAtPlace(location: String, placeId: String?, viewerId: String? = null): Long
+    fun postsAtPlace(
+        location: String,
+        placeId: String?,
+        cursor: String?,
+        limit: Int,
+        viewerId: String? = null,
+        locationId: String? = null,
+    ): FeedPage
+    fun countPostsAtPlace(location: String, placeId: String?, viewerId: String? = null, locationId: String? = null): Long
     fun people(cursor: String?, limit: Int): CommunityMemberPage
     fun eventPostsBetween(from: Long, to: Long): List<PostRecord>
     fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean)

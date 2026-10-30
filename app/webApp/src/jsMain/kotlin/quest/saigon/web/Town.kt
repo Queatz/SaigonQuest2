@@ -20,6 +20,7 @@ internal data class Me(
     val placeId: String? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    val locationId: String? = null,
 )
 
 internal data class CommentCard(
@@ -61,6 +62,7 @@ internal data class PostCard(
     val placeId: String? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    val locationId: String? = null,
     val eventStartAt: Long? = null,
     val eventEndAt: Long? = null,
     val eventPrice: Long? = null,
@@ -133,6 +135,7 @@ internal fun meFrom(node: dynamic): Me = Me(
     placeId = (node.placeId as? String)?.takeIf { it.isNotBlank() },
     lat = if (node.lat == null || node.lat == undefined) null else num(node.lat),
     lng = if (node.lng == null || node.lng == undefined) null else num(node.lng),
+    locationId = (node.locationId as? String)?.takeIf { it.isNotBlank() },
     paused = node.paused == true,
     admin = node.admin == true,
 )
@@ -160,8 +163,9 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     communityEmoji = (node.communityEmoji as? String)?.takeIf { it.isNotBlank() },
     communityOnly = node.communityOnly == true,
     placeId = (node.placeId as? String)?.takeIf { it.isNotBlank() },
-    lat = num(node.lat).takeIf { it != 0.0 },
-    lng = num(node.lng).takeIf { it != 0.0 },
+    lat = if (node.lat == null || node.lat == undefined) null else num(node.lat),
+    lng = if (node.lng == null || node.lng == undefined) null else num(node.lng),
+    locationId = (node.locationId as? String)?.takeIf { it.isNotBlank() },
     eventStartAt = num(node.eventStartAt).toLong().takeIf { it > 0 },
     eventEndAt = num(node.eventEndAt).toLong().takeIf { it > 0 },
     eventPrice = num(node.eventPrice).toLong().takeIf { it > 0 },

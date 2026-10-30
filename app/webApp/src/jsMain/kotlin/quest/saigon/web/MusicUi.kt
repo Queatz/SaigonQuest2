@@ -74,7 +74,7 @@ internal fun musicPicker(host: HTMLElement, onSelect: (String?) -> Unit): HTMLEl
         val choice = el("button", "music-choice", text = "🎵 $name")
         choice.setAttribute("type", "button")
         choice.setAttribute("data-id", id)
-        choice.onClick { markSelected(id) }
+        choice.onClick { markSelected(if (selectedId == id) null else id) }
         wrap.appendChild(choice)
         val audioUrl = (track.audioUrl as? String)?.let(::prefixServerOrigin)
         if (track.status == "ready" && !audioUrl.isNullOrBlank()) {

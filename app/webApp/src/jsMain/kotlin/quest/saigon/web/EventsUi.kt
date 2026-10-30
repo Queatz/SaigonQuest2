@@ -26,6 +26,8 @@ internal class PlacePick(
     var placeId: String? = null,
     var lat: Double? = null,
     var lng: Double? = null,
+    var id: String? = null,
+    var postCount: Long = 0,
 )
 
 internal fun bindLocationMapPicker(
@@ -37,7 +39,10 @@ internal fun bindLocationMapPicker(
     communityId: () -> String? = { null },
 ) {
     fun refreshButton() {
-        mapButton.asDynamic().classList.toggle("has-place", !current.placeId.isNullOrBlank())
+        mapButton.asDynamic().classList.toggle(
+            "has-place",
+            !current.placeId.isNullOrBlank() || (current.lat != null && current.lng != null),
+        )
     }
 
     refreshButton()
@@ -47,6 +52,7 @@ internal fun bindLocationMapPicker(
             current.placeId = picked.placeId
             current.lat = picked.lat
             current.lng = picked.lng
+            current.id = picked.id
             input.asDynamic().value = picked.name
             refreshButton()
             onChange()
@@ -56,6 +62,7 @@ internal fun bindLocationMapPicker(
         current.placeId = null
         current.lat = null
         current.lng = null
+        current.id = null
         current.name = (input.asDynamic().value as? String).orEmpty().trim()
         refreshButton()
         onChange()
@@ -188,7 +195,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
                 peopleList.appendChild(peopleRow(people[i], shell, router))
             }
         }
-        mountEventsMap(mapBox, events)
+        mountEventsMap(mapBox, events, readUserLocations(parsed.locations), shell, router)
     }
     fun loadCommunities() {
         http("GET", "/api/communities?limit=50") { status, body ->
@@ -283,7 +290,17 @@ internal fun eventCard(
             place.setAttribute("type", "button")
             place.appendChild(el("span", "event-icon", text = PLACE_ICON))
             place.appendChild(el("span", text = current.location))
-            place.onClick { openLocationSheet(host, router, current.location, current.placeId, current.lat, current.lng) }
+            place.onClick {
+                openLocationSheet(
+                    host,
+                    router,
+                    current.location,
+                    current.placeId,
+                    current.lat,
+                    current.lng,
+                    current.locationId,
+                )
+            }
             details.appendChild(place)
         }
         val price = current.eventPrice
@@ -345,9 +362,12 @@ internal fun openLocationPicker(
     val recentBox = el("div", "place-recent")
     val results = el("div", "place-results")
     val mapBox = el("div", "picker-map")
+    val placeHint = el("p", "hint location-picker-hint")
+    placeHint.asDynamic().hidden = true
     card.appendChild(recentBox)
     card.appendChild(results)
     card.appendChild(mapBox)
+    card.appendChild(placeHint)
     val actions = el("div", "dialog-actions")
     actions.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
         button.setAttribute("type", "button")
@@ -369,6 +389,14 @@ internal fun openLocationPicker(
     var selectedRow: HTMLElement? = null
     var request = 0
     var previewToken = 0
+    var placingLocation = false
+    var locationName = ""
+    fun markSelected(row: HTMLElement) {
+        selectedRow?.asDynamic()?.classList?.remove("selected")
+        row.asDynamic().classList.add("selected")
+        selectedRow = row
+    }
+
     fun pan(place: PlacePick) {
         if (map == null || map == undefined) return
         val lat = place.lat ?: return
@@ -379,7 +407,32 @@ internal fun openLocationPicker(
         map.setCenter(pos)
         map.setZoom(16)
         if (marker != null && marker != undefined) marker.setMap(null)
-        marker = googleHtmlMarker(map, pos, placeMapBubble(place.name, place.placeId))
+        marker = googleHtmlMarker(map, pos, placeMapBubble(place.name, place.placeId, place.lat, place.lng))
+    }
+
+    fun startPlacing(row: HTMLElement) {
+        locationName = (search.asDynamic().value as? String).orEmpty().trim()
+        if (locationName.isBlank()) {
+            placeHint.textContent = Town.t("enterLocationName")
+            placeHint.asDynamic().hidden = false
+            search.asDynamic().focus()
+            return
+        }
+        if (Town.me == null) {
+            showAuthDialog(host, onSuccess = { startPlacing(row) })
+            return
+        }
+        placingLocation = true
+        ++previewToken
+        pending = null
+        if (marker != null && marker != undefined) marker.setMap(null)
+        marker = null
+        confirm.asDynamic().disabled = true
+        confirm.textContent = Town.t("createLocation")
+        placeHint.textContent = Town.t("tapMapToPlace")
+        placeHint.asDynamic().hidden = false
+        mapBox.asDynamic().classList.add("is-placing")
+        markSelected(row)
     }
 
     loadGoogleMaps { ready ->
@@ -390,16 +443,29 @@ internal fun openLocationPicker(
         opts.disableDefaultUI = true
         opts.zoomControl = true
         map = googleMap(mapBox, opts)
+        map.addListener("click", { event: dynamic ->
+            if (!placingLocation) return@addListener
+            val point = event.latLng
+            val lat = num(point.lat())
+            val lng = num(point.lng())
+            val place = PlacePick(locationName, lat = lat, lng = lng)
+            pending = place
+            confirm.asDynamic().disabled = false
+            placeHint.textContent = Town.t("locationPlaced")
+            if (marker != null && marker != undefined) marker.setMap(null)
+            val pos = js("({})")
+            pos.lat = lat
+            pos.lng = lng
+            marker = googleHtmlMarker(map, pos, placeMapBubble(place.name, null, lat, lng))
+        })
         if (current.lat != null && current.lng != null) pan(current)
     }
 
-    fun markSelected(row: HTMLElement) {
-        selectedRow?.asDynamic()?.classList?.remove("selected")
-        row.asDynamic().classList.add("selected")
-        selectedRow = row
-    }
-
     fun preview(place: PlacePick, row: HTMLElement) {
+        placingLocation = false
+        mapBox.asDynamic().classList.remove("is-placing")
+        placeHint.asDynamic().hidden = true
+        confirm.textContent = Town.t("usePlace")
         markSelected(row)
         confirm.asDynamic().disabled = true
         val token = ++previewToken
@@ -415,8 +481,8 @@ internal fun openLocationPicker(
                 if (status == 200) {
                     val parsed = parseJson(body)
                     place.name = (parsed.name as? String)?.takeIf { it.isNotBlank() } ?: place.name
-                    place.lat = num(parsed.lat).takeIf { it != 0.0 }
-                    place.lng = num(parsed.lng).takeIf { it != 0.0 }
+                    place.lat = if (parsed.lat == null || parsed.lat == undefined) null else num(parsed.lat)
+                    place.lng = if (parsed.lng == null || parsed.lng == undefined) null else num(parsed.lng)
                 }
                 ready()
             }
@@ -427,8 +493,47 @@ internal fun openLocationPicker(
 
     confirm.onClick {
         val place = pending ?: return@onClick
+        if (placingLocation) {
+            confirm.asDynamic().disabled = true
+            val payload = js("({})")
+            payload.name = place.name
+            payload.lat = place.lat
+            payload.lng = place.lng
+            http("POST", "/api/places", jsonStringify(payload)) { status, body ->
+                if (status != 201) {
+                    confirm.asDynamic().disabled = false
+                    placeHint.textContent = errorText(body, status)
+                    placeHint.asDynamic().hidden = false
+                    return@http
+                }
+                val created = parseJson(body)
+                onPick(
+                    PlacePick(
+                        name = (created.name as? String).orEmpty(),
+                        placeId = (created.placeId as? String)?.takeIf { it.isNotBlank() },
+                        lat = if (created.lat == null || created.lat == undefined) null else num(created.lat),
+                        lng = if (created.lng == null || created.lng == undefined) null else num(created.lng),
+                        id = (created.id as? String)?.takeIf { it.isNotBlank() },
+                    ),
+                )
+                backdrop.asDynamic().remove()
+            }
+            return@onClick
+        }
         onPick(place)
         backdrop.asDynamic().remove()
+    }
+
+    fun addLocationButton(): HTMLElement {
+        val row = el("button", "chooser-row add-location")
+        row.setAttribute("type", "button")
+        row.appendChild(el("span", "place-thumb emoji add-location-icon", text = "+"))
+        val copy = el("span", "place-row-copy")
+        copy.appendChild(el("strong", text = Town.t("addThisLocation")))
+        copy.appendChild(el("small", text = Town.t("addLocationHint")))
+        row.appendChild(copy)
+        row.onClick { startPlacing(row) }
+        return row
     }
 
     fun placeButton(node: dynamic, recent: Boolean): HTMLElement {
@@ -480,8 +585,9 @@ internal fun openLocationPicker(
                 PlacePick(
                     name = name,
                     placeId = (node.placeId as? String)?.takeIf { it.isNotBlank() },
-                    lat = num(node.lat).takeIf { it != 0.0 },
-                    lng = num(node.lng).takeIf { it != 0.0 },
+                    lat = if (node.lat == null || node.lat == undefined) null else num(node.lat),
+                    lng = if (node.lng == null || node.lng == undefined) null else num(node.lng),
+                    id = (node.id as? String)?.takeIf { it.isNotBlank() },
                 ),
                 row,
             )
@@ -499,7 +605,12 @@ internal fun openLocationPicker(
         val q = if (searching) "&q=${encodeQuery(query)}" else ""
         val community = if (communityId.isNullOrBlank()) "" else "&communityId=${encodeQuery(communityId)}"
         http("GET", "/api/places?$q$community") { status, body ->
-            if (status != 200 || token != request) return@http
+            if (token != request) return@http
+            results.clear()
+            if (status != 200) {
+                if (query.isNotBlank()) results.appendChild(addLocationButton())
+                return@http
+            }
             val parsed = parseJson(body)
             recentBox.clear()
             if (searching) {
@@ -513,10 +624,10 @@ internal fun openLocationPicker(
                     for (i in 0 until recentLen) recentBox.appendChild(placeButton(recent[i], true))
                 }
             }
-            results.clear()
             val places = parsed.places
             val placeLen = places?.length as? Int ?: 0
             for (i in 0 until placeLen) results.appendChild(placeButton(places[i], false))
+            if (query.isNotBlank()) results.appendChild(addLocationButton())
         }
     }
 
@@ -599,12 +710,16 @@ internal class ComposerEvent {
     lateinit var root: HTMLElement
 }
 
-internal fun mapsUrl(location: String, placeId: String?): String {
-    val query = encodeQuery(if (placeId.isNullOrBlank()) "$location ở gần Sài Gòn" else location)
-    return if (placeId.isNullOrBlank()) {
+internal fun mapsUrl(location: String, placeId: String?, lat: Double? = null, lng: Double? = null): String {
+    val place = placeId?.takeIf { it.isNotBlank() }
+    if (place == null && lat != null && lng != null) {
+        return "https://www.google.com/maps?q=$lat,$lng(${encodeQuery(location)})"
+    }
+    val query = encodeQuery(if (place != null) location else "$location ở gần Sài Gòn")
+    return if (place == null) {
         "https://www.google.com/maps/search/?api=1&query=$query"
     } else {
-        "https://www.google.com/maps/search/?api=1&query=$query&query_place_id=${encodeQuery(placeId)}"
+        "https://www.google.com/maps/search/?api=1&query=$query&query_place_id=${encodeQuery(place)}"
     }
 }
 
@@ -817,7 +932,7 @@ internal fun mountPlaceMap(
             val pos = js("{}")
             pos.lat = lat
             pos.lng = lng
-            googleHtmlMarker(map, pos, placeMapBubble(title, placeId))
+            googleHtmlMarker(map, pos, placeMapBubble(title, placeId, lat, lng))
             fun fit() {
                 map.setCenter(pos)
                 map.setZoom(16)
@@ -835,7 +950,7 @@ internal fun mountPlaceMap(
     tryMount()
 }
 
-private fun placeMapBubble(title: String, placeId: String?): HTMLElement {
+private fun placeMapBubble(title: String, placeId: String?, lat: Double? = null, lng: Double? = null): HTMLElement {
     val bubble = el("button", "event-map-bubble")
     bubble.setAttribute("type", "button")
     bubble.setAttribute("aria-label", title)
@@ -844,13 +959,20 @@ private fun placeMapBubble(title: String, placeId: String?): HTMLElement {
     heading.appendChild(el("strong", text = title))
     bubble.appendChild(heading)
     bubble.onClick {
-        window.open(mapsUrl(title, placeId), WindowTarget._blank)
+        window.open(mapsUrl(title, placeId, lat, lng), WindowTarget._blank)
     }
     return bubble
 }
 
-private fun mountEventsMap(host: HTMLElement, events: List<PostCard>) {
+private fun mountEventsMap(
+    host: HTMLElement,
+    events: List<PostCard>,
+    locations: List<PlacePick>,
+    sheetHost: HTMLElement,
+    router: HistoryRouter,
+) {
     val marked = events.filter { it.lat != null && it.lng != null }
+    val markedLocations = locations.filter { it.lat != null && it.lng != null }
     fun tryMount() {
         if (host.asDynamic().isConnected == false) {
             window.asDynamic().requestAnimationFrame { tryMount() }
@@ -870,6 +992,7 @@ private fun mountEventsMap(host: HTMLElement, events: List<PostCard>) {
             opts.zoomControl = true
             val map = googleMap(host, opts)
             val bounds = googleBounds()
+            val customMarkers = mutableListOf<Pair<dynamic, dynamic>>()
             marked.forEach { post ->
                 val pos = js("{}")
                 pos.lat = post.lat
@@ -877,14 +1000,36 @@ private fun mountEventsMap(host: HTMLElement, events: List<PostCard>) {
                 googleHtmlMarker(map, pos, eventMapBubble(post))
                 bounds.extend(pos)
             }
+            markedLocations.forEach { location ->
+                val lat = location.lat ?: return@forEach
+                val lng = location.lng ?: return@forEach
+                val pos = js("{}")
+                pos.lat = lat
+                pos.lng = lng
+                val dot = googleHtmlMarker(map, pos, userLocationDot(location, sheetHost, router))
+                val bubble = googleHtmlMarker(map, pos, userLocationBubble(location, sheetHost, router))
+                customMarkers.add(Pair(dot, bubble))
+                bounds.extend(pos)
+            }
+            fun updateLocationMarkers() {
+                val zoomedIn = num(map.getZoom()) >= 18.0
+                customMarkers.forEach { (dot, bubble) ->
+                    dot.setMap(if (zoomedIn) null else map)
+                    bubble.setMap(if (zoomedIn) map else null)
+                }
+            }
+            map.addListener("zoom_changed", { updateLocationMarkers() })
             fun fit() {
-                if (marked.size == 1) {
+                val total = marked.size + markedLocations.size
+                if (total == 1) {
                     val only = js("{}")
-                    only.lat = marked[0].lat
-                    only.lng = marked[0].lng
+                    val post = marked.firstOrNull()
+                    val location = markedLocations.firstOrNull()
+                    only.lat = post?.lat ?: location?.lat
+                    only.lng = post?.lng ?: location?.lng
                     map.setCenter(only)
                     map.setZoom(15)
-                } else if (marked.size > 1) {
+                } else if (total > 1) {
                     map.fitBounds(bounds)
                 }
             }
@@ -894,11 +1039,62 @@ private fun mountEventsMap(host: HTMLElement, events: List<PostCard>) {
                 fit()
             }
             fit()
+            updateLocationMarkers()
             window.asDynamic().requestAnimationFrame { relayout() }
             window.asDynamic().setTimeout({ relayout() }, 120)
         }
     }
     tryMount()
+}
+
+private fun userLocationDot(location: PlacePick, host: HTMLElement, router: HistoryRouter): HTMLElement {
+    val dot = el("button", "user-location-dot")
+    dot.setAttribute("type", "button")
+    val count = location.postCount.coerceAtLeast(0)
+    dot.setAttribute("aria-label", "${location.name}, ${Town.t("postCount", mapOf("count" to count.toString()))}")
+    dot.textContent = count.coerceAtMost(99).toString()
+    dot.onClick {
+        openLocationSheet(
+            host,
+            router,
+            location.name,
+            location.placeId,
+            location.lat,
+            location.lng,
+            customLocationId = location.id,
+        )
+    }
+    return dot
+}
+
+private fun userLocationBubble(location: PlacePick, host: HTMLElement, router: HistoryRouter): HTMLElement {
+    val bubble = el("button", "event-map-bubble custom-location-bubble")
+    bubble.setAttribute("type", "button")
+    val count = location.postCount.coerceAtLeast(0)
+    bubble.setAttribute("aria-label", "${location.name}, ${Town.t("postCount", mapOf("count" to count.toString()))}")
+    val heading = el("span", "event-map-bubble-title")
+    heading.appendChild(el("span", "event-map-bubble-emoji", text = PLACE_ICON))
+    heading.appendChild(el("strong", text = location.name))
+    bubble.appendChild(heading)
+    bubble.appendChild(
+        el(
+            "span",
+            "event-map-bubble-meta",
+            text = Town.t("postCount", mapOf("count" to count.toString())),
+        ),
+    )
+    bubble.onClick {
+        openLocationSheet(
+            host,
+            router,
+            location.name,
+            location.placeId,
+            location.lat,
+            location.lng,
+            customLocationId = location.id,
+        )
+    }
+    return bubble
 }
 
 private fun loadGoogleMaps(done: (Boolean) -> Unit) {
@@ -1149,4 +1345,27 @@ private fun readPosts(array: dynamic): List<PostCard> {
     val length = array.length as Int
     for (i in 0 until length) posts += postFrom(array[i])
     return posts
+}
+
+private fun readUserLocations(array: dynamic): List<PlacePick> {
+    val locations = mutableListOf<PlacePick>()
+    if (array == null || array == undefined) return locations
+    val length = array.length as? Int ?: return locations
+    for (i in 0 until length) {
+        val place = array[i]
+        val lat = if (place.lat == null || place.lat == undefined) null else num(place.lat)
+        val lng = if (place.lng == null || place.lng == undefined) null else num(place.lng)
+        val postCount = if (place.postCount == null || place.postCount == undefined) 0L else num(place.postCount).toLong()
+        if (lat != null && lng != null) {
+            locations += PlacePick(
+                name = (place.name as? String).orEmpty(),
+                placeId = (place.placeId as? String)?.takeIf { it.isNotBlank() },
+                lat = lat,
+                lng = lng,
+                id = (place.id as? String)?.takeIf { it.isNotBlank() },
+                postCount = postCount,
+            )
+        }
+    }
+    return locations
 }

@@ -15,6 +15,7 @@ data class UserRecord(
     val placeId: String? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    val locationId: String? = null,
 )
 
 data class AdminRecord(
@@ -113,6 +114,7 @@ data class PostRecord(
     val placeId: String? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    val locationId: String? = null,
     val eventStartAt: Long? = null,
     val eventEndAt: Long? = null,
     val eventPrice: Long? = null,
@@ -153,6 +155,7 @@ data class FeedItem(
     val placeId: String? = null,
     val lat: Double? = null,
     val lng: Double? = null,
+    val locationId: String? = null,
     val eventStartAt: Long? = null,
     val eventEndAt: Long? = null,
     val eventPrice: Long? = null,
@@ -547,6 +550,17 @@ data class PlaceSuggestion(
     val photoPath: String? = null,
     val googlePhotoName: String? = null,
     val category: String? = null,
+    val id: String? = null,
+    val custom: Boolean = false,
+)
+
+data class UserLocationRecord(
+    val id: String,
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val createdBy: String,
+    val createdAt: Long,
 )
 
 data class CommunityRecord(

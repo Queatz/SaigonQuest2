@@ -13,6 +13,7 @@ internal fun openLocationSheet(
     placeId: String?,
     lat: Double? = null,
     lng: Double? = null,
+    customLocationId: String? = null,
 ) {
     val place = location.trim()
     if (place.isBlank()) return
@@ -22,15 +23,17 @@ internal fun openLocationSheet(
     val mapBox = el("div", "location-sheet-map")
     val directions = el("button", "primary location-sheet-directions", text = Town.t("directions"))
     directions.setAttribute("type", "button")
-    directions.onClick { window.open(mapsUrl(place, placeId), WindowTarget._blank) }
+    directions.onClick { window.open(mapsUrl(place, placeId, lat, lng), WindowTarget._blank) }
     val actions = el("div", "location-sheet-actions")
     actions.appendChild(directions)
     val countHead = el("h3", "location-sheet-count")
     countHead.asDynamic().hidden = true
     val grid = el("div", "location-sheet-grid")
-    val canShowMap = lat != null && lng != null && !placeId.isNullOrBlank()
+    val canShowMap = lat != null && lng != null
     if (canShowMap) body.appendChild(mapBox)
-    val linkId = placeId?.takeIf { it.isNotBlank() } ?: encodeLocationToken(place)
+    val linkId = placeId?.takeIf { it.isNotBlank() }
+        ?: customLocationId?.takeIf { it.isNotBlank() }
+        ?: encodeLocationToken(place)
     actions.appendChild(copyLinkIconButton(host, "/l/$linkId", "location-sheet-copy-link"))
     body.appendChild(actions)
     body.appendChild(countHead)
@@ -45,9 +48,11 @@ internal fun openLocationSheet(
         if (loading || done) return
         loading = true
         val id = if (placeId.isNullOrBlank()) "" else "&placeId=${encodeQuery(placeId)}"
+        val customId = customLocationId?.takeIf { it.isNotBlank() }
+            ?.let { "&locationId=${encodeQuery(it)}" }.orEmpty()
         val next = cursor
         val more = if (next.isNullOrBlank()) "" else "&cursor=${encodeQuery(next)}"
-        http("GET", "/api/places/posts?name=${encodeQuery(place)}$id$more&limit=24") { status, text ->
+        http("GET", "/api/places/posts?name=${encodeQuery(place)}$id$customId$more&limit=24") { status, text ->
             loading = false
             if (status != 200) {
                 if (grid.childElementCount == 0) {

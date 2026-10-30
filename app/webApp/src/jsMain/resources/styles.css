@@ -2799,6 +2799,30 @@ button.busy .avatar-spinner {
 
 .chooser-row small { color: var(--muted); font-weight: 700; }
 
+.chooser-row.add-location {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.chooser-row.add-location.selected {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+}
+
+.add-location-icon {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--accent);
+    color: var(--accent);
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.location-picker-hint {
+    margin: 8px 0 0;
+}
+
 .chooser-copy {
     flex: 1;
     min-width: 0;
@@ -3463,6 +3487,7 @@ span.event-face {
 
 .events-map .event-map-bubble,
 .events-map .event-map-bubble *,
+.events-map .user-location-dot,
 .picker-map .event-map-bubble,
 .picker-map .event-map-bubble *,
 .location-sheet-map .event-map-bubble,
@@ -3493,6 +3518,35 @@ span.event-face {
     cursor: pointer;
     transform: translate(-50%, calc(-100% - 10px));
 }
+
+.user-location-dot {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 2px 8px rgba(36, 31, 26, .45), 0 0 0 4px rgba(233, 137, 124, .24);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+    transform: translate(-50%, -50%);
+}
+
+.custom-location-bubble {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.picker-map.is-placing { cursor: crosshair; }
 
 .event-map-bubble::after {
     content: "";

@@ -5,6 +5,7 @@ import io.ktor.client.plugins.cookies.HttpCookies
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -25,6 +26,7 @@ import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
 import quest.saigon.town.NotificationType
 import quest.saigon.town.PlaceSuggestion
+import quest.saigon.town.PostRecord
 import quest.saigon.town.SaigonDays
 import quest.saigon.town.TownServices
 import java.awt.Color
@@ -33,6 +35,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class EventBehaviorTest {
@@ -210,11 +213,189 @@ class EventBehaviorTest {
         assertEquals(HttpStatusCode.BadRequest, linh.get("/api/places/posts").status)
     }
 
+    @Test
+    fun eventsMapIncludesPostedGooglePlacesWithCoordinates() = testApplication {
+        var now = 1_700_000_000_000L
+        val services = services({ now })
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        val registered = linh.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905550001","password":"secretpass"}""")
+        }
+        val authorId = mapper.readTree(registered.bodyAsText()).path("id").asText()
+
+        postAt(linh, "First place post", "Place A", "ChIJ1", lat = 10.77, lng = 106.70)
+        now += 1
+        postAt(linh, "Latest place post", "Place A", "ChIJ1", lat = 10.775, lng = 106.705)
+        now += 1
+        postAt(linh, "Second place post", "Place A", "ChIJ2", lat = 10.78, lng = 106.71)
+        now += 1
+        postAt(linh, "No coordinates", "Place A", "ChIJ3", includeCoordinates = false)
+        services.repo.insertPost(
+            PostRecord(
+                id = "",
+                userId = authorId,
+                photoPath = "private.jpg",
+                message = "Private location post",
+                location = "Hidden place",
+                createdAt = now + 1,
+                communityId = "private-community",
+                communityOnly = true,
+                placeId = "ChIJ4",
+                lat = 10.79,
+                lng = 106.72,
+            ),
+        )
+
+        val locations = mapper.readTree(linh.get("/api/events").bodyAsText()).path("locations")
+        fun location(placeId: String) = (0 until locations.size()).map { locations.path(it) }
+            .first { it.path("placeId").asText() == placeId }
+
+        val first = location("ChIJ1")
+        assertEquals("Place A", first.path("name").asText())
+        assertEquals(10.775, first.path("lat").asDouble())
+        assertEquals(106.705, first.path("lng").asDouble())
+        assertEquals(2, first.path("postCount").asInt())
+        val second = location("ChIJ2")
+        assertEquals("Place A", second.path("name").asText())
+        assertEquals(10.78, second.path("lat").asDouble())
+        assertEquals(1, second.path("postCount").asInt())
+        assertFalse((0 until locations.size()).any { locations.path(it).path("placeId").asText() == "ChIJ3" })
+        assertFalse((0 until locations.size()).any { locations.path(it).path("placeId").asText() == "ChIJ4" })
+
+        val guestLocations = mapper.readTree(createClient {}.get("/api/events").bodyAsText()).path("locations")
+        assertTrue((0 until guestLocations.size()).any { guestLocations.path(it).path("placeId").asText() == "ChIJ1" })
+        assertFalse((0 until guestLocations.size()).any { guestLocations.path(it).path("placeId").asText() == "ChIJ4" })
+    }
+
+    @Test
+    fun userCreatedPlacesCanBeCreatedSearchedAndKeepCoordinatesWithoutPlaceId() = testApplication {
+        val services = services { 1_700_000_000_000L }
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        linh.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905550001","password":"secretpass"}""")
+        }
+
+        val created = linh.post("/api/places") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Lantern Alley","lat":10.77,"lng":106.70}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        val createdPlace = mapper.readTree(created.bodyAsText())
+        assertEquals("Lantern Alley", createdPlace.path("name").asText())
+        assertTrue(createdPlace.path("placeId").isMissingNode || createdPlace.path("placeId").isNull)
+        val id = createdPlace.path("id").asText()
+        assertTrue(id.isNotBlank())
+
+        val lookup = mapper.readTree(linh.get("/api/places/$id").bodyAsText())
+        assertEquals("Lantern Alley", lookup.path("name").asText())
+        assertEquals(10.77, lookup.path("lat").asDouble(), 0.001)
+        assertEquals(HttpStatusCode.NotFound, linh.get("/api/places/${encodeLocationToken("Lantern Alley")}").status)
+        val search = mapper.readTree(linh.get("/api/places?q=lantern").bodyAsText()).path("places")
+        assertTrue((0 until search.size()).any { search.path(it).path("id").asText() == id })
+        val events = mapper.readTree(linh.get("/api/events").bodyAsText()).path("locations")
+        assertTrue((0 until events.size()).any { events.path(it).path("id").asText() == id })
+
+        val profile = linh.patch("/api/me") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"location":"Lantern Alley","locationId":"$id","lat":10.77,"lng":106.70}""")
+        }
+        assertEquals(HttpStatusCode.OK, profile.status)
+        val savedProfile = mapper.readTree(profile.bodyAsText())
+        assertTrue(savedProfile.path("placeId").isMissingNode || savedProfile.path("placeId").isNull)
+        assertEquals(id, savedProfile.path("locationId").asText())
+        assertEquals(10.77, savedProfile.path("lat").asDouble(), 0.001)
+        assertEquals(106.70, savedProfile.path("lng").asDouble(), 0.001)
+
+        val blank = linh.post("/api/places") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"  ","lat":10.77,"lng":106.70}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, blank.status)
+        val outside = linh.post("/api/places") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Outside","lat":91,"lng":106.70}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, outside.status)
+        val zeroCoordinates = linh.post("/api/places") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Zero Coordinates","lat":0,"lng":0}""")
+        }
+        assertEquals(HttpStatusCode.Created, zeroCoordinates.status)
+        val zeroPlace = mapper.readTree(zeroCoordinates.bodyAsText())
+        assertEquals(0.0, zeroPlace.path("lat").asDouble())
+        assertEquals(0.0, zeroPlace.path("lng").asDouble())
+    }
+
+    @Test
+    fun sameNamedUserLocationsKeepPostsAndLinksDistinct() = testApplication {
+        val services = services { 1_700_000_000_000L }
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        linh.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905550001","password":"secretpass"}""")
+        }
+
+        suspend fun createLocation(lat: Double) = mapper.readTree(
+            linh.post("/api/places") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Place A","lat":$lat,"lng":106.70}""")
+            }.bodyAsText(),
+        ).path("id").asText()
+
+        val firstId = createLocation(10.77)
+        val secondId = createLocation(10.78)
+        val emptyId = createLocation(10.79)
+        assertNotEquals(firstId, secondId)
+        assertNotEquals(secondId, emptyId)
+        postAt(linh, "First location post", "Place A", null, firstId)
+        postAt(linh, "Second location post", "Place A", null, secondId)
+        postAt(linh, "Name only post", "Place A", null)
+
+        val eventLocations = mapper.readTree(linh.get("/api/events").bodyAsText()).path("locations")
+        fun postCount(id: String) = (0 until eventLocations.size()).map { eventLocations.path(it) }
+            .first { it.path("id").asText() == id }
+            .path("postCount").asInt()
+        assertEquals(1, postCount(firstId))
+        assertEquals(1, postCount(secondId))
+        assertEquals(0, postCount(emptyId))
+
+        val searchedPlaces = mapper.readTree(linh.get("/api/places?q=Place%20A").bodyAsText()).path("places")
+        fun photoUrl(id: String) = (0 until searchedPlaces.size()).map { searchedPlaces.path(it) }
+            .first { it.path("id").asText() == id }
+            .path("photoUrl").asText()
+        val firstPhotoUrl = photoUrl(firstId)
+        val secondPhotoUrl = photoUrl(secondId)
+        assertTrue(firstPhotoUrl.startsWith("/media/"))
+        assertTrue(secondPhotoUrl.startsWith("/media/"))
+        assertNotEquals(firstPhotoUrl, secondPhotoUrl)
+
+        val firstPosts = mapper.readTree(linh.get("/api/places/posts?name=Place%20A&locationId=$firstId").bodyAsText())
+        assertEquals(1, firstPosts.path("count").asInt())
+        assertEquals("First location post", firstPosts.path("posts").path(0).path("message").asText())
+        val secondPosts = mapper.readTree(linh.get("/api/places/posts?name=Place%20A&locationId=$secondId").bodyAsText())
+        assertEquals(1, secondPosts.path("count").asInt())
+        assertEquals("Second location post", secondPosts.path("posts").path(0).path("message").asText())
+        val nameOnlyPosts = mapper.readTree(linh.get("/api/places/posts?name=Place%20A").bodyAsText())
+        assertEquals(1, nameOnlyPosts.path("count").asInt())
+        assertEquals("Name only post", nameOnlyPosts.path("posts").path(0).path("message").asText())
+        assertEquals(firstId, mapper.readTree(linh.get("/api/places/$firstId").bodyAsText()).path("id").asText())
+        assertEquals(secondId, mapper.readTree(linh.get("/api/places/$secondId").bodyAsText()).path("id").asText())
+    }
+
     private suspend fun postAt(
         client: io.ktor.client.HttpClient,
         message: String,
         location: String,
         placeId: String?,
+        locationId: String? = null,
+        includeCoordinates: Boolean = true,
+        lat: Double = 10.77,
+        lng: Double = 106.70,
     ) = client.post("/api/posts") {
         setBody(
             MultiPartFormDataContent(
@@ -230,10 +411,13 @@ class EventBehaviorTest {
                     )
                     append("message", message)
                     append("location", location)
+                    if (!locationId.isNullOrBlank()) append("locationId", locationId)
                     if (!placeId.isNullOrBlank()) {
                         append("placeId", placeId)
-                        append("lat", "10.77")
-                        append("lng", "106.70")
+                        if (includeCoordinates) {
+                            append("lat", lat.toString())
+                            append("lng", lng.toString())
+                        }
                     }
                 },
             ),

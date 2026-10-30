@@ -34,7 +34,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val location = field("📍 ${Town.t("location")}", "text", Town.t("locationHint"))
     location.input.asDynamic().value = me.location
     val firstComment = area("💭 ${Town.t("firstComment")}", "", Limits.COMMENT_MAX)
-    val pickedPlace = PlacePick(name = me.location, placeId = me.placeId, lat = me.lat, lng = me.lng)
+    val pickedPlace = PlacePick(name = me.location, placeId = me.placeId, lat = me.lat, lng = me.lng, id = me.locationId)
     val mapBtn = el("button", "icon-btn location-map-btn")
     mapBtn.setAttribute("type", "button")
     mapBtn.setAttribute("aria-label", Town.t("pickLocation"))
@@ -158,6 +158,8 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 if (first.isNotEmpty()) form.append("firstComment", first)
                 val selectedPlaceId = pickedPlace.placeId
                 if (!selectedPlaceId.isNullOrBlank()) form.append("placeId", selectedPlaceId)
+                val locationId = pickedPlace.id
+                if (!locationId.isNullOrBlank()) form.append("locationId", locationId)
                 val lat = pickedPlace.lat
                 val lng = pickedPlace.lng
                 if (lat != null && lng != null) {

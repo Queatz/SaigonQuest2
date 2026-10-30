@@ -18,7 +18,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
             POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
-            CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS,
+            CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -61,6 +61,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(CHAT_REACTIONS).ensurePersistentIndex(listOf("messageKey", "userKey", "emoji"), PersistentIndexOptions().unique(true))
         db.collection(CHAT_REACTIONS).ensurePersistentIndex(listOf("chatKey"), PersistentIndexOptions())
         db.collection(CHAT_REACTIONS).ensurePersistentIndex(listOf("messageKey"), PersistentIndexOptions())
+        db.collection(LOCATIONS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(LOCATIONS).ensurePersistentIndex(listOf("name"), PersistentIndexOptions())
     }
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -99,6 +101,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("name", user.name)
         doc.addAttribute("location", user.location)
         doc.addAttribute("placeId", user.placeId)
+        doc.addAttribute("locationId", user.locationId)
         doc.addAttribute("lat", user.lat)
         doc.addAttribute("lng", user.lng)
         doc.addAttribute("intro", user.intro)
@@ -287,6 +290,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("communityKey", post.communityId)
         doc.addAttribute("communityOnly", post.communityOnly)
         doc.addAttribute("placeId", post.placeId)
+        doc.addAttribute("locationId", post.locationId)
         doc.addAttribute("lat", post.lat)
         doc.addAttribute("lng", post.lng)
         doc.addAttribute("eventStartAt", post.eventStartAt)
@@ -424,6 +428,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 communityEmoji: community == null ? null : community.emoji,
                 communityOnly: p.communityOnly == true,
                 placeId: p.placeId,
+                locationId: p.locationId,
                 lat: p.lat,
                 lng: p.lng,
                 eventStartAt: p.eventStartAt,
@@ -484,6 +489,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 communityId = string(doc, "communityKey").takeIf { it.isNotBlank() && it != "null" },
                 communityOnly = boolean(doc, "communityOnly"),
                 placeId = optional(doc, "placeId"),
+                locationId = optional(doc, "locationId"),
                 lat = doubleOrNull(doc, "lat"),
                 lng = doubleOrNull(doc, "lng"),
                 eventStartAt = longOrNull(doc, "eventStartAt"),
@@ -558,6 +564,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 communityEmoji: community == null ? null : community.emoji,
                 communityOnly: p.communityOnly == true,
                 placeId: p.placeId,
+                locationId: p.locationId,
                 lat: p.lat,
                 lng: p.lng,
                 eventStartAt: p.eventStartAt,
@@ -1584,6 +1591,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 communityEmoji: community == null ? null : community.emoji,
                 communityOnly: p.communityOnly == true,
                 placeId: p.placeId,
+                locationId: p.locationId,
                 lat: p.lat,
                 lng: p.lng,
                 eventStartAt: p.eventStartAt,
@@ -1644,6 +1652,78 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return EventSummary(long(row, "today"), long(row, "tomorrow"), long(row, "week"))
     }
 
+    override fun insertUserLocation(
+        name: String,
+        lat: Double,
+        lng: Double,
+        createdBy: String,
+        createdAt: Long,
+    ): UserLocationRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("name", name)
+        doc.addAttribute("lat", lat)
+        doc.addAttribute("lng", lng)
+        doc.addAttribute("createdBy", createdBy)
+        doc.addAttribute("createdAt", createdAt)
+        val key = db.collection(LOCATIONS).insertDocument(doc).key
+        return UserLocationRecord(key, name, lat, lng, createdBy, createdAt)
+    }
+
+    override fun searchUserLocations(query: String, limit: Int): List<UserLocationRecord> = queryList(
+        """
+        FOR location IN $LOCATIONS
+          FILTER CONTAINS(LOWER(location.name), @query)
+          SORT location.createdAt DESC, location._key ASC
+          LIMIT @limit
+          RETURN location
+        """.trimIndent(),
+        mapOf("query" to query.lowercase(), "limit" to limit),
+    ).map(::userLocationFrom)
+
+    override fun userLocations(): List<UserLocationRecord> = queryList(
+        """
+        FOR location IN $LOCATIONS
+          SORT location.createdAt DESC, location._key ASC
+          RETURN location
+        """.trimIndent(),
+        emptyMap(),
+    ).map(::userLocationFrom)
+
+    override fun postedGooglePlaces(viewerId: String?): List<PlaceSuggestion> = queryList(
+        """
+        FOR p IN $POSTS
+          FILTER p.placeId != null AND p.placeId != ""
+          FILTER p.locationId == null OR p.locationId == ""
+          FILTER p.location != null AND p.location != ""
+          FILTER p.lat != null AND p.lng != null
+          FILTER ${communityVisibleFilter()}
+          COLLECT placeId = p.placeId INTO matchingPosts = p
+          LET latest = FIRST(
+            FOR candidate IN matchingPosts
+              SORT candidate.createdAt DESC, candidate._key DESC
+              LIMIT 1
+              RETURN candidate
+          )
+          RETURN {
+            placeId: placeId,
+            name: latest.location,
+            lat: latest.lat,
+            lng: latest.lng
+          }
+        """.trimIndent(),
+        mapOf("viewerId" to viewerId.orEmpty()),
+    ).map { row ->
+        PlaceSuggestion(
+            name = string(row, "name"),
+            placeId = optional(row, "placeId"),
+            lat = doubleOrNull(row, "lat"),
+            lng = doubleOrNull(row, "lng"),
+        )
+    }
+
+    override fun findUserLocation(id: String): UserLocationRecord? =
+        db.collection(LOCATIONS).getDocument(id, BaseDocument::class.java)?.let(::userLocationFrom)
+
     override fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion> {
         val rows = queryList(
             """
@@ -1655,6 +1735,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               RETURN {
                 name: p.location,
                 placeId: p.placeId,
+                locationId: p.locationId,
                 lat: p.lat,
                 lng: p.lng,
                 photoPath: p.photoPath
@@ -1667,7 +1748,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         for (row in rows) {
             val name = string(row, "name")
             val placeId = optional(row, "placeId")
-            val key = placeId ?: name.lowercase()
+            val locationId = optional(row, "locationId")
+            val key = locationId ?: placeId ?: name.lowercase()
             if (!seen.add(key)) continue
             places += PlaceSuggestion(
                 name = name,
@@ -1676,6 +1758,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 lng = doubleOrNull(row, "lng"),
                 recent = true,
                 photoPath = optional(row, "photoPath"),
+                id = locationId,
+                custom = locationId != null,
             )
             if (places.size >= limit) break
         }
@@ -1683,12 +1767,22 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     }
 
     override fun findPlace(placeId: String, viewerId: String?): PlaceSuggestion? {
+        findUserLocation(placeId)?.let { location ->
+            return PlaceSuggestion(
+                name = location.name,
+                lat = location.lat,
+                lng = location.lng,
+                id = location.id,
+                custom = true,
+            )
+        }
         val location = decodeLocationToken(placeId)
         val nameOnlyPlace = location?.let {
             first(
                 """
                 FOR p IN $POSTS
                   FILTER p.location == @location AND (p.placeId == null OR p.placeId == "")
+                  FILTER p.locationId == null OR p.locationId == ""
                   FILTER ${communityVisibleFilter()}
                   SORT p.createdAt DESC, p._key DESC
                   LIMIT 1
@@ -1732,9 +1826,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         cursor: String?,
         limit: Int,
         viewerId: String?,
+        locationId: String?,
     ): FeedPage = pageFeed(
         "${placePostFilter()} AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
-        cursorBind(cursor, limit) + placePostBind(location, placeId, viewerId),
+        cursorBind(cursor, limit) + placePostBind(location, placeId, viewerId, locationId),
         limit,
     )
 
@@ -1950,7 +2045,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     }
 
-    override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long {
+    override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?, locationId: String?): Long {
         val row = first(
             """
             RETURN { count: LENGTH(
@@ -1959,21 +2054,34 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 RETURN 1
             )}
             """.trimIndent(),
-            placePostBind(location, placeId, viewerId),
+            placePostBind(location, placeId, viewerId, locationId),
         )
         return long(row, "count")
     }
 
-    override fun latestPostPhotoAtPlace(location: String, placeId: String?, viewerId: String?): String? {
+    override fun latestPostPhotoAtPlace(
+        location: String,
+        placeId: String?,
+        viewerId: String?,
+        locationId: String?,
+    ): String? {
         val row = first(
             """
             FOR p IN $POSTS
               FILTER (
-                (@placeId != "" AND p.placeId == @placeId)
+                (@locationId != "" AND p.locationId == @locationId)
                 OR (
-                  @placeId == ""
+                  @locationId == ""
+                  AND @placeId != ""
+                  AND p.placeId == @placeId
+                  AND (p.locationId == null OR p.locationId == "")
+                )
+                OR (
+                  @locationId == ""
+                  AND @placeId == ""
                   AND p.location == @location
                   AND (p.placeId == null OR p.placeId == "")
+                  AND (p.locationId == null OR p.locationId == "")
                 )
               )
               FILTER ${communityVisibleFilter()}
@@ -1981,7 +2089,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               LIMIT 1
               RETURN { photoPath: p.photoPath }
             """.trimIndent(),
-            placePostBind(location, placeId, viewerId),
+            placePostBind(location, placeId, viewerId, locationId),
         )
         return row?.let { optional(it, "photoPath") }
     }
@@ -1999,17 +2107,24 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     """.trimIndent()
 
-    private fun placePostBind(location: String, placeId: String?, viewerId: String?): Map<String, Any?> = mapOf(
+    private fun placePostBind(
+        location: String,
+        placeId: String?,
+        viewerId: String?,
+        locationId: String? = null,
+    ): Map<String, Any?> = mapOf(
         "location" to location,
         "placeId" to placeId.orEmpty(),
+        "locationId" to locationId.orEmpty(),
         "viewerId" to viewerId.orEmpty(),
     )
 
     private fun placePostFilter(): String = """
         p.location == @location
         AND (
-          (@placeId == "" AND (p.placeId == null OR p.placeId == ""))
-          OR (@placeId != "" AND p.placeId == @placeId)
+          (@locationId != "" AND p.locationId == @locationId)
+          OR (@locationId == "" AND @placeId == "" AND (p.placeId == null OR p.placeId == "") AND (p.locationId == null OR p.locationId == ""))
+          OR (@locationId == "" AND @placeId != "" AND p.placeId == @placeId AND (p.locationId == null OR p.locationId == ""))
         )
         AND ${communityVisibleFilter()}
     """.trimIndent()
@@ -2840,6 +2955,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         paused = boolean(doc, "paused"),
         lastActiveAt = long(doc, "lastActiveAt").takeIf { it > 0 } ?: long(doc, "createdAt"),
         placeId = doc.getAttribute("placeId")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        locationId = doc.getAttribute("locationId")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
         lat = doc.getAttribute("lat")?.toString()?.toDoubleOrNull(),
         lng = doc.getAttribute("lng")?.toString()?.toDoubleOrNull(),
     )
@@ -2958,6 +3074,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         communityEmoji = optional(row, "communityEmoji"),
         communityOnly = boolean(row, "communityOnly"),
         placeId = optional(row, "placeId"),
+        locationId = optional(row, "locationId"),
         lat = doubleOrNull(row, "lat"),
         lng = doubleOrNull(row, "lng"),
         eventStartAt = longOrNull(row, "eventStartAt"),
@@ -3299,6 +3416,15 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     private fun doubleOrNull(doc: BaseDocument, name: String): Double? =
         (doc.getAttribute(name) as? Number)?.toDouble()
 
+    private fun userLocationFrom(doc: BaseDocument) = UserLocationRecord(
+        id = doc.key,
+        name = string(doc, "name"),
+        lat = doubleOrNull(doc, "lat") ?: 0.0,
+        lng = doubleOrNull(doc, "lng") ?: 0.0,
+        createdBy = string(doc, "createdBy"),
+        createdAt = long(doc, "createdAt"),
+    )
+
     companion object {
         private const val USERS = "users"
         private const val SESSIONS = "sessions"
@@ -3324,6 +3450,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val CHAT_MEMBERS = "chatMembers"
         private const val CHAT_MESSAGES = "chatMessages"
         private const val CHAT_REACTIONS = "chatReactions"
+        private const val LOCATIONS = "locations"
         private val DAILY_FIELDS = setOf("visitorVisits", "userVisits", "replyClicks", "shareClicks", "postViews")
 
         fun open(config: AppConfig): ArangoTownRepository {

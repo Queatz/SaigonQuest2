@@ -53,6 +53,7 @@ import quest.saigon.town.ProductOrderRecord
 import quest.saigon.town.ProductOrderView
 import quest.saigon.town.ProductRecord
 import quest.saigon.town.PostRecord
+import quest.saigon.town.PlaceSuggestion
 import quest.saigon.town.PushSubscriptionRecord
 import quest.saigon.town.TownException
 import quest.saigon.town.SaigonDays
@@ -149,16 +150,23 @@ fun Route.townApi(services: TownServices) {
             val location = Jsons.text(body, "location")
             if (location.length > Limits.LOCATION_MAX) return@patch call.fail("invalid_location")
             val placeId = cleanPlaceId(Jsons.text(body, "placeId"))
+            val locationId = cleanLocationId(Jsons.text(body, "locationId"))
+            val customLocation = locationId?.let(services.repo::findUserLocation)
+            if (locationId != null && (customLocation == null || placeId != null ||
+                    !customLocation.name.equals(location.trim(), ignoreCase = true))) {
+                return@patch call.fail("invalid_location")
+            }
             val latRaw = Jsons.text(body, "lat")
             val lngRaw = Jsons.text(body, "lng")
-            val lat = if (latRaw.isBlank()) null else parseCoord(latRaw) ?: return@patch call.fail("invalid_location")
-            val lng = if (lngRaw.isBlank()) null else parseCoord(lngRaw) ?: return@patch call.fail("invalid_location")
+            val lat = if (latRaw.isBlank()) null else parseLatitude(latRaw) ?: return@patch call.fail("invalid_location")
+            val lng = if (lngRaw.isBlank()) null else parseLongitude(lngRaw) ?: return@patch call.fail("invalid_location")
             if ((lat == null) != (lng == null)) return@patch call.fail("invalid_location")
             next = next.copy(
-                location = location,
+                location = customLocation?.name ?: location,
                 placeId = placeId,
-                lat = lat.takeIf { placeId != null },
-                lng = lng.takeIf { placeId != null },
+                locationId = customLocation?.id,
+                lat = customLocation?.lat ?: lat,
+                lng = customLocation?.lng ?: lng,
             )
         }
         if (body.has("intro")) {
@@ -597,7 +605,7 @@ fun Route.townApi(services: TownServices) {
         if (avatarId != null && (avatar == null || avatar.userId != user.id || avatar.status != AvatarStatus.READY || avatar.imagePath == null)) {
             return@post call.fail("avatar_required")
         }
-        val location = form.text("location").trim().ifBlank { user.location.trim() }
+        var location = form.text("location").trim().ifBlank { user.location.trim() }
         if (location.isEmpty() || location.length > Limits.LOCATION_MAX) return@post call.fail("invalid_location")
         val firstCommentRaw = form.text("firstComment")
         val firstComment = if (firstCommentRaw.isBlank()) {
@@ -617,8 +625,15 @@ fun Route.townApi(services: TownServices) {
         if (communityId != null && community == null) return@post call.fail("invalid_community")
         if (communityOnly && community == null) return@post call.fail("invalid_community")
         val placeId = cleanPlaceId(form.text("placeId"))
-        val lat = parseCoord(form.text("lat"))
-        val lng = parseCoord(form.text("lng"))
+        val locationId = cleanLocationId(form.text("locationId"))
+        val customLocation = locationId?.let(services.repo::findUserLocation)
+        if (locationId != null && (customLocation == null || placeId != null ||
+                !customLocation.name.equals(location, ignoreCase = true))) {
+            return@post call.fail("invalid_location")
+        }
+        location = customLocation?.name ?: location
+        val lat = customLocation?.lat ?: parseLatitude(form.text("lat"))
+        val lng = customLocation?.lng ?: parseLongitude(form.text("lng"))
         if ((lat == null) != (lng == null)) return@post call.fail("invalid_location")
         val eventStartAt = parseEpoch(form.text("eventStartAt"))
         val eventEndAt = parseEpoch(form.text("eventEndAt"))
@@ -694,6 +709,7 @@ fun Route.townApi(services: TownServices) {
                 communityId = community?.id,
                 communityOnly = communityOnly,
                 placeId = placeId,
+                locationId = customLocation?.id,
                 lat = lat,
                 lng = lng,
                 eventStartAt = eventStartAt,
@@ -872,6 +888,22 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(
             mapOf(
                 "events" to events.map(::postPayload),
+                "locations" to (
+                    services.repo.userLocations().map { location ->
+                        PlaceSuggestion(
+                            name = location.name,
+                            lat = location.lat,
+                            lng = location.lng,
+                            postCount = services.repo.countPostsAtPlace(location.name, null, viewer?.id, location.id),
+                            id = location.id,
+                            custom = true,
+                        )
+                    } + services.repo.postedGooglePlaces(viewer?.id).map { place ->
+                        place.copy(
+                            postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer?.id),
+                        )
+                    }
+                ).map(::placePayload),
                 "people" to people.items.map(::memberPayload),
                 "nextPeopleCursor" to people.nextCursor,
             ),
@@ -883,7 +915,7 @@ fun Route.townApi(services: TownServices) {
         val query = call.request.queryParameters["q"].orEmpty()
         val communityId = call.request.queryParameters["communityId"]?.trim()?.ifBlank { null }
         val recent = services.repo.recentPlaces(communityId, 8).map { place ->
-            place.copy(postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer.id))
+            place.copy(postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer.id, place.id.takeIf { place.custom }))
         }
         val google = if (query.trim().length >= 2) {
             services.places.search(query).map { place ->
@@ -904,11 +936,50 @@ fun Route.townApi(services: TownServices) {
         } else {
             emptyList()
         }
+        val custom = if (query.trim().length >= 2) {
+            services.repo.searchUserLocations(query.trim(), 50).map { location ->
+                val postPhoto = services.repo.latestPostPhotoAtPlace(location.name, null, viewer.id, location.id)
+                PlaceSuggestion(
+                    name = location.name,
+                    lat = location.lat,
+                    lng = location.lng,
+                    photoPath = postPhoto,
+                    postCount = services.repo.countPostsAtPlace(location.name, null, viewer.id, location.id),
+                    id = location.id,
+                    custom = true,
+                )
+            }
+        } else {
+            emptyList()
+        }
         call.respondJson(
             mapOf(
                 "recent" to recent.map(::placePayload),
-                "places" to google.map(::placePayload),
+                "places" to (google + custom).map(::placePayload),
             ),
+        )
+    }
+
+    post("/places") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (user.paused) return@post call.fail("account_paused")
+        val body = Jsons.parse(call.receiveText())
+        val name = cleanUserLocationName(Jsons.text(body, "name"))
+            ?: return@post call.fail("invalid_location")
+        val lat = parseLatitude(Jsons.text(body, "lat")) ?: return@post call.fail("invalid_location")
+        val lng = parseLongitude(Jsons.text(body, "lng")) ?: return@post call.fail("invalid_location")
+        val location = services.repo.insertUserLocation(name, lat, lng, user.id, services.clock())
+        call.respondJson(
+            placePayload(
+                PlaceSuggestion(
+                    name = location.name,
+                    lat = location.lat,
+                    lng = location.lng,
+                    id = location.id,
+                    custom = true,
+                ),
+            ),
+            HttpStatusCode.Created,
         )
     }
 
@@ -941,14 +1012,22 @@ fun Route.townApi(services: TownServices) {
         val name = call.request.queryParameters["name"]?.trim().orEmpty()
         if (name.isEmpty() || name.length > Limits.LOCATION_MAX) return@get call.fail("invalid_location")
         val placeId = cleanPlaceId(call.request.queryParameters["placeId"].orEmpty())
+        val locationId = cleanLocationId(call.request.queryParameters["locationId"].orEmpty())
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 48) ?: 24
         val viewer = call.user(services)
-        val page = services.repo.postsAtPlace(name, placeId, call.request.queryParameters["cursor"], limit, viewer?.id)
+        val page = services.repo.postsAtPlace(
+            name,
+            placeId,
+            call.request.queryParameters["cursor"],
+            limit,
+            viewer?.id,
+            locationId,
+        )
         call.respondJson(
             mapOf(
                 "posts" to page.items.map(::postPayload),
                 "nextCursor" to page.nextCursor,
-                "count" to services.repo.countPostsAtPlace(name, placeId, viewer?.id),
+                "count" to services.repo.countPostsAtPlace(name, placeId, viewer?.id, locationId),
             ),
         )
     }
@@ -1814,6 +1893,7 @@ private fun mePayload(user: UserRecord, services: TownServices) = mapOf(
     "phone" to PhoneNumbers.display(user.phone),
     "location" to user.location,
     "placeId" to user.placeId,
+    "locationId" to user.locationId,
     "lat" to user.lat,
     "lng" to user.lng,
     "intro" to user.intro,
@@ -1906,6 +1986,7 @@ private fun postPayload(item: FeedItem) = mapOf(
     "communityEmoji" to item.communityEmoji,
     "communityOnly" to item.communityOnly,
     "placeId" to item.placeId,
+    "locationId" to item.locationId,
     "lat" to item.lat,
     "lng" to item.lng,
     "eventStartAt" to item.eventStartAt,
@@ -1988,6 +2069,7 @@ private fun attendeePayload(member: quest.saigon.town.EventAttendee, includePhon
 )
 
 private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
+    "id" to place.id,
     "name" to place.name,
     "address" to place.address,
     "placeId" to place.placeId,
@@ -2000,6 +2082,7 @@ private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
         "/api/places/photo?name=${URLEncoder.encode(it, StandardCharsets.UTF_8)}"
     },
     "category" to place.category,
+    "custom" to place.custom,
 )
 
 private fun commentPayload(item: CommentItem) = mapOf(
@@ -2076,6 +2159,13 @@ private fun cleanName(raw: String): String? {
     return name
 }
 
+private fun cleanUserLocationName(raw: String): String? {
+    val name = raw.trim().replace(Regex("\\s+"), " ")
+    if (name.length !in 1..Limits.LOCATION_MAX) return null
+    if (name.any { it.isISOControl() }) return null
+    return name
+}
+
 private fun cleanPushEndpoint(raw: String): String? {
     val endpoint = raw.trim()
     if (endpoint.length !in 8..Limits.PUSH_ENDPOINT_MAX) return null
@@ -2099,11 +2189,23 @@ private fun cleanPlaceId(raw: String): String? {
     return id
 }
 
+private fun cleanLocationId(raw: String): String? {
+    val id = raw.trim()
+    if (id.isEmpty()) return null
+    if (id.length > 128) return null
+    if (id.any { it.isISOControl() }) return null
+    return id
+}
+
 private fun parseEpoch(raw: String): Long? =
     raw.trim().toLongOrNull()?.takeIf { it > 0 }
 
 private fun parseCoord(raw: String): Double? =
     raw.trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+
+private fun parseLatitude(raw: String): Double? = parseCoord(raw)?.takeIf { it in -90.0..90.0 }
+
+private fun parseLongitude(raw: String): Double? = parseCoord(raw)?.takeIf { it in -180.0..180.0 }
 
 private fun parseVnd(raw: String): Long? {
     val cleaned = raw.trim()

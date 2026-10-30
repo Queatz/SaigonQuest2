@@ -32,6 +32,7 @@ class InMemoryTownRepository : TownRepository {
     private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
     private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
     private val chatReactions = ConcurrentHashMap<String, ChatReactionRecord>()
+    private val locations = ConcurrentHashMap<String, UserLocationRecord>()
     private val daily = ConcurrentHashMap<String, DailyBucket>()
 
     override fun createUser(phone: String, passwordHash: String, name: String, createdAt: Long): UserRecord {
@@ -435,6 +436,7 @@ class InMemoryTownRepository : TownRepository {
             placeId = post.placeId,
             lat = post.lat,
             lng = post.lng,
+            locationId = post.locationId,
             eventStartAt = post.eventStartAt,
             eventEndAt = post.eventEndAt,
             eventPrice = post.eventPrice,
@@ -793,6 +795,51 @@ class InMemoryTownRepository : TownRepository {
         )
     }
 
+    override fun insertUserLocation(
+        name: String,
+        lat: Double,
+        lng: Double,
+        createdBy: String,
+        createdAt: Long,
+    ): UserLocationRecord {
+        val location = UserLocationRecord(newId(), name, lat, lng, createdBy, createdAt)
+        locations[location.id] = location
+        return location
+    }
+
+    override fun searchUserLocations(query: String, limit: Int): List<UserLocationRecord> =
+        locations.values
+            .filter { it.name.contains(query, ignoreCase = true) }
+            .sortedWith(compareByDescending<UserLocationRecord> { it.createdAt }.thenBy { it.name.lowercase() })
+            .take(limit)
+
+    override fun userLocations(): List<UserLocationRecord> =
+        locations.values.sortedWith(compareByDescending<UserLocationRecord> { it.createdAt }.thenBy { it.id })
+
+    override fun postedGooglePlaces(viewerId: String?): List<PlaceSuggestion> {
+        val seenPlaceIds = mutableSetOf<String>()
+        return posts.values
+            .asSequence()
+            .filter { post ->
+                !post.placeId.isNullOrBlank() && post.locationId.isNullOrBlank() && post.location.isNotBlank() &&
+                    post.lat != null && post.lng != null && placePostVisible(post, viewerId)
+            }
+            .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+            .mapNotNull { post ->
+                val placeId = post.placeId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                if (!seenPlaceIds.add(placeId)) return@mapNotNull null
+                PlaceSuggestion(
+                    name = post.location,
+                    placeId = placeId,
+                    lat = post.lat,
+                    lng = post.lng,
+                )
+            }
+            .toList()
+    }
+
+    override fun findUserLocation(id: String): UserLocationRecord? = locations[id]
+
     override fun recentPlaces(communityId: String?, limit: Int): List<PlaceSuggestion> {
         val seen = linkedSetOf<String>()
         val places = mutableListOf<PlaceSuggestion>()
@@ -803,7 +850,9 @@ class InMemoryTownRepository : TownRepository {
             }
             .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
             .forEach { post ->
-                val key = post.placeId?.takeIf { it.isNotBlank() } ?: post.location.lowercase()
+                val key = post.locationId?.takeIf { it.isNotBlank() }
+                    ?: post.placeId?.takeIf { it.isNotBlank() }
+                    ?: post.location.lowercase()
                 if (seen.add(key)) {
                     places += PlaceSuggestion(
                         name = post.location,
@@ -812,20 +861,28 @@ class InMemoryTownRepository : TownRepository {
                         lng = post.lng,
                         recent = true,
                         photoPath = post.photoPath,
+                        id = post.locationId,
+                        custom = !post.locationId.isNullOrBlank(),
                     )
                 }
             }
         return places.take(limit)
     }
 
-    override fun latestPostPhotoAtPlace(location: String, placeId: String?, viewerId: String?): String? {
+    override fun latestPostPhotoAtPlace(
+        location: String,
+        placeId: String?,
+        viewerId: String?,
+        locationId: String?,
+    ): String? {
         val pid = placeId?.takeIf { it.isNotBlank() }
+        val customId = locationId?.takeIf { it.isNotBlank() }
         return posts.values
             .filter { post ->
-                val matchesPlace = if (pid != null) {
-                    post.placeId?.takeIf { it.isNotBlank() } == pid
-                } else {
-                    post.location == location && post.placeId.isNullOrBlank()
+                val matchesPlace = when {
+                    customId != null -> post.locationId == customId
+                    pid != null -> post.locationId.isNullOrBlank() && post.placeId == pid
+                    else -> post.locationId.isNullOrBlank() && post.placeId.isNullOrBlank() && post.location == location
                 }
                 matchesPlace && placePostVisible(post, viewerId)
             }
@@ -835,11 +892,21 @@ class InMemoryTownRepository : TownRepository {
     }
 
     override fun findPlace(placeId: String, viewerId: String?): PlaceSuggestion? {
+        findUserLocation(placeId)?.let { location ->
+            return PlaceSuggestion(
+                name = location.name,
+                lat = location.lat,
+                lng = location.lng,
+                id = location.id,
+                custom = true,
+            )
+        }
         val location = decodeLocationToken(placeId)
         if (location != null) {
             val nameOnlyPost = posts.values
                 .filter {
-                    it.location == location && it.placeId.isNullOrBlank() && placePostVisible(it, viewerId)
+                    it.location == location && it.placeId.isNullOrBlank() && it.locationId.isNullOrBlank() &&
+                        placePostVisible(it, viewerId)
                 }
                 .maxWithOrNull(compareBy<PostRecord> { it.createdAt }.thenBy { it.id })
             if (nameOnlyPost != null) {
@@ -865,10 +932,11 @@ class InMemoryTownRepository : TownRepository {
         cursor: String?,
         limit: Int,
         viewerId: String?,
-    ): FeedPage = pagePosts(placePosts(location, placeId, viewerId), cursor, limit, viewerId)
+        locationId: String?,
+    ): FeedPage = pagePosts(placePosts(location, placeId, locationId, viewerId), cursor, limit, viewerId)
 
-    override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?): Long =
-        placePosts(location, placeId, viewerId).size.toLong()
+    override fun countPostsAtPlace(location: String, placeId: String?, viewerId: String?, locationId: String?): Long =
+        placePosts(location, placeId, locationId, viewerId).size.toLong()
 
     override fun postsByAuthor(userId: String, cursor: String?, limit: Int, viewerId: String?): FeedPage =
         pagePosts(authorPosts(userId, viewerId), cursor, limit, viewerId)
@@ -958,11 +1026,16 @@ class InMemoryTownRepository : TownRepository {
         return ProductOrderView(updated, buyer.name, buyer.phone, buyer.profilePhotoPath, buyer.location, buyer.intro)
     }
 
-    private fun placePosts(location: String, placeId: String?, viewerId: String?): List<PostRecord> {
+    private fun placePosts(location: String, placeId: String?, locationId: String?, viewerId: String?): List<PostRecord> {
         val pid = placeId?.takeIf { it.isNotBlank() }
+        val customId = locationId?.takeIf { it.isNotBlank() }
         return posts.values.filter { post ->
             post.location == location &&
-                post.placeId?.takeIf { it.isNotBlank() } == pid &&
+                when {
+                    customId != null -> post.locationId == customId
+                    pid != null -> post.locationId.isNullOrBlank() && post.placeId == pid
+                    else -> post.locationId.isNullOrBlank() && post.placeId.isNullOrBlank()
+                } &&
                 placePostVisible(post, viewerId)
         }
     }
