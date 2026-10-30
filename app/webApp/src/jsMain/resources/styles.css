@@ -3463,6 +3463,8 @@ span.event-face {
 
 .events-map .event-map-bubble,
 .events-map .event-map-bubble *,
+.picker-map .event-map-bubble,
+.picker-map .event-map-bubble *,
 .location-sheet-map .event-map-bubble,
 .location-sheet-map .event-map-bubble * {
     box-sizing: border-box;

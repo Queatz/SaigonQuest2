@@ -369,21 +369,17 @@ internal fun openLocationPicker(
     var selectedRow: HTMLElement? = null
     var request = 0
     var previewToken = 0
-    fun pan(lat: Double, lng: Double) {
+    fun pan(place: PlacePick) {
         if (map == null || map == undefined) return
+        val lat = place.lat ?: return
+        val lng = place.lng ?: return
         val pos = js("{}")
         pos.lat = lat
         pos.lng = lng
         map.setCenter(pos)
         map.setZoom(16)
-        if (marker == null || marker == undefined) {
-            val opts = js("{}")
-            opts.map = map
-            opts.position = pos
-            marker = googleMarker(opts)
-        } else {
-            marker.setPosition(pos)
-        }
+        if (marker != null && marker != undefined) marker.setMap(null)
+        marker = googleHtmlMarker(map, pos, placeMapBubble(place.name, place.placeId))
     }
 
     loadGoogleMaps { ready ->
@@ -394,9 +390,7 @@ internal fun openLocationPicker(
         opts.disableDefaultUI = true
         opts.zoomControl = true
         map = googleMap(mapBox, opts)
-        val lat = current.lat
-        val lng = current.lng
-        if (lat != null && lng != null) pan(lat, lng)
+        if (current.lat != null && current.lng != null) pan(current)
     }
 
     fun markSelected(row: HTMLElement) {
@@ -411,9 +405,7 @@ internal fun openLocationPicker(
         val token = ++previewToken
         fun ready() {
             if (token != previewToken) return
-            val lat = place.lat
-            val lng = place.lng
-            if (lat != null && lng != null) pan(lat, lng)
+            if (place.lat != null && place.lng != null) pan(place)
             pending = place
             confirm.asDynamic().disabled = false
         }
@@ -1100,11 +1092,6 @@ private fun googleHtmlMarker(map: dynamic, position: dynamic, content: HTMLEleme
     }
     overlay.setMap(map)
     return overlay
-}
-
-private fun googleMarker(opts: dynamic): dynamic {
-    val ctor = if (isJsFunction(mapsApi.Marker)) mapsApi.Marker else window.asDynamic().google.maps.Marker
-    return js("new ctor(opts)")
 }
 
 private fun googleOverlay(): dynamic {
