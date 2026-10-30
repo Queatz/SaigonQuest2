@@ -964,6 +964,82 @@ private fun placeMapBubble(title: String, placeId: String?, lat: Double? = null,
     return bubble
 }
 
+private data class MapMarkerBox(
+    val left: Double,
+    val top: Double,
+    val right: Double,
+    val bottom: Double,
+) {
+    fun overlaps(other: MapMarkerBox): Boolean =
+        left < other.right && right > other.left && top < other.bottom && bottom > other.top
+}
+
+private class EventsMapMarker(
+    val overlay: dynamic,
+    val position: dynamic,
+    val content: HTMLElement,
+    val isBubble: Boolean,
+    val isLocation: Boolean,
+    val postCount: Long,
+    val attendeeCount: Int,
+    val index: Int,
+)
+
+private data class PositionedMapMarker(val marker: EventsMapMarker, val box: MapMarkerBox)
+
+private fun packMapMarkers(markers: List<PositionedMapMarker>): List<PositionedMapMarker> {
+    val prioritized = markers.sortedWith(
+        compareByDescending<PositionedMapMarker> { it.marker.isBubble }
+            .thenByDescending { it.marker.postCount }
+            .thenByDescending { it.marker.attendeeCount }
+            .thenBy { it.marker.index },
+    )
+    val accepted = mutableListOf<PositionedMapMarker>()
+    prioritized.forEach { candidate ->
+        if (accepted.none { it.box.overlaps(candidate.box) }) accepted += candidate
+    }
+    return accepted
+}
+
+private fun mapMarkerBox(marker: EventsMapMarker, point: dynamic): MapMarkerBox {
+    val content = marker.content.asDynamic()
+    val width = num(content.offsetWidth).takeIf { it > 0.0 } ?: if (marker.isBubble) 120.0 else 24.0
+    val height = num(content.offsetHeight).takeIf { it > 0.0 } ?: if (marker.isBubble) 56.0 else 24.0
+    val x = num(point.x)
+    val y = num(point.y)
+    val left = x - width / 2.0
+    val top = if (marker.isBubble) y - height - 10.0 else y - height / 2.0
+    val right = left + width
+    val bottom = top + height + if (marker.isBubble) 5.0 else 0.0
+    return MapMarkerBox(left, top, right, bottom)
+}
+
+private fun setMapMarkerShown(content: HTMLElement, shown: Boolean) {
+    val node = content.asDynamic()
+    if (shown) {
+        node.tabIndex = 0
+        node.setAttribute("aria-hidden", "false")
+        if (node.classList.contains("is-shown") == true || node.__eventsMapMarkerPendingShow == true) return
+        val generation = num(node.__eventsMapMarkerGeneration).toInt() + 1
+        node.__eventsMapMarkerGeneration = generation
+        node.__eventsMapMarkerPendingShow = true
+        window.asDynamic().requestAnimationFrame {
+            window.asDynamic().requestAnimationFrame {
+                if (num(node.__eventsMapMarkerGeneration).toInt() == generation && node.isConnected != false) {
+                    node.__eventsMapMarkerPendingShow = false
+                    node.classList.add("is-shown")
+                }
+            }
+        }
+    } else {
+        node.__eventsMapMarkerGeneration = num(node.__eventsMapMarkerGeneration).toInt() + 1
+        node.__eventsMapMarkerPendingShow = false
+        node.classList.remove("is-shown")
+        node.tabIndex = -1
+        node.setAttribute("aria-hidden", "true")
+    }
+}
+
 private fun mountEventsMap(
     host: HTMLElement,
     events: List<PostCard>,
@@ -992,12 +1068,24 @@ private fun mountEventsMap(
             opts.zoomControl = true
             val map = googleMap(host, opts)
             val bounds = googleBounds()
-            val customMarkers = mutableListOf<Pair<dynamic, dynamic>>()
+            val mapMarkers = mutableListOf<EventsMapMarker>()
+            var markerIndex = 0
             marked.forEach { post ->
                 val pos = js("{}")
                 pos.lat = post.lat
                 pos.lng = post.lng
-                googleHtmlMarker(map, pos, eventMapBubble(post))
+                val content = eventMapBubble(post)
+                val overlay = googleHtmlMarker(map, pos, content, reveal = false)
+                mapMarkers += EventsMapMarker(
+                    overlay = overlay,
+                    position = pos,
+                    content = content,
+                    isBubble = true,
+                    isLocation = false,
+                    postCount = 1,
+                    attendeeCount = post.attendeeCount,
+                    index = markerIndex++,
+                )
                 bounds.extend(pos)
             }
             markedLocations.forEach { location ->
@@ -1006,19 +1094,55 @@ private fun mountEventsMap(
                 val pos = js("{}")
                 pos.lat = lat
                 pos.lng = lng
-                val dot = googleHtmlMarker(map, pos, userLocationDot(location, sheetHost, router))
-                val bubble = googleHtmlMarker(map, pos, userLocationBubble(location, sheetHost, router))
-                customMarkers.add(Pair(dot, bubble))
+                val dotContent = userLocationDot(location, sheetHost, router)
+                val dot = googleHtmlMarker(map, pos, dotContent, reveal = false)
+                mapMarkers += EventsMapMarker(
+                    overlay = dot,
+                    position = pos,
+                    content = dotContent,
+                    isBubble = false,
+                    isLocation = true,
+                    postCount = location.postCount.coerceAtLeast(0),
+                    attendeeCount = 0,
+                    index = markerIndex++,
+                )
+                val bubbleContent = userLocationBubble(location, sheetHost, router)
+                val bubble = googleHtmlMarker(map, pos, bubbleContent, reveal = false)
+                mapMarkers += EventsMapMarker(
+                    overlay = bubble,
+                    position = pos,
+                    content = bubbleContent,
+                    isBubble = true,
+                    isLocation = true,
+                    postCount = location.postCount.coerceAtLeast(0),
+                    attendeeCount = 0,
+                    index = markerIndex++,
+                )
                 bounds.extend(pos)
             }
-            fun updateLocationMarkers() {
+            fun updateMapMarkers() {
                 val zoomedIn = num(map.getZoom()) >= 18.0
-                customMarkers.forEach { (dot, bubble) ->
-                    dot.setMap(if (zoomedIn) null else map)
-                    bubble.setMap(if (zoomedIn) map else null)
+                val positioned = mapMarkers
+                    .filter { !it.isLocation || it.isBubble == zoomedIn }
+                    .mapNotNull { marker ->
+                        val projection = marker.overlay.getProjection()
+                        if (projection == null || projection == undefined) return@mapNotNull null
+                        val point = projection.fromLatLngToDivPixel(marker.position)
+                        if (point == null || point == undefined) return@mapNotNull null
+                        PositionedMapMarker(marker, mapMarkerBox(marker, point))
+                    }
+                val packed = packMapMarkers(positioned)
+                val markerCount = packed.size
+                packed.forEachIndexed { index, item ->
+                    val marker = item.marker
+                    marker.content.asDynamic().style.zIndex =
+                        (if (marker.isBubble) 2 * markerCount - index else markerCount - index).toString()
                 }
+                val visible = packed.map { it.marker }.toSet()
+                mapMarkers.forEach { marker -> setMapMarkerShown(marker.content, marker in visible) }
             }
-            map.addListener("zoom_changed", { updateLocationMarkers() })
+            map.addListener("zoom_changed", { updateMapMarkers() })
+            map.addListener("idle", { updateMapMarkers() })
             fun fit() {
                 val total = marked.size + markedLocations.size
                 if (total == 1) {
@@ -1037,9 +1161,10 @@ private fun mountEventsMap(
                 val trigger = mapsEvent()?.trigger
                 if (trigger != null && trigger != undefined) trigger(map, "resize")
                 fit()
+                window.asDynamic().requestAnimationFrame { updateMapMarkers() }
             }
             fit()
-            updateLocationMarkers()
+            updateMapMarkers()
             window.asDynamic().requestAnimationFrame { relayout() }
             window.asDynamic().setTimeout({ relayout() }, 120)
         }
@@ -1262,15 +1387,22 @@ private fun fillAttendeeFaces(host: HTMLElement, post: PostCard) {
     host.appendChild(el("span", text = if (count > 0) "${Town.t("attendees")} · $count" else Town.t("attendees")))
 }
 
-private fun googleHtmlMarker(map: dynamic, position: dynamic, content: HTMLElement): dynamic {
+private fun googleHtmlMarker(
+    map: dynamic,
+    position: dynamic,
+    content: HTMLElement,
+    reveal: Boolean = true,
+): dynamic {
     val overlay = googleOverlay()
     overlay.onAdd = {
         val panes = overlay.getPanes()
         val pane = panes?.overlayMouseTarget ?: panes?.floatPane
         if (pane != null && pane != undefined) pane.appendChild(content)
+        setMapMarkerShown(content, false)
         val prevent = mapsApi?.OverlayView?.preventMapHitsAndGesturesFrom
             ?: window.asDynamic().google?.maps?.OverlayView?.preventMapHitsAndGesturesFrom
         if (prevent != null && prevent != undefined) prevent(content)
+        if (reveal) setMapMarkerShown(content, true)
     }
     overlay.draw = {
         val projection = overlay.getProjection()
@@ -1284,7 +1416,12 @@ private fun googleHtmlMarker(map: dynamic, position: dynamic, content: HTMLEleme
         }
     }
     overlay.onRemove = {
-        content.asDynamic().remove()
+        setMapMarkerShown(content, false)
+        val node = content.asDynamic()
+        val generation = num(node.__eventsMapMarkerGeneration).toInt()
+        window.asDynamic().setTimeout({
+            if (num(node.__eventsMapMarkerGeneration).toInt() == generation) node.remove()
+        }, 240)
     }
     overlay.setMap(map)
     return overlay

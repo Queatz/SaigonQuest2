@@ -3499,7 +3499,7 @@ span.event-face {
     position: absolute;
     left: 0;
     top: 0;
-    z-index: 1;
+    z-index: 2;
     display: grid;
     gap: 3px;
     width: max-content;
@@ -3516,14 +3516,22 @@ span.event-face {
     line-height: 1.25;
     text-align: left;
     cursor: pointer;
-    transform: translate(-50%, calc(-100% - 10px));
+    transform: translate(-50%, calc(-100% - 10px)) scale(0);
+    transform-origin: center;
+    transition: transform 220ms ease;
+    pointer-events: none;
+}
+
+.event-map-bubble.is-shown {
+    transform: translate(-50%, calc(-100% - 10px)) scale(1);
+    pointer-events: auto;
 }
 
 .user-location-dot {
     position: absolute;
     left: 0;
     top: 0;
-    z-index: 2;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3539,7 +3547,15 @@ span.event-face {
     font-size: 9px;
     font-weight: 800;
     line-height: 1;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%) scale(0);
+    transform-origin: center;
+    transition: transform 220ms ease;
+    pointer-events: none;
+}
+
+.user-location-dot.is-shown {
+    transform: translate(-50%, -50%) scale(1);
+    pointer-events: auto;
 }
 
 .custom-location-bubble {
@@ -3627,7 +3643,7 @@ span.event-face {
 
 .event-map-bubble:hover,
 .event-map-bubble:focus-visible {
-    z-index: 3;
+    z-index: 2147483647 !important;
     border-color: var(--accent);
     outline: none;
 }
