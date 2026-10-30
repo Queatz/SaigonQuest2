@@ -20,6 +20,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import quest.saigon.maps.isGooglePlacePhotoName
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.utils.io.writeStringUtf8
 import kotlinx.coroutines.delay
@@ -884,7 +887,19 @@ fun Route.townApi(services: TownServices) {
         }
         val google = if (query.trim().length >= 2) {
             services.places.search(query).map { place ->
-                place.copy(postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer.id))
+                val postPhoto = services.repo.latestPostPhotoAtPlace(place.name, place.placeId, viewer.id)
+                val enriched = if (!postPhoto.isNullOrBlank()) {
+                    place.copy(photoPath = postPhoto)
+                } else {
+                    val details = place.placeId?.let(services.places::details)
+                    place.copy(
+                        lat = place.lat ?: details?.lat,
+                        lng = place.lng ?: details?.lng,
+                        googlePhotoName = details?.googlePhotoName ?: place.googlePhotoName,
+                        category = details?.category ?: place.category,
+                    )
+                }
+                enriched.copy(postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer.id))
             }
         } else {
             emptyList()
@@ -902,6 +917,17 @@ fun Route.townApi(services: TownServices) {
         val placeId = call.request.queryParameters["id"].orEmpty()
         val details = services.places.details(placeId) ?: return@get call.fail("not_found")
         call.respondJson(placePayload(details))
+    }
+
+    get("/places/photo") {
+        call.user(services) ?: return@get call.fail("unauthorized")
+        val photoName = call.request.queryParameters["name"].orEmpty()
+        if (!isGooglePlacePhotoName(photoName)) {
+            return@get call.respondText("", status = HttpStatusCode.BadRequest)
+        }
+        val photo = services.places.photo(photoName) ?: return@get call.fail("not_found")
+        call.response.headers.append(HttpHeaders.CacheControl, "private, max-age=86400")
+        call.respondBytes(photo, ContentType.Image.JPEG)
     }
 
     get("/places/{id}") {
@@ -1969,6 +1995,11 @@ private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
     "lng" to place.lng,
     "postCount" to place.postCount,
     "recent" to place.recent,
+    "photoUrl" to place.photoPath?.takeIf { it.isNotBlank() }?.let { "/media/$it" },
+    "googlePhotoUrl" to place.googlePhotoName?.takeIf(::isGooglePlacePhotoName)?.let {
+        "/api/places/photo?name=${URLEncoder.encode(it, StandardCharsets.UTF_8)}"
+    },
+    "category" to place.category,
 )
 
 private fun commentPayload(item: CommentItem) = mapOf(

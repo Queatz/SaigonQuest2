@@ -544,6 +544,9 @@ data class PlaceSuggestion(
     val lng: Double? = null,
     val recent: Boolean = false,
     val postCount: Long = 0,
+    val photoPath: String? = null,
+    val googlePhotoName: String? = null,
+    val category: String? = null,
 )
 
 data class CommunityRecord(

@@ -1,6 +1,7 @@
 package quest.saigon.web
 
 import quest.saigon.Limits
+import quest.saigon.PlaceEmoji
 import web.dom.document
 import web.html.HTMLElement
 import web.window.WindowTarget
@@ -443,14 +444,45 @@ internal fun openLocationPicker(
         val address = (node.address as? String).orEmpty()
         val row = el("button", if (recent) "chooser-row recent" else "chooser-row")
         row.setAttribute("type", "button")
-        row.appendChild(el("strong", text = name))
-        if (address.isNotBlank() && address != name) row.appendChild(el("small", text = address))
-        row.appendChild(
+        val thumb = el("span", "place-thumb")
+        val categoryEmoji = PlaceEmoji.forPrimaryType(node.category as? String) ?: PLACE_ICON
+        fun showFallback() {
+            thumb.clear()
+            thumb.asDynamic().classList.add("emoji")
+            thumb.textContent = categoryEmoji
+        }
+        val imageUrls = listOfNotNull(
+            (node.photoUrl as? String)?.takeIf { it.isNotBlank() },
+            (node.googlePhotoUrl as? String)?.takeIf { it.isNotBlank() },
+        )
+        fun showPhoto(index: Int) {
+            if (index >= imageUrls.size) {
+                showFallback()
+                return
+            }
+            val image = el("img", "place-thumb-photo")
+            image.setAttribute("alt", "")
+            image.asDynamic().onload = {
+                thumb.clear()
+                thumb.asDynamic().classList.remove("emoji")
+                thumb.appendChild(image)
+            }
+            image.asDynamic().onerror = { showPhoto(index + 1) }
+            image.setAttribute("src", prefixServerOrigin(imageUrls[index]))
+        }
+        showFallback()
+        if (imageUrls.isNotEmpty()) showPhoto(0)
+        row.appendChild(thumb)
+        val copy = el("span", "place-row-copy")
+        copy.appendChild(el("strong", text = name))
+        if (address.isNotBlank() && address != name) copy.appendChild(el("small", text = address))
+        copy.appendChild(
             el(
                 "small",
                 text = Town.t("postCount", mapOf("count" to num(node.postCount).toLong().toString())),
             ),
         )
+        row.appendChild(copy)
         row.onClick {
             preview(
                 PlacePick(

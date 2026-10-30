@@ -1656,7 +1656,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 name: p.location,
                 placeId: p.placeId,
                 lat: p.lat,
-                lng: p.lng
+                lng: p.lng,
+                photoPath: p.photoPath
               }
             """.trimIndent(),
             mapOf("communityKey" to communityId.orEmpty()),
@@ -1674,6 +1675,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 lat = doubleOrNull(row, "lat"),
                 lng = doubleOrNull(row, "lng"),
                 recent = true,
+                photoPath = optional(row, "photoPath"),
             )
             if (places.size >= limit) break
         }
@@ -1960,6 +1962,28 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             placePostBind(location, placeId, viewerId),
         )
         return long(row, "count")
+    }
+
+    override fun latestPostPhotoAtPlace(location: String, placeId: String?, viewerId: String?): String? {
+        val row = first(
+            """
+            FOR p IN $POSTS
+              FILTER (
+                (@placeId != "" AND p.placeId == @placeId)
+                OR (
+                  @placeId == ""
+                  AND p.location == @location
+                  AND (p.placeId == null OR p.placeId == "")
+                )
+              )
+              FILTER ${communityVisibleFilter()}
+              SORT p.createdAt DESC, p._key DESC
+              LIMIT 1
+              RETURN { photoPath: p.photoPath }
+            """.trimIndent(),
+            placePostBind(location, placeId, viewerId),
+        )
+        return row?.let { optional(it, "photoPath") }
     }
 
     private fun authorPostBind(userId: String, viewerId: String?): Map<String, Any?> = mapOf(

@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets
 interface PlaceLookup {
     fun search(query: String): List<PlaceSuggestion>
     fun details(placeId: String): PlaceSuggestion?
+    fun photo(photoName: String): ByteArray? = null
 }
 
 object NoPlaces : PlaceLookup {
@@ -64,7 +65,7 @@ class GooglePlaces(private val apiKey: String) : PlaceLookup {
         val encoded = URLEncoder.encode(id, StandardCharsets.UTF_8)
         val json = get(
             "https://places.googleapis.com/v1/places/$encoded",
-            "id,displayName,formattedAddress,location",
+            "id,displayName,formattedAddress,location,photos.name,primaryType",
         ) ?: return null
         val name = json.path("displayName").path("text").asText("").ifBlank { return null }
         val location = json.path("location")
@@ -76,7 +77,30 @@ class GooglePlaces(private val apiKey: String) : PlaceLookup {
             placeId = json.path("id").asText(id).ifBlank { id },
             lat = lat,
             lng = lng,
+            googlePhotoName = json.path("photos").path(0).path("name").asText("").ifBlank { null },
+            category = json.path("primaryType").asText("").ifBlank { null },
         )
+    }
+
+    override fun photo(photoName: String): ByteArray? {
+        val name = photoName.trim()
+        if (!isGooglePlacePhotoName(name)) return null
+        val encodedName = name.split('/').joinToString("/") { URLEncoder.encode(it, StandardCharsets.UTF_8) }
+        return try {
+            val connection = URI("https://places.googleapis.com/v1/$encodedName/media?maxWidthPx=480")
+                .toURL().openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 8_000
+            connection.setRequestProperty("X-Goog-Api-Key", apiKey)
+            if (connection.responseCode !in 200..299 || !connection.contentType.orEmpty().startsWith("image/")) {
+                null
+            } else {
+                connection.inputStream.use { it.readBytes() }
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun post(url: String, body: String, fieldMask: String) = request(url, "POST", body, fieldMask)
@@ -107,3 +131,6 @@ class GooglePlaces(private val apiKey: String) : PlaceLookup {
         const val SAIGON_LNG = 106.7009
     }
 }
+
+internal fun isGooglePlacePhotoName(name: String): Boolean =
+    Regex("places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_=-]+").matches(name)

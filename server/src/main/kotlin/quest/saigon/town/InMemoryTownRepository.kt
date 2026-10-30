@@ -811,10 +811,27 @@ class InMemoryTownRepository : TownRepository {
                         lat = post.lat,
                         lng = post.lng,
                         recent = true,
+                        photoPath = post.photoPath,
                     )
                 }
             }
         return places.take(limit)
+    }
+
+    override fun latestPostPhotoAtPlace(location: String, placeId: String?, viewerId: String?): String? {
+        val pid = placeId?.takeIf { it.isNotBlank() }
+        return posts.values
+            .filter { post ->
+                val matchesPlace = if (pid != null) {
+                    post.placeId?.takeIf { it.isNotBlank() } == pid
+                } else {
+                    post.location == location && post.placeId.isNullOrBlank()
+                }
+                matchesPlace && placePostVisible(post, viewerId)
+            }
+            .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+            .firstOrNull()
+            ?.photoPath
     }
 
     override fun findPlace(placeId: String, viewerId: String?): PlaceSuggestion? {

@@ -113,8 +113,22 @@ class EventBehaviorTest {
         assertEquals(4, events.path("events").size())
         assertTrue(events.path("people").size() >= 3)
 
+        assertTrue(!services.repo.latestPostPhotoAtPlace("Cafe", "ChIJ123abc", null).isNullOrBlank())
         val places = mapper.readTree(linh.get("/api/places?q=cafe").bodyAsText())
         assertEquals("Cafe", places.path("places").path(0).path("name").asText())
+        assertTrue(places.path("recent").path(0).path("photoUrl").asText().startsWith("/media/"))
+        assertTrue(places.path("places").path(0).path("photoUrl").asText().startsWith("/media/"), places.toPrettyString())
+        val googlePlace = places.path("places").path(1)
+        assertEquals("library", googlePlace.path("category").asText())
+        assertEquals(
+            "/api/places/photo?name=places%2FChIJLibrary%2Fphotos%2FPhoto1",
+            googlePlace.path("googlePhotoUrl").asText(),
+        )
+        val googlePhoto = linh.get("/api/places/photo?name=places%2FChIJLibrary%2Fphotos%2FPhoto1")
+        assertEquals(HttpStatusCode.OK, googlePhoto.status)
+        assertEquals("image/jpeg", googlePhoto.headers[HttpHeaders.ContentType]?.substringBefore(';'))
+        val invalidGooglePhoto = linh.get("/api/places/photo?name=https%3A%2F%2Fexample.org%2Fimage")
+        assertEquals(HttpStatusCode.BadRequest, invalidGooglePhoto.status)
         val details = mapper.readTree(linh.get("/api/places/details?id=ChIJ123").bodyAsText())
         assertEquals(10.77, details.path("lat").asDouble(), 0.001)
 
@@ -293,10 +307,25 @@ class EventBehaviorTest {
             contactLimiter = RateLimiter(1, 60_000, clock),
             places = object : PlaceLookup {
                 override fun search(query: String) = listOf(
-                    PlaceSuggestion("Cafe", "D1", "ChIJ123", 10.77, 106.70),
+                    PlaceSuggestion("Cafe", "D1", "ChIJ123abc", 10.77, 106.70),
+                    PlaceSuggestion("Library", "D2", "ChIJLibrary", 10.78, 106.71),
                 )
-                override fun details(placeId: String) =
-                    PlaceSuggestion("Cafe", "D1", placeId, 10.77, 106.70).takeIf { placeId == "ChIJ123" }
+                override fun details(placeId: String) = when (placeId) {
+                    "ChIJ123" -> PlaceSuggestion("Cafe", "D1", placeId, 10.77, 106.70)
+                    "ChIJLibrary" -> PlaceSuggestion(
+                        "Library",
+                        "D2",
+                        placeId,
+                        10.78,
+                        106.71,
+                        googlePhotoName = "places/ChIJLibrary/photos/Photo1",
+                        category = "library",
+                    )
+                    else -> null
+                }
+                override fun photo(photoName: String) = byteArrayOf(1, 2, 3).takeIf {
+                    photoName == "places/ChIJLibrary/photos/Photo1"
+                }
             },
             events = EventService(repo, hub, clock),
         )
