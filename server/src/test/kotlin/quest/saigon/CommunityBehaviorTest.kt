@@ -60,6 +60,7 @@ class CommunityBehaviorTest {
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
         val linh = createClient { install(HttpCookies) }
         val minh = createClient { install(HttpCookies) }
+        val visitor = createClient { install(HttpCookies) }
         linh.post("/api/auth/register") {
             contentType(ContentType.Application.Json)
             setBody("""{"name":"Linh","phone":"0904440001","password":"secretpass"}""")
@@ -67,6 +68,10 @@ class CommunityBehaviorTest {
         minh.post("/api/auth/register") {
             contentType(ContentType.Application.Json)
             setBody("""{"name":"Minh","phone":"0904440002","password":"secretpass"}""")
+        }
+        visitor.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Visitor","phone":"0904440003","password":"secretpass"}""")
         }
         val linhId = mapper.readTree(linh.get("/api/me").bodyAsText()).path("id").asText()
         val publicProfile = mapper.readTree(linh.get("/api/users/$linhId").bodyAsText())
@@ -146,8 +151,16 @@ class CommunityBehaviorTest {
         assertTrue(mapper.readTree(hidden.bodyAsText()).path("communityOnly").asBoolean())
 
         val main = mapper.readTree(minh.get("/api/posts?limit=20").bodyAsText()).path("posts")
-        assertEquals(1, main.size())
-        assertEquals(sharedBody.path("id").asText(), main.path(0).path("id").asText())
+        assertEquals(
+            setOf(sharedBody.path("id").asText(), hiddenId),
+            (0 until main.size()).map { main.path(it).path("id").asText() }.toSet(),
+        )
+        val visitorMain = mapper.readTree(visitor.get("/api/posts?limit=20").bodyAsText()).path("posts")
+        assertEquals(1, visitorMain.size())
+        assertEquals(sharedBody.path("id").asText(), visitorMain.path(0).path("id").asText())
+        val anonymousMain = mapper.readTree(createClient { }.get("/api/posts?limit=20").bodyAsText()).path("posts")
+        assertEquals(1, anonymousMain.size())
+        assertEquals(sharedBody.path("id").asText(), anonymousMain.path(0).path("id").asText())
 
         val communityFeed = mapper.readTree(minh.get("/api/communities/$communityId/posts?limit=20").bodyAsText()).path("posts")
         assertEquals(2, communityFeed.size())

@@ -154,7 +154,7 @@ internal fun feedScreen(
             val posts = readPosts(parsed.posts)
             val pending = if (communityId == null) Town.pending else null
             Town.pending = null
-            if (pending != null && !pending.communityOnly && posts.none { it.id == pending.id }) posts.add(0, pending)
+            if (pending != null && posts.none { it.id == pending.id }) posts.add(0, pending)
             if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
                 http("GET", "/api/posts/${encodeQuery(focusPostId)}") { postStatus, postBody ->
                     if (shell.asDynamic().isConnected == false) return@http

@@ -307,7 +307,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     }
 
     override fun feed(cursor: String?, limit: Int, viewerId: String?): FeedPage = pageFeed(
-        "(p.communityOnly != true) AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
+        "${communityVisibleFilter()} AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))",
         cursorBind(cursor, limit) + mapOf("viewerId" to viewerId.orEmpty()),
         limit,
     )

@@ -174,7 +174,7 @@ class InMemoryTownRepository : TownRepository {
     }
 
     override fun feed(cursor: String?, limit: Int, viewerId: String?): FeedPage = pagePosts(
-        posts.values.filter { !it.communityOnly },
+        posts.values.filter { placePostVisible(it, viewerId) },
         cursor,
         limit,
         viewerId,
