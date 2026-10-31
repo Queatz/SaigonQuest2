@@ -606,7 +606,10 @@ private fun drawNameChip(ctx: dynamic, name: String, cardX: Double, cardY: Doubl
     ctx.fillStyle = "#00000024"
     ctx.fill()
     traceRound(ctx, chipX, chipY, chipW, chipH, chipH / 2)
-    ctx.fillStyle = "#e9897c"
+    val chipFill = ctx.createLinearGradient(chipX, chipY, chipX + chipW, chipY + chipH)
+    chipFill.addColorStop(0, "color-mix(in srgb, white 35%, #e9897c)")
+    chipFill.addColorStop(1, "#7f7ce9")
+    ctx.fillStyle = chipFill
     ctx.fill()
     if (hasFace) {
         drawCircleImage(ctx, face, chipX + leftPad + photo / 2, chipY + chipH / 2, photo)

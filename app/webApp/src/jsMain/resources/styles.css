@@ -6,6 +6,7 @@
     --muted: #746b62;
     --line: #e6ddd2;
     --accent: #e9897c;
+    --tertiary: #7f7ce9;
     --chip: #e9897c;
     --ink: #2a241e;
     --card: #f6f1e8;
@@ -448,7 +449,7 @@ button { cursor: pointer; }
     position: absolute;
     top: -16px;
     left: 16px;
-    background: var(--chip);
+    background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
     color: #fff;
     font-weight: 800;
     border: 0;
@@ -661,15 +662,17 @@ small, .hint { color: var(--muted); font-size: 13px; }
 }
 
 .primary, .secondary {
-    background: var(--accent);
+    background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
     color: #fff;
+    padding: 14px 18px;
+    box-shadow: 0 0 2px 2px rgba(255, 255, 255, .5) inset;
     padding: 14px 18px;
 }
 
-.secondary { background: var(--ink); }
+.secondary { background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, #f6f1ea), color-mix(in srgb, white 65%, #7f7ce9)); }
 
 @media (prefers-color-scheme: dark) {
-    .secondary { background: #f6f1ea; color: #1c1916; }
+    .secondary { linear-gradient(to bottom right, color-mix(in srgb, white 35%, #f6f1ea), color-mix(in srgb, white 65%, #7f7ce9)); color: #1c1916; }
 }
 
 .text-button {
@@ -1113,7 +1116,7 @@ small, .hint { color: var(--muted); font-size: 13px; }
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--accent);
+    background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
     color: #fff;
     display: grid;
     place-items: center;
@@ -3517,7 +3520,7 @@ span.event-face {
     text-align: left;
     cursor: pointer;
     transform: translate(-50%, calc(-100% - 10px)) scale(0);
-    transform-origin: center;
+    transform-origin: center bottom;
     transition: transform 220ms ease;
     pointer-events: none;
 }
