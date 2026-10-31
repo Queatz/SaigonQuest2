@@ -486,7 +486,7 @@ object Copy {
         "uploadPrompt9" to "Kể mọi người nghe đi.",
         "uploadPrompt10" to "Đang đi chơi à?",
         "changePhoto" to "Đổi ảnh",
-        "message" to "Lời nhắn",
+        "message" to "Nhắn tin",
         "messagePlaceholder" to "Bạn muốn nói gì?",
         "selectAvatar" to "Chọn avatar",
         "noAvatar" to "Không",

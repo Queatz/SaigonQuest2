@@ -226,8 +226,10 @@ class EventBehaviorTest {
         val authorId = mapper.readTree(registered.bodyAsText()).path("id").asText()
 
         postAt(linh, "First place post", "Place A", "ChIJ1", lat = 10.77, lng = 106.70)
+        val firstPhotoPath = services.repo.latestPostPhotoAtPlace("Place A", "ChIJ1", authorId)
         now += 1
         postAt(linh, "Latest place post", "Place A", "ChIJ1", lat = 10.775, lng = 106.705)
+        val latestPhotoPath = services.repo.latestPostPhotoAtPlace("Place A", "ChIJ1", authorId)
         now += 1
         postAt(linh, "Second place post", "Place A", "ChIJ2", lat = 10.78, lng = 106.71)
         now += 1
@@ -257,6 +259,9 @@ class EventBehaviorTest {
         assertEquals(10.775, first.path("lat").asDouble())
         assertEquals(106.705, first.path("lng").asDouble())
         assertEquals(2, first.path("postCount").asInt())
+        assertTrue(!firstPhotoPath.isNullOrBlank())
+        assertNotEquals(firstPhotoPath, latestPhotoPath)
+        assertEquals("/media/$latestPhotoPath", first.path("photoUrl").asText())
         val second = location("ChIJ2")
         assertEquals("Place A", second.path("name").asText())
         assertEquals(10.78, second.path("lat").asDouble())
@@ -297,7 +302,8 @@ class EventBehaviorTest {
         val search = mapper.readTree(linh.get("/api/places?q=lantern").bodyAsText()).path("places")
         assertTrue((0 until search.size()).any { search.path(it).path("id").asText() == id })
         val events = mapper.readTree(linh.get("/api/events").bodyAsText()).path("locations")
-        assertTrue((0 until events.size()).any { events.path(it).path("id").asText() == id })
+        val mapLocation = (0 until events.size()).map { events.path(it) }.first { it.path("id").asText() == id }
+        assertTrue(mapLocation.path("photoUrl").isMissingNode || mapLocation.path("photoUrl").isNull)
 
         val profile = linh.patch("/api/me") {
             contentType(ContentType.Application.Json)

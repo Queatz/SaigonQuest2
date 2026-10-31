@@ -3542,11 +3542,14 @@ span.event-face {
     border: 2px solid #fff;
     border-radius: 50%;
     background: var(--accent);
-    box-shadow: 0 2px 8px rgba(36, 31, 26, .45), 0 0 0 4px rgba(233, 137, 124, .24);
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 2px 8px rgba(36, 31, 26, .45), 0 0 2px 2px rgba(233, 137, 124, .24);
     color: #fff;
     font-size: 9px;
     font-weight: 800;
     line-height: 1;
+    text-shadow: 0 0 2px black;
     transform: translate(-50%, -50%) scale(0);
     transform-origin: center;
     transition: transform 220ms ease;
@@ -3560,6 +3563,27 @@ span.event-face {
 
 .custom-location-bubble {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.custom-location-bubble.has-photo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.custom-location-bubble-photo {
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background-size: cover;
+    background-position: center;
+}
+
+.custom-location-bubble-text {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
 }
 
 .picker-map.is-placing { cursor: crosshair; }

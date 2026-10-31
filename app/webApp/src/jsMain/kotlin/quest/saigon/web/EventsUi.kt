@@ -28,6 +28,7 @@ internal class PlacePick(
     var lng: Double? = null,
     var id: String? = null,
     var postCount: Long = 0,
+    var photoUrl: String? = null,
 )
 
 internal fun bindLocationMapPicker(
@@ -1178,6 +1179,9 @@ private fun userLocationDot(location: PlacePick, host: HTMLElement, router: Hist
     val count = location.postCount.coerceAtLeast(0)
     dot.setAttribute("aria-label", "${location.name}, ${Town.t("postCount", mapOf("count" to count.toString()))}")
     dot.textContent = count.coerceAtMost(99).toString()
+    location.photoUrl?.takeIf { it.isNotBlank() }?.let { photoUrl ->
+        dot.asDynamic().style.backgroundImage = "url(\"${prefixServerOrigin(photoUrl)}\")"
+    }
     dot.onClick {
         openLocationSheet(
             host,
@@ -1197,17 +1201,31 @@ private fun userLocationBubble(location: PlacePick, host: HTMLElement, router: H
     bubble.setAttribute("type", "button")
     val count = location.postCount.coerceAtLeast(0)
     bubble.setAttribute("aria-label", "${location.name}, ${Town.t("postCount", mapOf("count" to count.toString()))}")
+    val photoUrl = location.photoUrl?.takeIf { it.isNotBlank() }
+    if (photoUrl != null) {
+        bubble.asDynamic().classList.add("has-photo")
+        val photo = el("span", "custom-location-bubble-photo")
+        photo.setAttribute("aria-hidden", "true")
+        photo.asDynamic().style.backgroundImage = "url(\"${prefixServerOrigin(photoUrl)}\")"
+        bubble.appendChild(photo)
+    }
     val heading = el("span", "event-map-bubble-title")
     heading.appendChild(el("span", "event-map-bubble-emoji", text = PLACE_ICON))
     heading.appendChild(el("strong", text = location.name))
-    bubble.appendChild(heading)
-    bubble.appendChild(
-        el(
-            "span",
-            "event-map-bubble-meta",
-            text = Town.t("postCount", mapOf("count" to count.toString())),
-        ),
+    val meta = el(
+        "span",
+        "event-map-bubble-meta",
+        text = Town.t("postCount", mapOf("count" to count.toString())),
     )
+    if (photoUrl != null) {
+        val text = el("span", "custom-location-bubble-text")
+        text.appendChild(heading)
+        text.appendChild(meta)
+        bubble.appendChild(text)
+    } else {
+        bubble.appendChild(heading)
+        bubble.appendChild(meta)
+    }
     bubble.onClick {
         openLocationSheet(
             host,
@@ -1501,6 +1519,7 @@ private fun readUserLocations(array: dynamic): List<PlacePick> {
                 lng = lng,
                 id = (place.id as? String)?.takeIf { it.isNotBlank() },
                 postCount = postCount,
+                photoUrl = (place.photoUrl as? String)?.takeIf { it.isNotBlank() },
             )
         }
     }

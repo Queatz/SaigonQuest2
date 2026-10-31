@@ -833,6 +833,7 @@ class InMemoryTownRepository : TownRepository {
                     placeId = placeId,
                     lat = post.lat,
                     lng = post.lng,
+                    photoPath = post.photoPath,
                 )
             }
             .toList()

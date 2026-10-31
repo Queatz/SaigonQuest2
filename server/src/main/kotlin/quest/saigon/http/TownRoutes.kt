@@ -894,6 +894,7 @@ fun Route.townApi(services: TownServices) {
                             name = location.name,
                             lat = location.lat,
                             lng = location.lng,
+                            photoPath = services.repo.latestPostPhotoAtPlace(location.name, null, viewer?.id, location.id),
                             postCount = services.repo.countPostsAtPlace(location.name, null, viewer?.id, location.id),
                             id = location.id,
                             custom = true,

@@ -1708,7 +1708,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             placeId: placeId,
             name: latest.location,
             lat: latest.lat,
-            lng: latest.lng
+            lng: latest.lng,
+            photoPath: latest.photoPath
           }
         """.trimIndent(),
         mapOf("viewerId" to viewerId.orEmpty()),
@@ -1718,6 +1719,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             placeId = optional(row, "placeId"),
             lat = doubleOrNull(row, "lat"),
             lng = doubleOrNull(row, "lng"),
+            photoPath = optional(row, "photoPath"),
         )
     }
 
