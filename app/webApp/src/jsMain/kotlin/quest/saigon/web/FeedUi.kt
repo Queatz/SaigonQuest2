@@ -870,7 +870,7 @@ internal fun showVisitorWelcome(host: HTMLElement) {
     val message = el("p", "visitor-welcome-text", text = Town.t("visitorWelcome"))
     message.setAttribute("id", "visitor-welcome-text")
     card.appendChild(message)
-    card.appendChild(el("button", "text-button", text = Town.t("visitorWelcomeGo")) { button ->
+    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
         button.setAttribute("type", "button")
         button.onClick { backdrop.asDynamic().remove() }
     })

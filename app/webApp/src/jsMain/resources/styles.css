@@ -761,8 +761,9 @@ small, .hint { color: var(--muted); font-size: 13px; }
 .visitor-welcome-text {
     margin: 4px 0 8px;
     font-size: 17px;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.45;
+    white-space: pre-wrap;
 }
 
 @keyframes float-bob {
@@ -1652,7 +1653,7 @@ button.busy .avatar-spinner {
 }
 
 .chip.selected {
-    border-color: var(--bg);
+    border-color: var(--text);
     background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
     box-shadow: 0 0 0 2px color-mix(in srgb, transparent 85%, var(--text)) inset;
     color: #fff;

@@ -215,7 +215,17 @@ object Copy {
         "statsAllTime" to "All time",
         "totalUsers" to "Total users",
         "totalPosts" to "Total posts",
-        "visitorWelcome" to "Saigon's little secret! Connect authentically, build strong relationships, and share with people around town — not the whole world.",
+        "visitorWelcome" to "Welcome to Saigon.Town!\n" +
+                "\n" +
+                "Hey! Jacob here. I made this little app because I wanted a place for the people I actually bump into around Saigon: neighbors, regulars, friends-of-friends, and anyone who feels like this city is home (even if just for now!).\n" +
+                "\n" +
+                "If you’re in town, I’d really love for you to join and share. Introduce yourself, share whatever you're up to, and use this app like a neighborhood community board — helpful, friendly, and local.\n" +
+                "\n" +
+                "This is a space to share with people around town — not the whole world.\n" +
+                "\n" +
+                "Thanks so much for stopping by!\n" +
+                "\n" +
+                "— Jacob Ferrero, creator",
         "visitorWelcomeGo" to "Let's go!",
         "swipeDown" to "Swipe down",
         "selectMusic" to "Select music",
@@ -657,7 +667,17 @@ object Copy {
         "statsAllTime" to "Từ trước đến nay",
         "totalUsers" to "Tổng người dùng",
         "totalPosts" to "Tổng bài viết",
-        "visitorWelcome" to "Bí mật bé nhất Sài Gòn nè! Kết nối thiệt lòng, xây dựng mối quan hệ đáng giá, chia sẻ với mấy người xung quanh mình thui, chứ hong phải cả thế giới đâu.",
+        "visitorWelcome" to "Chào mừng tới Saigon.Town nè!\n" +
+                "\n" +
+                "Hey! Jacob đây. Mình làm cái app nhỏ này vì mình muốn có một chỗ cho mấy người mình thiệt sự gặp ngoài đường quanh Sài Gòn: hàng xóm, mấy người quen lui tới hoài, bạn của bạn, và bất cứ ai thấy thành phố này là nhà (dù chỉ tạm thời thôi cũng được!).\n" +
+                "\n" +
+                "Nếu bạn đang ở Sài Gòn, mình rất mong bạn tham gia và chia sẻ. Giới thiệu bản thân, chia sẻ bạn đang làm gì, và xài app này như bảng tin khu phố — hữu ích, thân thiện, và gần gũi quanh đây.\n" +
+                "\n" +
+                "Đây là chỗ để chia sẻ với mấy người quanh thành phố thui — hong phải cả thế giới đâu.\n" +
+                "\n" +
+                "Cảm ơn bạn ghé chơi nhiều nha!\n" +
+                "\n" +
+                "— Jacob Ferrero, người tạo app",
         "visitorWelcomeGo" to "Vào thui!",
         "swipeDown" to "Vuốt xuống",
         "selectMusic" to "Chọn nhạc",
