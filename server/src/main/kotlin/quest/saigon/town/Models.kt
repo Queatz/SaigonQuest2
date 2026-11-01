@@ -586,6 +586,8 @@ data class CommunityMember(
     val location: String,
     val intro: String,
     val joinedAt: Long,
+    val latestPostId: String? = null,
+    val latestPostPhotoPath: String? = null,
 )
 
 data class CommunityMemberPage(

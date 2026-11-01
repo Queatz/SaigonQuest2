@@ -156,6 +156,61 @@ class EventBehaviorTest {
     }
 
     @Test
+    fun eventsPeopleIncludeLatestVisiblePost() = testApplication {
+        val services = services { 1_700_000_000_000L }
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val author = createClient { install(HttpCookies) }
+        val outsider = createClient { install(HttpCookies) }
+        val authorId = mapper.readTree(
+            author.post("/api/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Linh","phone":"0905550021","password":"secretpass"}""")
+            }.bodyAsText(),
+        ).path("id").asText()
+        outsider.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Minh","phone":"0905550022","password":"secretpass"}""")
+        }
+
+        services.repo.insertPost(PostRecord("older", authorId, photoPath = "older.jpg", message = "Older", location = "D1", createdAt = 10))
+        services.repo.insertPost(PostRecord("newer", authorId, photoPath = "newer.jpg", message = "Newer", location = "D1", createdAt = 20))
+        services.repo.insertPost(
+            PostRecord("z-newer", authorId, photoPath = "z-newer.jpg", message = "Same time", location = "D1", createdAt = 20),
+        )
+        services.repo.insertPost(
+            PostRecord(
+                "private",
+                authorId,
+                photoPath = "private.jpg",
+                message = "Private",
+                location = "D1",
+                createdAt = 30,
+                communityId = "private-community",
+                communityOnly = true,
+            ),
+        )
+
+        fun person(body: String, id: String) = mapper.readTree(body).path("people").let { people ->
+            (0 until people.size()).map(people::path).first { it.path("id").asText() == id }
+        }
+
+        val outsiderBody = outsider.get("/api/events").bodyAsText()
+        val outsiderAuthor = person(outsiderBody, authorId)
+        assertEquals("z-newer", outsiderAuthor.path("latestPostId").asText())
+        assertEquals("/media/z-newer.jpg", outsiderAuthor.path("latestPostPhotoUrl").asText())
+        val noPostPerson = person(outsiderBody, mapper.readTree(outsiderBody).path("people").let { people ->
+            (0 until people.size()).map(people::path).first { it.path("name").asText() == "Minh" }.path("id").asText()
+        })
+        assertTrue(noPostPerson.path("latestPostId").isNull)
+        assertTrue(noPostPerson.path("latestPostPhotoUrl").isNull)
+        assertTrue(noPostPerson.has("latestPostId"))
+        assertTrue(noPostPerson.has("latestPostPhotoUrl"))
+
+        val authorPerson = person(author.get("/api/events").bodyAsText(), authorId)
+        assertEquals("private", authorPerson.path("latestPostId").asText())
+    }
+
+    @Test
     fun locationPostsAreGroupedByNameAndPlaceId() = testApplication {
         var now = 1_700_000_000_000L
         val services = services({ now })

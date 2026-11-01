@@ -1054,7 +1054,7 @@ class InMemoryTownRepository : TownRepository {
         return isMember(communityId, viewer)
     }
 
-    override fun people(cursor: String?, limit: Int): CommunityMemberPage {
+    override fun people(cursor: String?, limit: Int, viewerId: String?): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
         val sorted = users.values.sortedWith(
             compareByDescending<UserRecord> { maxOf(it.lastActiveAt, it.createdAt) }.thenByDescending { it.id },
@@ -1070,6 +1070,8 @@ class InMemoryTownRepository : TownRepository {
         }
         val page = filtered.take(limit + 1)
         val items = page.take(limit).map { user ->
+            val latestPost = authorPosts(user.id, viewerId)
+                .maxWithOrNull(compareBy<PostRecord> { it.createdAt }.thenBy { it.id })
             CommunityMember(
                 id = user.id,
                 name = user.name,
@@ -1077,6 +1079,8 @@ class InMemoryTownRepository : TownRepository {
                 location = user.location,
                 intro = user.intro,
                 joinedAt = maxOf(user.lastActiveAt, user.createdAt),
+                latestPostId = latestPost?.id,
+                latestPostPhotoPath = latestPost?.photoPath,
             )
         }
         val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.joinedAt, it.id) } else null

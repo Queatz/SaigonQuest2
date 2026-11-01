@@ -856,22 +856,35 @@ private fun iconAction(label: String, svg: String, onClick: () -> Unit): HTMLEle
 
 private fun peopleRow(node: dynamic, host: HTMLElement, router: HistoryRouter): HTMLElement {
     val person = eventPersonFrom(node)
-    val row = el("button", "member-row")
-    row.setAttribute("type", "button")
+    val row = el("div", "member-row people-row")
+    val profile = el("button", "attendee-profile people-profile")
+    profile.setAttribute("type", "button")
     if (!person.photoUrl.isNullOrBlank()) {
         val face = el("img", "face")
         face.setAttribute("alt", "")
         face.setAttribute("src", person.photoUrl)
-        row.appendChild(face)
+        profile.appendChild(face)
     } else {
-        row.appendChild(el("span", "face initial", text = person.name.take(1).uppercase()))
+        profile.appendChild(el("span", "face initial", text = person.name.take(1).uppercase()))
     }
     val copy = el("span", "member-copy")
     copy.appendChild(el("strong", text = person.name))
     if (person.location.isNotBlank()) copy.appendChild(el("small", text = person.location))
-    row.appendChild(copy)
-    row.onClick {
+    profile.appendChild(copy)
+    profile.onClick {
         openMiniProfile(host, person.name, person.photoUrl, person.location, person.intro, person.id, router)
+    }
+    row.appendChild(profile)
+    if (!person.latestPostId.isNullOrBlank() && !person.latestPostPhotoUrl.isNullOrBlank()) {
+        val latestPost = el("button", "people-post-thumb")
+        latestPost.setAttribute("type", "button")
+        latestPost.setAttribute("aria-label", "Open latest post by ${person.name}")
+        val photo = el("img", "people-post-photo")
+        photo.setAttribute("alt", "")
+        photo.setAttribute("src", person.latestPostPhotoUrl)
+        latestPost.appendChild(photo)
+        latestPost.onClick { router.navigate("/p/${person.latestPostId}") }
+        row.appendChild(latestPost)
     }
     return row
 }

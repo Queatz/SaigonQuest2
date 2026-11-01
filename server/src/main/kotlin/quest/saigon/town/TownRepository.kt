@@ -120,7 +120,7 @@ interface TownRepository {
         locationId: String? = null,
     ): FeedPage
     fun countPostsAtPlace(location: String, placeId: String?, viewerId: String? = null, locationId: String? = null): Long
-    fun people(cursor: String?, limit: Int): CommunityMemberPage
+    fun people(cursor: String?, limit: Int, viewerId: String? = null): CommunityMemberPage
     fun eventPostsBetween(from: Long, to: Long): List<PostRecord>
     fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean)
     fun findPollVote(postId: String, userId: String): PollVote?

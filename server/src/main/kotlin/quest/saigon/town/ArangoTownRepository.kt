@@ -2101,8 +2101,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         "viewerId" to viewerId.orEmpty(),
     )
 
-    private fun authorPostFilter(): String = """
-        p.userKey == @userKey
+    private fun authorPostFilter(userKeyExpression: String = "@userKey"): String = """
+        p.userKey == $userKeyExpression
         AND (
           p.userKey == @viewerId
           OR ${communityVisibleFilter()}
@@ -2148,7 +2148,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     """.trimIndent()
 
-    override fun people(cursor: String?, limit: Int): CommunityMemberPage {
+    override fun people(cursor: String?, limit: Int, viewerId: String?): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
         val rows = queryList(
             """
@@ -2157,13 +2157,22 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               FILTER @hasCursor == false OR activeAt < @cursorAt OR (activeAt == @cursorAt AND u._key < @cursorKey)
               SORT activeAt DESC, u._key DESC
               LIMIT @limit
+              LET latestPost = FIRST(
+                FOR p IN $POSTS
+                  FILTER ${authorPostFilter("u._key")}
+                  SORT p.createdAt DESC, p._key DESC
+                  LIMIT 1
+                  RETURN p
+              )
               RETURN {
                 id: u._key,
                 name: u.name,
                 profilePhotoPath: u.profilePhotoPath,
                 location: u.location,
                 intro: u.intro,
-                joinedAt: activeAt
+                joinedAt: activeAt,
+                latestPostId: latestPost == null ? null : latestPost._key,
+                latestPostPhotoPath: latestPost == null ? null : latestPost.photoPath
               }
             """.trimIndent(),
             mapOf(
@@ -2171,6 +2180,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 "hasCursor" to (parsed != null),
                 "cursorAt" to (parsed?.first ?: 0L),
                 "cursorKey" to (parsed?.second ?: ""),
+                "viewerId" to viewerId.orEmpty(),
             ),
         )
         val page = rows.take(limit)
@@ -2182,6 +2192,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 location = string(row, "location"),
                 intro = string(row, "intro"),
                 joinedAt = long(row, "joinedAt"),
+                latestPostId = optional(row, "latestPostId"),
+                latestPostPhotoPath = optional(row, "latestPostPhotoPath"),
             )
         }
         val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.joinedAt, it.id) } else null

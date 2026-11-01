@@ -885,7 +885,7 @@ fun Route.townApi(services: TownServices) {
         val viewer = call.user(services)
         val todayStart = SaigonDays.startMillis(SaigonDays.dayKey(services.clock()))
         val events = services.repo.upcomingEvents(todayStart, viewer?.id, 100)
-        val people = services.repo.people(call.request.queryParameters["cursor"], 40)
+        val people = services.repo.people(call.request.queryParameters["cursor"], 40, viewer?.id)
         call.respondJson(
             mapOf(
                 "events" to events.map(::postPayload),
@@ -906,7 +906,7 @@ fun Route.townApi(services: TownServices) {
                         )
                     }
                 ).map(::placePayload),
-                "people" to people.items.map(::memberPayload),
+                "people" to people.items.map { memberPayload(it, includeLatestPost = true) },
                 "nextPeopleCursor" to people.nextCursor,
             ),
         )
@@ -2020,14 +2020,21 @@ private fun communityPayload(community: quest.saigon.town.CommunityRecord, joine
     "createdAt" to community.createdAt,
 )
 
-private fun memberPayload(member: quest.saigon.town.CommunityMember) = mapOf(
+private fun memberPayload(member: quest.saigon.town.CommunityMember, includeLatestPost: Boolean = false) = mapOf(
     "id" to member.id,
     "name" to member.name,
     "photoUrl" to member.profilePhotoPath?.let { "/api/users/${member.id}/photo" },
     "location" to member.location,
     "intro" to member.intro,
     "joinedAt" to member.joinedAt,
-)
+) + if (includeLatestPost) {
+    mapOf(
+        "latestPostId" to member.latestPostId,
+        "latestPostPhotoUrl" to member.latestPostPhotoPath?.let { "/media/$it" },
+    )
+} else {
+    emptyMap()
+}
 
 private fun questionAnswerPayload(item: quest.saigon.town.QuestionAnswerItem) = mapOf(
     "id" to item.id,
