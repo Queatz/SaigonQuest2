@@ -1,10 +1,15 @@
+@file:OptIn(ExperimentalWasmJsInterop::class)
+
 package quest.saigon.web
 
 import quest.saigon.TextLinks
 import web.dom.document
 import web.events.EventHandler
+import web.history.history
 import web.html.HTMLElement
+import web.location.location
 import web.window.window
+import kotlin.js.ExperimentalWasmJsInterop
 
 internal fun el(
     tag: String,
@@ -76,13 +81,32 @@ internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
     })
 }
 
-    internal class SheetChrome(
+private val openSheets = mutableListOf<SheetChrome>()
+private var ignoreNextSheetPopState = false
+
+internal fun consumeSheetBack(): Boolean {
+    if (ignoreNextSheetPopState) {
+        ignoreNextSheetPopState = false
+        return true
+    }
+    val sheet = openSheets.lastOrNull() ?: return false
+    sheet.closeFromHistory()
+    return true
+}
+
+internal fun clearSheetStack() {
+    openSheets.toList().forEach { it.closeForRouteChange() }
+    openSheets.clear()
+}
+
+internal class SheetChrome(
     className: String,
     title: String,
     private val beforeClose: () -> Unit = {},
 ) {
     val sheet: HTMLElement = el("div", className)
     private val backdrop: HTMLElement = el("div", "dialog-backdrop comment-backdrop")
+    private var isOpen = false
 
     init {
         sheet.setAttribute("role", "dialog")
@@ -106,13 +130,36 @@ internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
     }
 
     fun close() {
+        dismiss(updateHistory = true)
+    }
+
+    internal fun closeFromHistory() {
+        dismiss(updateHistory = false)
+    }
+
+    internal fun closeForRouteChange() {
+        dismiss(updateHistory = false)
+    }
+
+    private fun dismiss(updateHistory: Boolean) {
+        if (!isOpen) return
+        isOpen = false
+        openSheets.remove(this)
         beforeClose()
         sheet.asDynamic().style.transform = ""
         sheet.asDynamic().classList.remove("open")
         window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
+        if (updateHistory) {
+            ignoreNextSheetPopState = true
+            history.back()
+        }
     }
 
     fun open(host: HTMLElement, afterOpen: () -> Unit = {}) {
+        if (isOpen) return
+        isOpen = true
+        history.pushState(null, "", location.href)
+        openSheets.add(this)
         host.appendChild(backdrop)
         window.asDynamic().requestAnimationFrame {
             window.asDynamic().requestAnimationFrame {

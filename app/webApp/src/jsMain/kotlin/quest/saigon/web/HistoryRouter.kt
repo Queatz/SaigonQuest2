@@ -15,6 +15,7 @@ class HistoryRouter(
 ) {
     fun start() {
         window.onpopstate = EventHandler {
+            if (consumeSheetBack()) return@EventHandler
             emit()
         }
         emit()
@@ -32,6 +33,7 @@ class HistoryRouter(
     fun currentPath(): String = location.pathname
 
     private fun emit() {
+        clearSheetStack()
         onRoute(matchAppRoute(currentPath()))
     }
 }
