@@ -9,8 +9,8 @@ class ChatService(
     private val clock: () -> Long = System::currentTimeMillis,
     private val pusher: NotificationPusher = NoNotificationPush,
 ) {
-    fun list(actor: UserRecord, cursor: String?, limit: Int): ChatPage =
-        repo.chatsFor(actor.id, cursor, limit.coerceIn(1, 50))
+    fun list(actor: UserRecord, cursor: String?, limit: Int, type: String? = null): ChatPage =
+        repo.chatsFor(actor.id, cursor, limit.coerceIn(1, 50), type)
 
     fun get(actor: UserRecord, chatId: String): ChatSummary {
         requireMember(actor, chatId)

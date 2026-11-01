@@ -146,7 +146,7 @@ interface TownRepository {
     fun findChat(id: String): ChatRecord?
     fun findDirectChat(userA: String, userB: String): ChatRecord?
     fun deleteChat(id: String)
-    fun chatsFor(userId: String, cursor: String?, limit: Int): ChatPage
+    fun chatsFor(userId: String, cursor: String?, limit: Int, type: String? = null): ChatPage
     fun chatSummary(chatId: String, viewerId: String): ChatSummary?
     fun upsertChatMember(member: ChatMemberRecord)
     fun findChatMember(chatId: String, userId: String): ChatMemberRecord?

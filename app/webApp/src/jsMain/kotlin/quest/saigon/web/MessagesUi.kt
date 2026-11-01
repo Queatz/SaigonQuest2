@@ -469,6 +469,121 @@ internal fun openDirectChat(
     }
 }
 
+internal fun openAddToGroup(host: HTMLElement, userId: String, name: String) {
+    if (userId.isBlank() || userId == Town.me?.id) return
+    if (Town.me == null) {
+        showAuthDialog(host, onSuccess = { openAddToGroup(host, userId, name) })
+        return
+    }
+    if (host.asDynamic().querySelector(".add-to-group-dialog") != null) return
+    val backdrop = el("div", "dialog-backdrop add-to-group-dialog")
+    val card = el("div", "dialog")
+    card.setAttribute("role", "dialog")
+    card.setAttribute("aria-modal", "true")
+    card.appendChild(el("h2", text = Town.t("addToGroup", mapOf("name" to name))))
+    val search = el("input")
+    search.setAttribute("type", "search")
+    search.setAttribute("placeholder", Town.t("searchGroups"))
+    search.setAttribute("aria-label", Town.t("searchGroups"))
+    card.appendChild(search)
+    val results = el("div", "place-results")
+    card.appendChild(results)
+    val actions = el("div", "dialog-actions")
+    actions.appendChild(el("button", "text-button", text = Town.t("cancel")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick { backdrop.asDynamic().remove() }
+    })
+    card.appendChild(actions)
+    backdrop.appendChild(card)
+    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
+    host.appendChild(backdrop)
+
+    val groups = mutableListOf<Pair<String, String>>()
+    var groupsLoaded = false
+    var loadError: String? = null
+
+    fun render() {
+        results.clear()
+        if (!groupsLoaded) {
+            results.appendChild(el("p", "hint", text = Town.t("loading")))
+            return
+        }
+        if (groups.isEmpty()) {
+            results.appendChild(el("p", "hint", text = loadError ?: Town.t("noGroups")))
+            return
+        }
+        loadError?.let { results.appendChild(el("p", "hint", text = it)) }
+        val query = (search.asDynamic().value as? String).orEmpty().trim()
+        val matching = groups.filter { it.second.contains(query, ignoreCase = true) }
+        if (matching.isEmpty()) {
+            results.appendChild(el("p", "hint", text = Town.t("noGroupMatches")))
+            return
+        }
+        matching.forEach { (chatId, groupName) ->
+            val row = el("button", "chooser-row")
+            row.setAttribute("type", "button")
+            row.appendChild(el("strong", text = groupName))
+            row.onClick {
+                row.asDynamic().disabled = true
+                val payload = js("({})")
+                payload.userId = userId
+                http("POST", "/api/chats/$chatId/members", jsonStringify(payload)) { status, body ->
+                    if (status !in 200..299) {
+                        row.asDynamic().disabled = false
+                        val error = try {
+                            parseJson(body).error as? String
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        if (error == "already_member") {
+                            toast(host, Town.t("alreadyInGroup", mapOf("name" to name)))
+                        } else {
+                            toast(host, errorText(body, status))
+                        }
+                        return@http
+                    }
+                    backdrop.asDynamic().remove()
+                    toast(host, Town.t("addedToGroup", mapOf("name" to name, "group" to groupName)))
+                }
+            }
+            results.appendChild(row)
+        }
+    }
+
+    fun loadPage(cursor: String?) {
+        val more = if (cursor.isNullOrBlank()) "" else "&cursor=${encodeQuery(cursor)}"
+        http("GET", "/api/chats?type=group&limit=50$more") { status, body ->
+            if (status !in 200..299) {
+                loadError = errorText(body, status)
+                groupsLoaded = true
+                render()
+                return@http
+            }
+            val page = parseJson(body)
+            val chats = page.chats
+            val length = chats?.length as? Int ?: 0
+            for (i in 0 until length) {
+                val chat = chats[i]
+                val id = chat.id as? String ?: ""
+                val groupName = chat.name as? String ?: ""
+                if (id.isNotBlank()) groups += id to groupName
+            }
+            val nextCursor = page.nextCursor as? String
+            if (!nextCursor.isNullOrBlank()) {
+                loadPage(nextCursor)
+            } else {
+                groupsLoaded = true
+                render()
+            }
+        }
+    }
+
+    search.asDynamic().oninput = { render() }
+    render()
+    loadPage(null)
+    window.asDynamic().setTimeout({ search.asDynamic().focus() }, 30)
+}
+
 private fun openComposeDirect(host: HTMLElement, router: HistoryRouter, userId: String, name: String) {
     if (host.asDynamic().querySelector(".compose-direct") != null) return
     val backdrop = el("div", "dialog-backdrop compose-direct")

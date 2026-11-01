@@ -2552,7 +2552,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(CHATS).deleteDocument(id)
     }
 
-    override fun chatsFor(userId: String, cursor: String?, limit: Int): ChatPage {
+    override fun chatsFor(userId: String, cursor: String?, limit: Int, type: String?): ChatPage {
         val parsed = Cursors.parse(cursor)
         val rows = queryList(
             """
@@ -2560,6 +2560,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               FILTER m.userKey == @userKey
               FOR c IN $CHATS
                 FILTER c._key == m.chatKey
+                FILTER @type == null OR c.type == @type
                 FILTER @hasCursor == false OR c.lastMessageAt < @cursorAt OR (c.lastMessageAt == @cursorAt AND c._key < @cursorKey)
                 SORT c.lastMessageAt DESC, c._key DESC
                 LIMIT @limit
@@ -2567,6 +2568,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             """.trimIndent(),
             mapOf(
                 "userKey" to userId,
+                "type" to type,
                 "hasCursor" to (parsed != null),
                 "cursorAt" to (parsed?.first ?: 0L),
                 "cursorKey" to (parsed?.second ?: ""),

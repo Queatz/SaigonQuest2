@@ -1247,11 +1247,12 @@ class InMemoryTownRepository : TownRepository {
         }
     }
 
-    override fun chatsFor(userId: String, cursor: String?, limit: Int): ChatPage {
+    override fun chatsFor(userId: String, cursor: String?, limit: Int, type: String?): ChatPage {
         val parsed = Cursors.parse(cursor)
         val sorted = chatMembers.values
             .filter { it.userId == userId }
             .mapNotNull { chats[it.chatId] }
+            .filter { type == null || it.type == type }
             .sortedWith(compareByDescending<ChatRecord> { it.lastMessageAt }.thenByDescending { it.id })
         val filtered = if (parsed == null) {
             sorted

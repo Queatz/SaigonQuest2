@@ -190,6 +190,21 @@ class ChatBehaviorTest {
         )
         assertTrue(older.path("messages").size() >= 2)
 
+        now += 1
+        val direct = mapper.readTree(
+            linh.post("/api/chats") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"userId":"$minhId","text":"A direct message"}""")
+            }.bodyAsText(),
+        )
+        val allChats = mapper.readTree(linh.get("/api/chats?limit=1").bodyAsText())
+        assertEquals(direct.path("id").asText(), allChats.path("chats")[0].path("id").asText())
+        val groupChats = mapper.readTree(linh.get("/api/chats?type=group&limit=1").bodyAsText())
+        assertEquals(1, groupChats.path("chats").size())
+        assertEquals(chatId, groupChats.path("chats")[0].path("id").asText())
+        assertTrue(groupChats.path("nextCursor").isNull)
+        assertEquals(HttpStatusCode.OK, linh.post("/api/chats/${direct.path("id").asText()}/leave").status)
+
         linh.post("/api/chats/$chatId/members/$minhId/owner") {
             contentType(ContentType.Application.Json)
             setBody("{}")

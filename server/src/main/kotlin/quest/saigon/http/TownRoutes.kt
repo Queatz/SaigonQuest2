@@ -42,6 +42,7 @@ import quest.saigon.town.AvatarRecord
 import quest.saigon.town.AvatarStatus
 import quest.saigon.town.ChatMemberView
 import quest.saigon.town.ChatService
+import quest.saigon.town.ChatType
 import quest.saigon.town.CommentItem
 import quest.saigon.town.CommentService
 import quest.saigon.town.FeatureSuggestionView
@@ -1483,7 +1484,8 @@ fun Route.townApi(services: TownServices) {
     get("/chats") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50
-        val page = services.chats.list(user, call.request.queryParameters["cursor"], limit)
+        val type = call.request.queryParameters["type"]?.takeIf { it == ChatType.GROUP || it == ChatType.DIRECT }
+        val page = services.chats.list(user, call.request.queryParameters["cursor"], limit, type)
         call.respondJson(
             mapOf(
                 "chats" to page.items.map(ChatService::chatPayload),

@@ -934,13 +934,25 @@ internal fun openMiniProfile(
         }
     }
     if (router != null && userId.isNotBlank() && userId != Town.me?.id) {
-        head.appendChild(el("button", "primary profile-sheet-message", text = Town.t("message")) { button ->
+        val actions = el("div", "profile-sheet-actions")
+        actions.appendChild(el("button", "primary profile-sheet-message", text = Town.t("message")) { button ->
             button.setAttribute("type", "button")
             button.onClick {
                 chrome.close()
                 openDirectChat(host, router, userId, name)
             }
         })
+        val addToGroup = el("button", "icon-btn profile-sheet-add-to-group")
+        addToGroup.setAttribute("type", "button")
+        addToGroup.setAttribute("aria-label", Town.t("addToGroup", mapOf("name" to name)))
+        addToGroup.setAttribute("title", Town.t("addToGroup", mapOf("name" to name)))
+        addToGroup.asDynamic().innerHTML = """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19c0-3 2.5-5 6-5s6 2 6 5M19 8v8M15 12h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"""
+        addToGroup.onClick {
+            chrome.close()
+            openAddToGroup(host, userId, name)
+        }
+        actions.appendChild(addToGroup)
+        head.appendChild(actions)
     }
     if (userId.isNotBlank()) {
         head.appendChild(copyLinkButton(host, "/u/$userId", "text-button profile-sheet-copy-link"))

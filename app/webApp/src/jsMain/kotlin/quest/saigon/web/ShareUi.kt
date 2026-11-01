@@ -328,6 +328,21 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
         ctx.textBaseline = "middle"
         ctx.fillText(tag, 54.0, 62.0)
     }
+    val location = post.location.takeIf { it.isNotBlank() }
+    if (location != null) {
+        val tag = "$PLACE_ICON $location"
+        ctx.font = "600 24px $SHARE_FONT"
+        val tagText = ellipsize(ctx, tag, SHARE_PX - 144.0)
+        val tagW = (num(ctx.measureText(tagText).width) + 32.0).coerceAtMost(SHARE_PX - 72.0)
+        val tagY = if (!communityName.isNullOrBlank()) 98.0 else 36.0
+        traceRound(ctx, 36.0, tagY, tagW, 44.0, 22.0)
+        ctx.fillStyle = "rgba(0,0,0,0.45)"
+        ctx.fill()
+        ctx.fillStyle = "#fffdf8"
+        ctx.textAlign = "left"
+        ctx.textBaseline = "middle"
+        ctx.fillText(tagText, 52.0, tagY + 22.0)
+    }
     ctx.font = "700 ${fitted.size.toInt()}px $SHARE_FONT"
     ctx.fillStyle = "#2a241e"
     ctx.textAlign = "left"
