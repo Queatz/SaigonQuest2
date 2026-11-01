@@ -639,7 +639,7 @@ h3 { margin: 22px 0 8px; }
 
 input, textarea, select {
     width: 100%;
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     background: var(--surface);
     color: var(--text);
     border-radius: 14px;
@@ -662,7 +662,7 @@ small, .hint { color: var(--muted); font-size: 13px; }
 }
 
 .primary, .secondary {
-    background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
+        background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
     color: #fff;
     padding: 14px 18px;
     box-shadow: 0 0 2px 2px rgba(255, 255, 255, .5) inset;
@@ -834,7 +834,7 @@ small, .hint { color: var(--muted); font-size: 13px; }
     aspect-ratio: 9 / 16;
     margin: 8px auto 16px;
     border-radius: 18px;
-    border: 1.5px dashed var(--line);
+    border: 2px dashed var(--line);
     background: var(--surface);
     overflow: hidden;
     display: grid;
@@ -1210,7 +1210,7 @@ button.busy .avatar-spinner {
     gap: 12px;
     align-items: start;
     margin: 8px 0;
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     background: var(--surface);
     border-radius: 16px;
     padding: 8px;
@@ -1643,17 +1643,18 @@ button.busy .avatar-spinner {
 }
 
 .chip {
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     background: var(--surface);
     color: var(--text);
     border-radius: 999px;
-    padding: 8px 14px;
+    padding: 8px 14px;.
     font-weight: 800;
 }
 
 .chip.selected {
-    border-color: var(--accent);
-    background: var(--accent);
+    border-color: var(--bg);
+    background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
+    box-shadow: 0 0 0 2px color-mix(in srgb, transparent 85%, var(--text)) inset;
     color: #fff;
 }
 
@@ -1744,7 +1745,7 @@ button.busy .avatar-spinner {
     gap: 6px;
     padding: 12px;
     border-radius: 16px;
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     background: var(--surface);
     margin-bottom: 8px;
 }
@@ -2354,11 +2355,12 @@ button.busy .avatar-spinner {
 .comment-send {
     flex: 0 0 auto;
     border: 0;
-    border-radius: 12px;
-    background: var(--accent);
+    border-radius: 999px;
+    background: linear-gradient(to bottom right, color-mix(in srgb, white 35%, var(--accent)), var(--tertiary));
     color: #fff;
     font-weight: 800;
     padding: 0 14px;
+    box-shadow: 0 0 0 2px color-mix(in srgb, transparent 85%, var(--text)) inset;
 }
 
 .admin-users {
@@ -2576,7 +2578,7 @@ button.busy .avatar-spinner {
     justify-content: space-between;
     gap: 8px;
     text-align: left;
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     background: var(--surface);
     color: var(--text);
     border-radius: 14px;
@@ -2636,6 +2638,7 @@ button.busy .avatar-spinner {
     position: relative;
     flex: 0 0 auto;
     transition: background .15s ease;
+    box-shadow: 0 0 0 2px color-mix(in srgb, transparent 85%, var(--text)) inset;
 }
 
 .switch-ui::after {
@@ -2789,7 +2792,7 @@ button.busy .avatar-spinner {
     gap: 8px;
     width: 100%;
     text-align: left;
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     border-radius: 14px;
     background: var(--bg);
     color: inherit;
@@ -3405,7 +3408,6 @@ span.event-face {
 .post-search-input {
     width: 100%;
     flex: 0 0 auto;
-    border: 1px solid var(--line);
     border-radius: 14px;
     padding: 12px 14px;
     color: var(--text);
@@ -4136,7 +4138,6 @@ span.event-face {
     min-height: 40px;
     max-height: 120px;
     resize: none;
-    border: 1px solid var(--line);
     border-radius: 16px;
     background: var(--surface);
     color: inherit;
@@ -4209,7 +4210,7 @@ span.event-face {
     gap: 8px;
     margin: 8px 0;
     padding: 12px;
-    border: 1px solid var(--line);
+    border: 2px solid var(--line);
     border-radius: 14px;
 }
 
@@ -4247,7 +4248,7 @@ span.event-face {
 .mini-products,
 .product-list,
 .product-order-list { display: grid; gap: 12px; }
-.product-form { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.product-form { display: grid; gap: 10px; padding: 14px; border: 2px solid var(--line); border-radius: 18px; background: var(--surface); }
 .page-body > .product-form { margin-bottom: 16px; }
 .product-form h3 { margin: 0; }
 .product-photo-input input { max-width: 100%; }
@@ -4255,7 +4256,7 @@ span.event-face {
 .product-photo-picker .composer-photo-stage { width: min(100%, 220px); }
 .product-photo-picker .photo-thumb { width: 40px; height: 40px; aspect-ratio: 1; }
 .product-photo-picker .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.product-card { display: flex; gap: 12px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); cursor: pointer; }
+.product-card { display: flex; gap: 12px; min-width: 0; padding: 10px; border: 2px solid var(--line); border-radius: 16px; background: var(--surface); cursor: pointer; }
 .shop-body { gap: 12px; }
 .shop-search-input { flex: 0 0 auto; margin-bottom: 8px; }
 .shop-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 10px; }
@@ -4302,7 +4303,7 @@ span.event-face {
 .chat-product-attachment-copy small { color: var(--muted); }
 .chat-product-attachment-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-product-attachment-copy span { color: var(--accent); font-weight: 800; }
-.product-order { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.product-order { display: grid; gap: 8px; padding: 14px; border: 2px solid var(--line); border-radius: 16px; background: var(--surface); }
 .product-order:not(.resolved) { border-color: var(--accent); }
 .product-order h3 { margin: 0; }
 .product-order.resolved { opacity: .75; }
