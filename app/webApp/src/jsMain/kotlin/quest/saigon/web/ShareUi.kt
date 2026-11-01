@@ -8,7 +8,7 @@ import kotlin.math.min
 
 private const val SHARE_PX = 1080.0
 private const val SHARE_FONT =
-    "\"Be Vietnam Pro\", Nunito, \"Avenir Next\", \"Segoe UI\", \"Noto Sans\", sans-serif"
+    "\"Livvic\", Nunito, \"Avenir Next\", \"Segoe UI\", \"Noto Sans\", sans-serif"
 
 private val newClipboardItem: (dynamic) -> dynamic =
     js("function(data) { return new ClipboardItem(data); }")
@@ -258,7 +258,7 @@ private fun whenFontsReady(then: () -> Unit) {
         then()
         return
     }
-    fonts.load("700 42px \"Be Vietnam Pro\", Nunito, sans-serif").then({ then() }, { _: dynamic -> then() })
+    fonts.load("700 42px \"Livvic\", Nunito, sans-serif").then({ then() }, { _: dynamic -> then() })
 }
 
 private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynamic, face: dynamic): dynamic {

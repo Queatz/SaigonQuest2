@@ -11,7 +11,7 @@
     --ink: #2a241e;
     --card: #f6f1e8;
     --danger: #b42318;
-    font-family: "Be Vietnam Pro", Nunito, "Avenir Next", "Segoe UI", "Noto Sans", sans-serif;
+    font-family: "Livvic", Nunito, "Avenir Next", "Segoe UI", "Noto Sans", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
