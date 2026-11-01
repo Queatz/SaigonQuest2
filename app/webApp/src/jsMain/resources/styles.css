@@ -2016,12 +2016,14 @@ button.busy .avatar-spinner {
 .comment-sheet.open { transform: translate3d(0, 0, 0); }
 
 .location-sheet,
-.profile-sheet {
+.profile-sheet,
+.members-sheet {
     max-height: min(92vh, 860px);
 }
 
 .location-sheet .comment-bar h2,
-.profile-sheet .comment-bar h2 {
+.profile-sheet .comment-bar h2,
+.members-sheet .comment-bar h2 {
     max-width: calc(100% - 72px);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2029,7 +2031,8 @@ button.busy .avatar-spinner {
 }
 
 .location-sheet-body,
-.profile-sheet-body {
+.profile-sheet-body,
+.members-sheet-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
@@ -2903,6 +2906,8 @@ button.busy .avatar-spinner {
 }
 
 .member-list { max-height: 50vh; overflow: auto; }
+
+.members-sheet .member-list { max-height: none; overflow: visible; }
 
 .member-row {
     display: flex;

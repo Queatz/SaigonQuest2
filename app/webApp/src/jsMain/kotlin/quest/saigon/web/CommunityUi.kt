@@ -532,7 +532,7 @@ internal fun bindCommunityBar(
         members.onClick {
             http("GET", "/api/communities/${encodeQuery(communityId)}") { status, fresh ->
                 val current = if (status == 200) communityFrom(parseJson(fresh)) else community
-                openMembersDialog(host, router, current)
+                openMembersSheet(host, router, current)
             }
         }
         join.onClick { toggleMembership(host, communityId, title, members, join) }
@@ -540,22 +540,16 @@ internal fun bindCommunityBar(
     }
 }
 
-internal fun openMembersDialog(host: HTMLElement, router: HistoryRouter, community: CommunityCard) {
-    if (host.asDynamic().querySelector(".members-backdrop") != null) return
-    val backdrop = el("div", "dialog-backdrop members-backdrop")
-    val card = el("div", "dialog")
-    card.appendChild(el("h2", text = communityLabel(community)))
-    card.appendChild(communityDescriptionEditor(host, community))
-    card.appendChild(el("h3", text = Town.t("communityMembers")))
+internal fun openMembersSheet(host: HTMLElement, router: HistoryRouter, community: CommunityCard) {
+    if (host.asDynamic().querySelector(".members-sheet") != null) return
+    val chrome = SheetChrome("comment-sheet members-sheet", communityLabel(community))
+    val body = el("div", "members-sheet-body")
+    body.appendChild(communityDescriptionEditor(host, community))
+    body.appendChild(el("h3", text = Town.t("communityMembers")))
     val list = el("div", "member-list")
-    card.appendChild(list)
-    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
-        button.setAttribute("type", "button")
-        button.onClick { backdrop.asDynamic().remove() }
-    })
-    backdrop.appendChild(card)
-    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
-    host.appendChild(backdrop)
+    body.appendChild(list)
+    chrome.sheet.appendChild(body)
+    chrome.open(host)
     loadMembers(list, host, router, community.id, null)
 }
 
