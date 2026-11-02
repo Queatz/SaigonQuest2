@@ -542,7 +542,23 @@ private fun mountPager(
                     else pager.go(0)
                 }
             } else if (axis == null && photoPress) {
-                tapPeek()
+                val pager = currentPhotos()
+                if (pager == null || pager.size < 2) {
+                    tapPeek()
+                } else {
+                    val bounds = pager.host.asDynamic().getBoundingClientRect()
+                    val left = num(bounds.left)
+                    val width = num(bounds.width)
+                    when {
+                        width > 0.0 && startX < left + width * 0.25 -> {
+                            if (pager.index > 0) pager.go(-1)
+                        }
+                        width > 0.0 && startX >= left + width * 0.75 -> {
+                            if (pager.index < pager.lastIndex) pager.go(1)
+                        }
+                        else -> tapPeek()
+                    }
+                }
             } else {
                 val height = stageHeight()
                 val flung = abs(velocity) > 0.45
