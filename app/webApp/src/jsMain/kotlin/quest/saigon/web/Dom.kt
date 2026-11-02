@@ -18,6 +18,7 @@ internal fun el(
     setup: (HTMLElement) -> Unit = {},
 ): HTMLElement {
     val node = document.createElement(tag)
+    if (className != null && className.contains("dialog-backdrop")) installBackdropFade()
     if (className != null) {
         node.setAttribute("class", className)
     }
@@ -26,6 +27,31 @@ internal fun el(
     }
     setup(node)
     return node
+}
+
+private var backdropFadeInstalled = false
+
+private fun installBackdropFade() {
+    if (backdropFadeInstalled) return
+    backdropFadeInstalled = true
+    js(
+        """
+        (function () {
+            var proto = Element.prototype;
+            var original = proto.remove;
+            proto.remove = function () {
+                var node = this;
+                if (node.classList && node.classList.contains('dialog-backdrop') && node.isConnected) {
+                    if (node.classList.contains('closing')) return;
+                    node.classList.add('closing');
+                    setTimeout(function () { original.call(node); }, 250);
+                } else {
+                    original.call(node);
+                }
+            };
+        })();
+        """
+    )
 }
 
 internal fun HTMLElement.clear() {
@@ -148,7 +174,7 @@ internal class SheetChrome(
         beforeClose()
         sheet.asDynamic().style.transform = ""
         sheet.asDynamic().classList.remove("open")
-        window.asDynamic().setTimeout({ backdrop.asDynamic().remove() }, 280)
+        backdrop.asDynamic().remove()
         if (updateHistory) {
             ignoreNextSheetPopState = true
             history.back()
