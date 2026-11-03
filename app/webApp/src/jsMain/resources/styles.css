@@ -4356,6 +4356,14 @@ span.event-face {
 .product-editor-dialog { max-height: calc(100dvh - 24px); overflow: auto; }
 .product-editor-dialog .product-form { padding: 0; border: 0; }
 
+.member-intro {
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
 @media (min-width: 700px) {
     .product-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .product-manage-card { align-content: start; }

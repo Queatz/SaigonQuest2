@@ -248,7 +248,7 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
         val messages = listOf(
             eventsLabel,
             "🛍️ ${Town.t("searchForProducts")}",
-            "🫂 ${Town.t("findACommunity")}",
+            "🫂 ${Town.t("joinACommunity")}",
             "🙆 ${Town.t("discoverNewPeople")}",
         )
         var index = 0
@@ -870,6 +870,7 @@ private fun peopleRow(node: dynamic, host: HTMLElement, router: HistoryRouter): 
     val copy = el("span", "member-copy")
     copy.appendChild(el("strong", text = person.name))
     if (person.location.isNotBlank()) copy.appendChild(el("small", text = person.location))
+    if (person.intro.isNotBlank()) copy.appendChild(el("small", "member-intro", text = person.intro))
     profile.appendChild(copy)
     profile.onClick {
         openMiniProfile(host, person.name, person.photoUrl, person.location, person.intro, person.id, router)
