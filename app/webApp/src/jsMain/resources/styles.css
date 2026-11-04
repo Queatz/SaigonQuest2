@@ -4386,7 +4386,11 @@ span.event-face {
 .activity-manage-card .product-actions { grid-column: 1 / -1; }
 .activity-sheet { display: flex; flex-direction: column; }
 .activity-sheet-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 16px 18px; display: grid; gap: 10px; align-content: start; }
-.activity-location { justify-self: start; }
+.activity-location {
+    justify-self: start;
+    text-align: left;
+    font-size: 14px;
+}
 .activity-section-title { margin: 0; }
 .activity-people { max-height: none; overflow: visible; margin-top: 8px; }
 .attendee-profile {
@@ -4422,7 +4426,7 @@ span.event-face {
     pointer-events: none;
 }
 .user-location-dot { overflow: visible; }
-.event-map-bubble .activity-map-dot { top: 4px; right: 4px; }
+.event-map-bubble .activity-map-dot { top: 0; right: 0; }
 
 .activity-create-composer { display: grid; gap: 8px; }
 .activity-create-input { width: 100%; min-width: 0; }
@@ -4447,7 +4451,6 @@ span.event-face {
     padding: 8px;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
-.activity-location { text-align: left; }
 .chat-activity-attachment {
     width: fit-content;
     max-width: min(100%, 320px);

@@ -264,6 +264,7 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
             "🛍️ ${Town.t("searchForProducts")}",
             "🫂 ${Town.t("joinACommunity")}",
             "🙆 ${Town.t("discoverNewPeople")}",
+            "🙆 ${Town.t("findThingsToDo")}",
         )
         var index = 0
         fun show() {

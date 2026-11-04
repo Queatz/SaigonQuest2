@@ -228,7 +228,7 @@ internal fun myActivitiesScreen(router: HistoryRouter): HTMLElement {
     return shell
 }
 
-internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryRouter, manage: Boolean = false): HTMLElement {
+internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryRouter, manage: Boolean = false, showLocation: Boolean = true): HTMLElement {
     val card = el("article", if (manage) "activity-card activity-manage-card" else "activity-card")
     val open = {
         val id = activity.id as? String ?: ""
@@ -237,6 +237,10 @@ internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryR
     card.appendChild(el("span", "activity-emoji", text = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨"))
     val copy = el("div", "activity-card-copy")
     copy.appendChild(el("strong", text = activity.name as? String ?: ""))
+    val locationName = activity.locationName as? String ?: ""
+    if (showLocation && locationName.isNotBlank()) {
+        copy.appendChild(el("p", "activity-location", text = "📍 $locationName"))
+    }
     val description = activity.description as? String ?: ""
     if (description.isNotBlank()) copy.appendChild(el("p", "hint", text = description))
     card.appendChild(copy)
@@ -325,7 +329,7 @@ internal fun loadLocationActivities(
         }
         val items: dynamic = parseJson(text).activities
         val count = jsLen(items)
-        for (i in 0 until count) list.appendChild(activityCard(items[i], host, router))
+        for (i in 0 until count) list.appendChild(activityCard(items[i], host, router, showLocation = false))
         appendCreateComposer()
     }
 }
