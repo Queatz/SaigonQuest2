@@ -2,6 +2,8 @@ package quest.saigon.web
 
 import quest.saigon.Limits
 import web.html.HTMLElement
+import web.window.WindowTarget
+import web.window._blank
 import web.window.window
 
 internal fun openActivitySheet(host: HTMLElement, router: HistoryRouter, activityId: String) {
@@ -365,27 +367,47 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
     title.appendChild(copyLinkIconButton(host, "/activity/$activityId", "product-copy-link"))
     body.appendChild(title)
     val locationName = activity.locationName as? String ?: ""
-    if (locationName.isNotBlank()) {
-        val place = el("button", "text-button activity-location")
-        place.setAttribute("type", "button")
-        place.textContent = "📍 $locationName"
-        place.onClick {
-            openLocationSheet(
-                host,
-                router,
-                locationName,
-                (activity.placeId as? String)?.takeIf { it.isNotBlank() },
-                if (activity.lat == null || activity.lat == undefined) null else num(activity.lat),
-                if (activity.lng == null || activity.lng == undefined) null else num(activity.lng),
-                customLocationId = (activity.locationId as? String)?.takeIf { it.isNotBlank() },
-            )
-        }
-        body.appendChild(place)
+    val placeId = (activity.placeId as? String)?.takeIf { it.isNotBlank() }
+    val locationId = (activity.locationId as? String)?.takeIf { it.isNotBlank() }
+    val lat = if (activity.lat == null || activity.lat == undefined) null else num(activity.lat)
+    val lng = if (activity.lng == null || activity.lng == undefined) null else num(activity.lng)
+    val mapBox = if (locationName.isNotBlank() && lat != null && lng != null) {
+        el("div", "activity-location-map")
+    } else {
+        null
     }
     val description = activity.description as? String ?: ""
     if (description.isNotBlank()) {
         body.appendChild(el("h3", "activity-section-title", text = Town.t("details")))
         body.appendChild(linkedParagraph(description, "product-detail-description"))
+    }
+    if (locationName.isNotBlank()) {
+        val section = el("section", "activity-location-section")
+        section.appendChild(el("h3", "activity-section-title", text = Town.t("location")))
+        val row = el("div", "activity-location-row")
+        if (mapBox != null) row.appendChild(mapBox)
+        val copy = el("div", "activity-location-copy")
+        val place = el("button", "text-button activity-location", text = locationName)
+        place.setAttribute("type", "button")
+        place.onClick {
+            openLocationSheet(
+                host,
+                router,
+                locationName,
+                placeId,
+                lat,
+                lng,
+                customLocationId = locationId,
+            )
+        }
+        copy.appendChild(place)
+        val directions = el("button", "primary activity-location-directions", text = Town.t("directions"))
+        directions.setAttribute("type", "button")
+        directions.onClick { window.open(mapsUrl(locationName, placeId, lat, lng), WindowTarget._blank) }
+        copy.appendChild(directions)
+        row.appendChild(copy)
+        section.appendChild(row)
+        body.appendChild(section)
     }
     val scheduleSlots = readSchedule(activity.schedule)
     if (scheduleSlots.isNotEmpty()) {
@@ -501,7 +523,9 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
     dock.appendChild(chat)
     chrome.sheet.appendChild(body)
     chrome.sheet.appendChild(dock)
-    chrome.open(host)
+    chrome.open(host) {
+        if (mapBox != null) mountPlaceMap(mapBox, lat, lng, locationName, placeId, zoomControl = false)
+    }
 }
 
 private fun loadMyActivities(list: HTMLElement, shell: HTMLElement, router: HistoryRouter, cursor: String?) {

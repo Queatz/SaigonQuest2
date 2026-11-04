@@ -264,7 +264,7 @@ internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {
             "🛍️ ${Town.t("searchForProducts")}",
             "🫂 ${Town.t("joinACommunity")}",
             "🙆 ${Town.t("discoverNewPeople")}",
-            "🙆 ${Town.t("findThingsToDo")}",
+            "♥️ ${Town.t("findThingsToDo")}",
         )
         var index = 0
         fun show() {
@@ -933,6 +933,7 @@ internal fun mountPlaceMap(
     lng: Double?,
     title: String,
     placeId: String? = null,
+    zoomControl: Boolean = true,
 ) {
     if (lat == null || lng == null) {
         if (host.childElementCount == 0) {
@@ -957,7 +958,7 @@ internal fun mountPlaceMap(
             opts.center = js("{lat:10.7769,lng:106.7009}")
             opts.zoom = 16
             opts.disableDefaultUI = true
-            opts.zoomControl = true
+            opts.zoomControl = zoomControl
             val map = googleMap(host, opts)
             val pos = js("{}")
             pos.lat = lat
