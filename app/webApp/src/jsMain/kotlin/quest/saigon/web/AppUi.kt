@@ -17,13 +17,13 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
     val loggedOutGate = Town.signedOut && (
         route == AppRoute.NewPost || route == AppRoute.Profile || route == AppRoute.MyPosts ||
             route == AppRoute.MyCommunities || route == AppRoute.MyMusic ||
-            route == AppRoute.MyProducts || route == AppRoute.MyOrders ||
+            route == AppRoute.MyProducts || route == AppRoute.MyActivities || route == AppRoute.MyOrders ||
             route == AppRoute.FeatureSuggestions ||
             route == AppRoute.Messages || route is AppRoute.Chat
         )
     val page = when {
         loggedOutGate || route == AppRoute.Home || route is AppRoute.Post || route is AppRoute.User ||
-            route is AppRoute.Product || route is AppRoute.Location ->
+            route is AppRoute.Product || route is AppRoute.Activity || route is AppRoute.Location ->
             feedScreen(router, (route as? AppRoute.Post)?.id)
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
@@ -31,6 +31,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.MyCommunities -> myCommunitiesScreen(router)
         route == AppRoute.MyMusic -> myMusicScreen(router)
         route == AppRoute.MyProducts -> myProductsScreen(router)
+        route == AppRoute.MyActivities -> myActivitiesScreen(router)
         route == AppRoute.MyOrders -> myOrdersScreen(router)
         route == AppRoute.FeatureSuggestions -> featureSuggestionsScreen(router)
         route == AppRoute.Stats -> statsScreen(router)
@@ -50,6 +51,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             AppRoute.MyCommunities -> "/profile/communities"
             AppRoute.MyMusic -> "/profile/music"
             AppRoute.MyProducts -> "/profile/products"
+            AppRoute.MyActivities -> "/profile/activities"
             AppRoute.MyOrders -> "/profile/orders"
             AppRoute.FeatureSuggestions -> "/profile/features"
             AppRoute.Messages -> "/messages"
@@ -83,6 +85,9 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             } else if (status != 200 && page.asDynamic().isConnected != false) {
                 toast(page, Town.t("unavailable"))
             }
+        }
+        is AppRoute.Activity -> {
+            if (page.asDynamic().isConnected != false) openActivitySheet(page, router, route.id)
         }
         is AppRoute.Location -> http("GET", "/api/places/${encodeQuery(route.id)}") { status, text ->
             if (status == 200 && page.asDynamic().isConnected != false) {

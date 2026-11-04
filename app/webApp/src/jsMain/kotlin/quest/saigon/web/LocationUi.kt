@@ -36,6 +36,11 @@ internal fun openLocationSheet(
         ?: encodeLocationToken(place)
     actions.appendChild(copyLinkIconButton(host, "/l/$linkId", "location-sheet-copy-link"))
     body.appendChild(actions)
+    val activityList = el("div", "activity-list")
+    val activitiesHead = el("div", "section-head")
+    activitiesHead.appendChild(el("h3", text = Town.t("activities")))
+    body.appendChild(activitiesHead)
+    body.appendChild(activityList)
     body.appendChild(countHead)
     body.appendChild(grid)
     chrome.sheet.appendChild(body)
@@ -84,6 +89,7 @@ internal fun openLocationSheet(
     })
     chrome.open(host) {
         if (canShowMap) mountPlaceMap(mapBox, lat, lng, place, placeId)
+        loadLocationActivities(activityList, host, router, place, placeId, customLocationId, lat, lng)
         load()
     }
 }

@@ -103,6 +103,25 @@ interface TownRepository {
     fun attendeeIds(postId: String): List<String>
     fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
     fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary
+    fun insertActivity(activity: ActivityRecord): ActivityRecord
+    fun findActivity(id: String): ActivityRecord?
+    fun updateActivity(activity: ActivityRecord): ActivityRecord?
+    fun deleteActivity(id: String): ActivityRecord?
+    fun activitiesByUser(userId: String, cursor: String?, limit: Int): ActivityPage
+    fun activitiesForLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+        cursor: String?,
+        limit: Int,
+    ): ActivityPage
+    fun searchActivities(cursor: String?, limit: Int): ActivityPage
+    fun addActivityInterest(activityId: String, userId: String, createdAt: Long): Boolean
+    fun removeActivityInterest(activityId: String, userId: String): Boolean
+    fun isActivityInterested(activityId: String, userId: String): Boolean
+    fun activityInterested(activityId: String, cursor: String?, limit: Int): EventAttendeePage
+    fun activityInterestedIds(activityId: String): List<String>
+    fun activityLocationFlags(): ActivityLocationFlags
     fun insertUserLocation(name: String, lat: Double, lng: Double, createdBy: String, createdAt: Long): UserLocationRecord
     fun searchUserLocations(query: String, limit: Int): List<UserLocationRecord>
     fun userLocations(): List<UserLocationRecord>

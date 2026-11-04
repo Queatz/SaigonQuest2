@@ -108,7 +108,7 @@ class ChatService(
                 attachment = attachment,
             ),
         )
-        val preview = cleaned.ifBlank { attachment?.productName ?: "📷" }.take(80)
+        val preview = cleaned.ifBlank { attachment?.preview() ?: "📷" }.take(80)
         repo.updateChat(
             chat.copy(
                 lastMessageAt = now,
@@ -144,7 +144,7 @@ class ChatService(
                 chat.copy(
                     lastMessageId = latest?.id.orEmpty(),
                     lastMessageText = latest?.text?.ifBlank {
-                        latest.attachment?.productName ?: if (latest.photoPaths.isNotEmpty()) "📷" else ""
+                        latest.attachment?.preview() ?: if (latest.photoPaths.isNotEmpty()) "📷" else ""
                     }.orEmpty().take(80),
                     lastMessageSenderId = latest?.userId.orEmpty(),
                     lastMessageSenderName = latest?.authorName.orEmpty(),
@@ -482,10 +482,14 @@ class ChatService(
             "attachment" to item.attachment?.let { attachment ->
                 mapOf(
                     "type" to attachment.type,
-                    "productId" to attachment.productId,
-                    "productName" to attachment.productName,
-                    "price" to attachment.price,
+                    "productId" to attachment.productId.takeIf { it.isNotBlank() },
+                    "productName" to attachment.productName.takeIf { it.isNotBlank() },
+                    "price" to attachment.price.takeIf { attachment.type == "product" },
                     "photoUrl" to attachment.photoPath?.let { "/media/$it" },
+                    "activityId" to attachment.activityId.takeIf { it.isNotBlank() },
+                    "activityName" to attachment.activityName.takeIf { it.isNotBlank() },
+                    "activityEmoji" to attachment.activityEmoji.takeIf { it.isNotBlank() },
+                    "activityDescription" to attachment.activityDescription.takeIf { it.isNotBlank() },
                 )
             },
             "createdAt" to item.createdAt,

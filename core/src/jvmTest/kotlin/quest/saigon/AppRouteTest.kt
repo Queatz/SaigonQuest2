@@ -25,6 +25,8 @@ class AppRouteTest {
         assertEquals(AppRoute.MyMusic, matchAppRoute("/profile/music/"))
         assertEquals(AppRoute.MyProducts, matchAppRoute("/profile/products"))
         assertEquals(AppRoute.MyProducts, matchAppRoute("/profile/products/"))
+        assertEquals(AppRoute.MyActivities, matchAppRoute("/profile/activities"))
+        assertEquals(AppRoute.MyActivities, matchAppRoute("/profile/activities/"))
         assertEquals(AppRoute.MyOrders, matchAppRoute("/profile/orders"))
         assertEquals(AppRoute.MyOrders, matchAppRoute("/profile/orders/"))
         assertEquals(AppRoute.FeatureSuggestions, matchAppRoute("/profile/features"))
@@ -59,6 +61,8 @@ class AppRouteTest {
         assertEquals(AppRoute.User("abc123"), matchAppRoute("/u/abc123/"))
         assertEquals(AppRoute.Product("abc123"), matchAppRoute("/product/abc123"))
         assertEquals(AppRoute.Product("abc123"), matchAppRoute("/product/abc123/"))
+        assertEquals(AppRoute.Activity("abc123"), matchAppRoute("/activity/abc123"))
+        assertEquals(AppRoute.Activity("abc123"), matchAppRoute("/activity/abc123/"))
         assertEquals(AppRoute.Location("abc123"), matchAppRoute("/l/abc123"))
         assertEquals(AppRoute.Location("abc123"), matchAppRoute("/l/abc123/"))
     }

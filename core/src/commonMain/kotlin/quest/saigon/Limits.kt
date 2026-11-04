@@ -14,6 +14,8 @@ object Limits {
     const val PRODUCT_NAME_MAX = 120
     const val PRODUCT_CATEGORY_MAX = 80
     const val PRODUCT_DESCRIPTION_MAX = 5000
+    const val ACTIVITY_NAME_MAX = 80
+    const val ACTIVITY_DESCRIPTION_MAX = 500
     const val POLL_OPTIONS_MIN = 2
     const val POLL_OPTIONS_MAX = 5
     const val POLL_OPTION_MAX = 40

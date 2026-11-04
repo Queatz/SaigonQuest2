@@ -8,6 +8,7 @@ sealed class AppRoute {
     data object MyCommunities : AppRoute()
     data object MyMusic : AppRoute()
     data object MyProducts : AppRoute()
+    data object MyActivities : AppRoute()
     data object MyOrders : AppRoute()
     data object FeatureSuggestions : AppRoute()
     data object Stats : AppRoute()
@@ -20,6 +21,7 @@ sealed class AppRoute {
     data class Community(val id: String) : AppRoute()
     data class User(val id: String) : AppRoute()
     data class Product(val id: String) : AppRoute()
+    data class Activity(val id: String) : AppRoute()
     data class Location(val id: String) : AppRoute()
     data class NotFound(val path: String) : AppRoute()
 }
@@ -33,6 +35,7 @@ fun matchAppRoute(path: String): AppRoute {
     val chat = CHAT_PATH.matchEntire(normalized)
     val user = USER_PATH.matchEntire(normalized)
     val product = PRODUCT_PATH.matchEntire(normalized)
+    val activity = ACTIVITY_PATH.matchEntire(normalized)
     val location = LOCATION_PATH.matchEntire(normalized)
     return when {
         normalized == "/" || normalized.isEmpty() -> AppRoute.Home
@@ -42,6 +45,7 @@ fun matchAppRoute(path: String): AppRoute {
         normalized == "/profile/communities" -> AppRoute.MyCommunities
         normalized == "/profile/music" -> AppRoute.MyMusic
         normalized == "/profile/products" -> AppRoute.MyProducts
+        normalized == "/profile/activities" -> AppRoute.MyActivities
         normalized == "/profile/orders" -> AppRoute.MyOrders
         normalized == "/profile/features" -> AppRoute.FeatureSuggestions
         normalized == "/stats" -> AppRoute.Stats
@@ -54,6 +58,7 @@ fun matchAppRoute(path: String): AppRoute {
         chat != null -> AppRoute.Chat(chat.groupValues[1])
         user != null -> AppRoute.User(user.groupValues[1])
         product != null -> AppRoute.Product(product.groupValues[1])
+        activity != null -> AppRoute.Activity(activity.groupValues[1])
         location != null -> AppRoute.Location(location.groupValues[1])
         else -> AppRoute.NotFound(path)
     }
@@ -64,4 +69,5 @@ private val COMMUNITY_PATH = Regex("^/c/([A-Za-z0-9_-]+)$")
 private val CHAT_PATH = Regex("^/messages/([A-Za-z0-9_-]+)$")
 private val USER_PATH = Regex("^/u/([A-Za-z0-9_-]+)$")
 private val PRODUCT_PATH = Regex("^/product/([A-Za-z0-9_-]+)$")
+private val ACTIVITY_PATH = Regex("^/activity/([A-Za-z0-9_-]+)$")
 private val LOCATION_PATH = Regex("^/l/([A-Za-z0-9_-]+)$")

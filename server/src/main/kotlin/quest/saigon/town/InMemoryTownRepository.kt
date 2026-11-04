@@ -28,6 +28,8 @@ class InMemoryTownRepository : TownRepository {
     private val featureVotes = ConcurrentHashMap<String, FeatureVote>()
     private val products = ConcurrentHashMap<String, ProductRecord>()
     private val productOrders = ConcurrentHashMap<String, ProductOrderRecord>()
+    private val activities = ConcurrentHashMap<String, ActivityRecord>()
+    private val activityInterests = ConcurrentHashMap<String, ActivityInterest>()
     private val chats = ConcurrentHashMap<String, ChatRecord>()
     private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
     private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
@@ -1027,6 +1029,140 @@ class InMemoryTownRepository : TownRepository {
         return ProductOrderView(updated, buyer.name, buyer.phone, buyer.profilePhotoPath, buyer.location, buyer.intro)
     }
 
+    override fun insertActivity(activity: ActivityRecord): ActivityRecord {
+        val stored = activity.copy(id = activity.id.ifBlank { newId() })
+        activities[stored.id] = stored
+        return stored
+    }
+
+    override fun findActivity(id: String): ActivityRecord? = activities[id]
+
+    override fun updateActivity(activity: ActivityRecord): ActivityRecord? {
+        if (!activities.containsKey(activity.id)) return null
+        activities[activity.id] = activity
+        return activity
+    }
+
+    override fun deleteActivity(id: String): ActivityRecord? {
+        val removed = activities.remove(id) ?: return null
+        activityInterests.keys.filter { it.startsWith("${id}_") }.forEach { activityInterests.remove(it) }
+        return removed
+    }
+
+    override fun activitiesByUser(userId: String, cursor: String?, limit: Int): ActivityPage {
+        val sorted = activities.values.filter { it.createdBy == userId }
+            .sortedWith(compareByDescending<ActivityRecord> { it.createdAt }.thenByDescending { it.id })
+        val parsed = Cursors.parse(cursor)
+        val filtered = if (parsed == null) sorted else sorted.filter {
+            it.createdAt < parsed.first || (it.createdAt == parsed.first && it.id < parsed.second)
+        }
+        return pageActivities(filtered, limit) { Cursors.encode(it.createdAt, it.id) }
+    }
+
+    override fun activitiesForLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+        cursor: String?,
+        limit: Int,
+    ): ActivityPage {
+        val matching = activities.values.filter { activityMatchesLocation(it, locationName, placeId, locationId) }
+            .sortedWith(
+                compareByDescending<ActivityRecord> { it.interestedCount }
+                    .thenByDescending { it.createdAt }
+                    .thenByDescending { it.id },
+            )
+        val parsed = Cursors.parseActivity(cursor)
+        val filtered = if (parsed == null) matching else matching.filter { afterActivityCursor(it, parsed) }
+        return pageActivities(filtered, limit) { Cursors.encodeActivity(it.interestedCount, it.createdAt, it.id) }
+    }
+
+    override fun searchActivities(cursor: String?, limit: Int): ActivityPage {
+        val matching = activities.values.sortedWith(
+            compareByDescending<ActivityRecord> { it.interestedCount }
+                .thenByDescending { it.createdAt }
+                .thenByDescending { it.id },
+        )
+        val parsed = Cursors.parseActivity(cursor)
+        val filtered = if (parsed == null) matching else matching.filter { afterActivityCursor(it, parsed) }
+        return pageActivities(filtered, limit) { Cursors.encodeActivity(it.interestedCount, it.createdAt, it.id) }
+    }
+
+    override fun addActivityInterest(activityId: String, userId: String, createdAt: Long): Boolean {
+        val activity = activities[activityId] ?: return false
+        val key = membershipKey(activityId, userId)
+        if (activityInterests.containsKey(key)) return false
+        activityInterests[key] = ActivityInterest(activityId, userId, createdAt)
+        activities[activityId] = activity.copy(interestedCount = activity.interestedCount + 1)
+        return true
+    }
+
+    override fun removeActivityInterest(activityId: String, userId: String): Boolean {
+        val activity = activities[activityId] ?: return false
+        if (activityInterests.remove(membershipKey(activityId, userId)) == null) return false
+        activities[activityId] = activity.copy(interestedCount = (activity.interestedCount - 1).coerceAtLeast(0))
+        return true
+    }
+
+    override fun isActivityInterested(activityId: String, userId: String): Boolean =
+        activityInterests.containsKey(membershipKey(activityId, userId))
+
+    override fun activityInterested(activityId: String, cursor: String?, limit: Int): EventAttendeePage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = activityInterests.values
+            .filter { it.activityId == activityId }
+            .sortedWith(compareByDescending<ActivityInterest> { it.createdAt }.thenByDescending { membershipKey(it.activityId, it.userId) })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, key) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && membershipKey(it.activityId, it.userId) < key) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).mapNotNull { interest ->
+            val user = users[interest.userId] ?: return@mapNotNull null
+            EventAttendee(
+                id = user.id,
+                name = user.name,
+                profilePhotoPath = user.profilePhotoPath,
+                location = user.location,
+                intro = user.intro,
+                phone = user.phone,
+                joinedAt = interest.createdAt,
+            )
+        }
+        val next = if (page.size > limit) {
+            page.getOrNull(limit - 1)?.let { Cursors.encode(it.createdAt, membershipKey(it.activityId, it.userId)) }
+        } else {
+            null
+        }
+        return EventAttendeePage(items, next)
+    }
+
+    override fun activityInterestedIds(activityId: String): List<String> =
+        activityInterests.values.filter { it.activityId == activityId }.map { it.userId }
+
+    override fun activityLocationFlags(): ActivityLocationFlags {
+        val locationIds = activities.values.mapNotNull { it.locationId?.takeIf { id -> id.isNotBlank() } }.toSet()
+        val placeIds = activities.values
+            .filter { it.locationId.isNullOrBlank() }
+            .mapNotNull { it.placeId?.takeIf { id -> id.isNotBlank() } }
+            .toSet()
+        return ActivityLocationFlags(locationIds, placeIds)
+    }
+
+    private fun afterActivityCursor(activity: ActivityRecord, cursor: ActivityCursor): Boolean =
+        activity.interestedCount < cursor.interestedCount ||
+            (activity.interestedCount == cursor.interestedCount && activity.createdAt < cursor.createdAt) ||
+            (activity.interestedCount == cursor.interestedCount && activity.createdAt == cursor.createdAt && activity.id < cursor.id)
+
+    private fun pageActivities(filtered: List<ActivityRecord>, limit: Int, encode: (ActivityRecord) -> String): ActivityPage {
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit)
+        val next = if (page.size > limit) items.lastOrNull()?.let(encode) else null
+        return ActivityPage(items, next)
+    }
+
     private fun placePosts(location: String, placeId: String?, locationId: String?, viewerId: String?): List<PostRecord> {
         val pid = placeId?.takeIf { it.isNotBlank() }
         val customId = locationId?.takeIf { it.isNotBlank() }
@@ -1550,6 +1686,8 @@ class InMemoryTownRepository : TownRepository {
     private class Membership(val communityId: String, val userId: String, val joinedAt: Long)
 
     private class Attendance(val postId: String, val userId: String, val joinedAt: Long)
+
+    private class ActivityInterest(val activityId: String, val userId: String, val createdAt: Long)
 
     private class DailyBucket {
         var visitorVisits = 0L

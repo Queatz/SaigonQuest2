@@ -389,11 +389,20 @@ data class ChatMessageRecord(
 
 data class ChatAttachment(
     val type: String,
-    val productId: String,
-    val productName: String,
-    val price: Long,
+    val productId: String = "",
+    val productName: String = "",
+    val price: Long = 0,
     val photoPath: String? = null,
-)
+    val activityId: String = "",
+    val activityName: String = "",
+    val activityEmoji: String = "",
+    val activityDescription: String = "",
+) {
+    fun preview(): String = when (type) {
+        "activity" -> listOf(activityEmoji, activityName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "🎯" }
+        else -> productName.ifBlank { "📷" }
+    }
+}
 
 data class ChatReactionRecord(
     val id: String,
@@ -552,6 +561,7 @@ data class PlaceSuggestion(
     val category: String? = null,
     val id: String? = null,
     val custom: Boolean = false,
+    val hasActivities: Boolean = false,
 )
 
 data class UserLocationRecord(
@@ -562,6 +572,63 @@ data class UserLocationRecord(
     val createdBy: String,
     val createdAt: Long,
 )
+
+data class ActivityScheduleSlot(
+    val dayOfWeek: Int,
+    val startMinutes: Int,
+    val endMinutes: Int,
+)
+
+data class ActivityRecord(
+    val id: String,
+    val createdBy: String,
+    val emoji: String,
+    val name: String,
+    val description: String,
+    val locationName: String,
+    val locationId: String? = null,
+    val placeId: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val hostUserId: String? = null,
+    val schedule: List<ActivityScheduleSlot> = emptyList(),
+    val interestedCount: Long = 0,
+    val createdAt: Long,
+)
+
+data class ActivityView(
+    val activity: ActivityRecord,
+    val interested: Boolean,
+    val host: EventAttendee? = null,
+    val interestedPeople: List<EventAttendee> = emptyList(),
+)
+
+data class ActivityPage(
+    val items: List<ActivityRecord>,
+    val nextCursor: String?,
+)
+
+data class ActivityLocationFlags(
+    val locationIds: Set<String>,
+    val placeIds: Set<String>,
+)
+
+fun activityMatchesLocation(
+    activity: ActivityRecord,
+    locationName: String,
+    placeId: String?,
+    locationId: String?,
+): Boolean {
+    val customId = locationId?.takeIf { it.isNotBlank() }
+    val pid = placeId?.takeIf { it.isNotBlank() }
+    return when {
+        customId != null -> activity.locationId == customId
+        pid != null -> activity.locationId.isNullOrBlank() && activity.placeId == pid
+        else -> activity.locationId.isNullOrBlank() &&
+            activity.placeId.isNullOrBlank() &&
+            activity.locationName.equals(locationName.trim(), ignoreCase = true)
+    }
+}
 
 data class CommunityRecord(
     val id: String,

@@ -26,6 +26,7 @@ import quest.saigon.maps.isGooglePlacePhotoName
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.utils.io.writeStringUtf8
 import kotlinx.coroutines.delay
+import com.fasterxml.jackson.databind.JsonNode
 import quest.saigon.AppConfig
 import quest.saigon.CallToAction
 import quest.saigon.Limits
@@ -36,6 +37,8 @@ import quest.saigon.languagePreference
 import quest.saigon.resolveLanguage
 import quest.saigon.ai.AvatarPrompts
 import quest.saigon.media.ImageOps
+import quest.saigon.town.ActivityScheduleSlot
+import quest.saigon.town.ActivityView
 import quest.saigon.town.AdminPost
 import quest.saigon.town.AdminUser
 import quest.saigon.town.AvatarRecord
@@ -238,6 +241,13 @@ fun Route.townApi(services: TownServices) {
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
         val page = services.products.list(user.id, call.request.queryParameters["cursor"], limit)
         call.respondJson(mapOf("products" to page.items.map { productPayload(it, user) }, "count" to page.count, "nextCursor" to page.nextCursor))
+    }
+
+    get("/me/activities") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val (items, next) = services.activities.mine(user, call.request.queryParameters["cursor"], limit)
+        call.respondJson(mapOf("activities" to items.map(::activityPayload), "nextCursor" to next))
     }
 
     get("/users/{id}/products") {
@@ -886,6 +896,7 @@ fun Route.townApi(services: TownServices) {
         val todayStart = SaigonDays.startMillis(SaigonDays.dayKey(services.clock()))
         val events = services.repo.upcomingEvents(todayStart, viewer?.id, 100)
         val people = services.repo.people(call.request.queryParameters["cursor"], 40, viewer?.id)
+        val activityFlags = services.repo.activityLocationFlags()
         call.respondJson(
             mapOf(
                 "events" to events.map(::postPayload),
@@ -899,10 +910,12 @@ fun Route.townApi(services: TownServices) {
                             postCount = services.repo.countPostsAtPlace(location.name, null, viewer?.id, location.id),
                             id = location.id,
                             custom = true,
+                            hasActivities = location.id in activityFlags.locationIds,
                         )
                     } + services.repo.postedGooglePlaces(viewer?.id).map { place ->
                         place.copy(
                             postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer?.id),
+                            hasActivities = place.placeId != null && place.placeId in activityFlags.placeIds,
                         )
                     }
                 ).map(::placePayload),
@@ -910,6 +923,130 @@ fun Route.townApi(services: TownServices) {
                 "nextPeopleCursor" to people.nextCursor,
             ),
         )
+    }
+
+    get("/activities") {
+        val viewer = call.user(services)
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 30
+        val (items, next) = try {
+            services.activities.list(
+                viewer?.id,
+                call.request.queryParameters["name"],
+                call.request.queryParameters["placeId"],
+                call.request.queryParameters["locationId"],
+                call.request.queryParameters["cursor"],
+                limit,
+            )
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(mapOf("activities" to items.map(::activityPayload), "nextCursor" to next))
+    }
+
+    get("/activities/{id}") {
+        val viewer = call.user(services)
+        val view = try {
+            services.activities.get(call.parameters["id"].orEmpty(), viewer?.id)
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(activityPayload(view))
+    }
+
+    post("/activities") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val view = try {
+            services.activities.create(
+                actor = user,
+                emoji = Jsons.text(body, "emoji"),
+                name = Jsons.text(body, "name"),
+                description = Jsons.text(body, "description"),
+                locationName = Jsons.text(body, "locationName"),
+                locationId = Jsons.text(body, "locationId").ifBlank { null },
+                placeId = Jsons.text(body, "placeId").ifBlank { null },
+                lat = jsonDouble(body, "lat"),
+                lng = jsonDouble(body, "lng"),
+                hostUserId = Jsons.text(body, "hostUserId").ifBlank { null },
+                schedule = parseActivitySchedule(body),
+                interested = jsonBool(body, "interested", true),
+            )
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(activityPayload(view), HttpStatusCode.Created)
+    }
+
+    patch("/activities/{id}") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val view = try {
+            services.activities.update(
+                actor = user,
+                id = call.parameters["id"].orEmpty(),
+                emoji = Jsons.text(body, "emoji"),
+                name = Jsons.text(body, "name"),
+                description = Jsons.text(body, "description"),
+                hostUserId = Jsons.text(body, "hostUserId").ifBlank { null },
+                schedule = parseActivitySchedule(body),
+            )
+        } catch (error: TownException) {
+            return@patch call.fail(error.code)
+        }
+        call.respondJson(activityPayload(view))
+    }
+
+    delete("/activities/{id}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        try {
+            services.activities.delete(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    post("/activities/{id}/join") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val view = try {
+            services.activities.interest(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(activityPayload(view))
+    }
+
+    post("/activities/{id}/leave") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val view = try {
+            services.activities.uninterest(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(activityPayload(view))
+    }
+
+    post("/activities/{id}/chat") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val chat = try {
+            services.activities.startChat(user, call.parameters["id"].orEmpty(), parseUserIds(body))
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(chat), HttpStatusCode.Created)
+    }
+
+    post("/activities/emoji") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val name = Jsons.text(Jsons.parse(call.receiveText()), "name").trim()
+        if (name.isEmpty() || name.length > Limits.ACTIVITY_NAME_MAX) return@post call.fail("invalid_activity_name")
+        val emoji = try {
+            services.communities.suggestEmoji(user.id, name)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("emoji" to emoji))
     }
 
     get("/places") {
@@ -1945,6 +2082,38 @@ private fun productOrderPayload(order: ProductOrderRecord) = mapOf(
     "createdAt" to order.createdAt,
 )
 
+private fun activityPayload(view: ActivityView): Map<String, Any?> {
+    val activity = view.activity
+    val hostId = activity.hostUserId
+    return mapOf(
+        "id" to activity.id,
+        "createdBy" to activity.createdBy,
+        "emoji" to activity.emoji,
+        "name" to activity.name,
+        "description" to activity.description,
+        "locationName" to activity.locationName,
+        "locationId" to activity.locationId,
+        "placeId" to activity.placeId,
+        "lat" to activity.lat,
+        "lng" to activity.lng,
+        "hostUserId" to hostId,
+        "host" to view.host?.let { attendeePayload(it, includePhone = false) + mapOf("host" to true) },
+        "schedule" to activity.schedule.map { slot ->
+            mapOf(
+                "dayOfWeek" to slot.dayOfWeek,
+                "startMinutes" to slot.startMinutes,
+                "endMinutes" to slot.endMinutes,
+            )
+        },
+        "interestedCount" to activity.interestedCount,
+        "interested" to view.interested,
+        "interestedPeople" to view.interestedPeople.map { person ->
+            attendeePayload(person, includePhone = false) + mapOf("host" to (hostId != null && person.id == hostId))
+        },
+        "createdAt" to activity.createdAt,
+    )
+}
+
 private fun productOrderViewPayload(view: ProductOrderView) = productOrderPayload(view.order) + mapOf(
     "buyerName" to view.buyerName,
     "buyerPhone" to view.buyerPhone,
@@ -2093,6 +2262,7 @@ private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
     },
     "category" to place.category,
     "custom" to place.custom,
+    "hasActivities" to place.hasActivities,
 )
 
 private fun commentPayload(item: CommentItem) = mapOf(
@@ -2212,6 +2382,43 @@ private fun parseEpoch(raw: String): Long? =
 
 private fun parseCoord(raw: String): Double? =
     raw.trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+
+private fun parseActivitySchedule(body: JsonNode): List<ActivityScheduleSlot> {
+    val schedule = body.path("schedule")
+    if (!schedule.isArray) return emptyList()
+    return schedule.map { slot ->
+        ActivityScheduleSlot(
+            dayOfWeek = slot.path("dayOfWeek").asInt(0),
+            startMinutes = slot.path("startMinutes").asInt(-1),
+            endMinutes = slot.path("endMinutes").asInt(-1),
+        )
+    }
+}
+
+private fun parseUserIds(body: JsonNode): List<String> {
+    val ids = body.path("userIds")
+    if (!ids.isArray) return emptyList()
+    return ids.map { it.asText("").trim() }.filter { it.isNotBlank() }
+}
+
+private fun jsonBool(body: JsonNode, field: String, default: Boolean): Boolean {
+    val node = body.path(field)
+    if (node.isMissingNode || node.isNull) return default
+    if (node.isBoolean) return node.asBoolean()
+    if (node.isNumber) return node.asInt() != 0
+    return when (node.asText("").trim().lowercase()) {
+        "true", "1" -> true
+        "false", "0" -> false
+        else -> default
+    }
+}
+
+private fun jsonDouble(body: JsonNode, field: String): Double? {
+    val node = body.path(field)
+    if (node.isMissingNode || node.isNull) return null
+    val value = if (node.isNumber) node.asDouble() else node.asText("").toDoubleOrNull()
+    return value?.takeIf { it.isFinite() }
+}
 
 private fun parseLatitude(raw: String): Double? = parseCoord(raw)?.takeIf { it in -90.0..90.0 }
 

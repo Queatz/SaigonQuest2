@@ -29,6 +29,7 @@ internal class PlacePick(
     var id: String? = null,
     var postCount: Long = 0,
     var photoUrl: String? = null,
+    var hasActivities: Boolean = false,
 )
 
 internal fun bindLocationMapPicker(
@@ -92,27 +93,35 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     val tabs = el("div", "chip-row events-tabs")
     val eventsChip = el("button", "chip selected", text = Town.t("events"))
     eventsChip.setAttribute("type", "button")
+    val activitiesChip = el("button", "chip", text = Town.t("activities"))
+    activitiesChip.setAttribute("type", "button")
     val peopleChip = el("button", "chip", text = Town.t("people"))
     peopleChip.setAttribute("type", "button")
     val communitiesChip = el("button", "chip", text = Town.t("communities"))
     communitiesChip.setAttribute("type", "button")
     tabs.appendChild(eventsChip)
+    tabs.appendChild(activitiesChip)
     tabs.appendChild(peopleChip)
     tabs.appendChild(communitiesChip)
     val split = el("div", "events-split")
     val eventCol = el("div", "events-col")
+    val activityCol = el("div", "events-col")
     val peopleCol = el("div", "events-col")
     val communityCol = el("div", "events-col")
     eventCol.appendChild(el("h3", text = Town.t("events")))
+    activityCol.appendChild(el("h3", text = Town.t("activities")))
     peopleCol.appendChild(el("h3", text = Town.t("people")))
     communityCol.appendChild(el("h3", text = Town.t("communities")))
     val eventList = el("div", "event-list")
+    val activityList = el("div", "activity-list")
     val peopleList = el("div", "member-list")
     val communityList = el("div", "community-list")
     eventCol.appendChild(eventList)
+    activityCol.appendChild(activityList)
     peopleCol.appendChild(peopleList)
     communityCol.appendChild(communityList)
     split.appendChild(eventCol)
+    split.appendChild(activityCol)
     split.appendChild(peopleCol)
     split.appendChild(communityCol)
     lists.appendChild(tabs)
@@ -165,12 +174,15 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     }
     fun selectTab(chip: HTMLElement) {
         eventsChip.asDynamic().classList.toggle("selected", chip === eventsChip)
+        activitiesChip.asDynamic().classList.toggle("selected", chip === activitiesChip)
         peopleChip.asDynamic().classList.toggle("selected", chip === peopleChip)
         communitiesChip.asDynamic().classList.toggle("selected", chip === communitiesChip)
+        split.asDynamic().classList.toggle("show-activities", chip === activitiesChip)
         split.asDynamic().classList.toggle("show-people", chip === peopleChip)
         split.asDynamic().classList.toggle("show-communities", chip === communitiesChip)
     }
     eventsChip.onClick { selectTab(eventsChip) }
+    activitiesChip.onClick { selectTab(activitiesChip) }
     peopleChip.onClick { selectTab(peopleChip) }
     communitiesChip.onClick { selectTab(communitiesChip) }
     loadGoogleMaps { }
@@ -184,6 +196,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         val events = readPosts(parsed.events)
         if (events.isEmpty()) {
             eventList.appendChild(el("p", "hint", text = Town.t("noEvents")))
+            selectTab(activitiesChip)
         } else {
             renderGroupedEvents(eventList, events, router)
         }
@@ -218,6 +231,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         }
     }
     loadCommunities()
+    loadDiscoverActivities(activityList, shell, router)
     return shell
 }
 
@@ -1196,6 +1210,7 @@ private fun userLocationDot(location: PlacePick, host: HTMLElement, router: Hist
     location.photoUrl?.takeIf { it.isNotBlank() }?.let { photoUrl ->
         dot.asDynamic().style.backgroundImage = "url(\"${prefixServerOrigin(photoUrl)}\")"
     }
+    if (location.hasActivities) dot.appendChild(activityMapDot())
     dot.onClick {
         openLocationSheet(
             host,
@@ -1240,6 +1255,7 @@ private fun userLocationBubble(location: PlacePick, host: HTMLElement, router: H
         bubble.appendChild(heading)
         bubble.appendChild(meta)
     }
+    if (location.hasActivities) bubble.appendChild(activityMapDot())
     bubble.onClick {
         openLocationSheet(
             host,
@@ -1397,6 +1413,12 @@ private fun eventMapBubble(post: PostCard): HTMLElement {
     return bubble
 }
 
+private fun activityMapDot(): HTMLElement {
+    val dot = el("span", "activity-map-dot")
+    dot.setAttribute("aria-hidden", "true")
+    return dot
+}
+
 private fun attendeeFaces(post: PostCard, className: String = "event-faces"): HTMLElement {
     val faces = el("span", className)
     fillAttendeeFaces(faces, post)
@@ -1534,6 +1556,7 @@ private fun readUserLocations(array: dynamic): List<PlacePick> {
                 id = (place.id as? String)?.takeIf { it.isNotBlank() },
                 postCount = postCount,
                 photoUrl = (place.photoUrl as? String)?.takeIf { it.isNotBlank() },
+                hasActivities = place.hasActivities == true,
             )
         }
     }

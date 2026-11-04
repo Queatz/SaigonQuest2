@@ -975,28 +975,42 @@ private fun messageBubble(
     }
     if (message.text.isNotBlank()) bubble.appendChild(linkedParagraph(message.text, "chat-text"))
     message.attachment?.let { attachment ->
-        val product = el("button", "chat-product-attachment")
-        product.setAttribute("type", "button")
-        product.setAttribute("aria-label", Town.t("viewProduct"))
-        if (!attachment.photoUrl.isNullOrBlank()) {
-            val image = el("img", "chat-product-attachment-photo")
-            image.setAttribute("src", attachment.photoUrl)
-            image.setAttribute("alt", "")
-            product.appendChild(image)
-        }
-        val copy = el("span", "chat-product-attachment-copy")
-        copy.appendChild(el("small", text = Town.t("productAttachment")))
-        copy.appendChild(el("strong", text = attachment.name))
-        copy.appendChild(el("span", text = formatVnd(attachment.price)))
-        product.appendChild(copy)
-        product.asDynamic().addEventListener("click", { event: dynamic ->
-            event.stopPropagation()
-            http("GET", "/api/products/${encodeQuery(attachment.productId)}") { status, body ->
-                if (status == 200) openProductDetails(host, router, parseJson(body))
-                else toast(host, Town.t("unavailable"))
+        val card = el("button", if (attachment.type == "activity") "chat-product-attachment chat-activity-attachment" else "chat-product-attachment")
+        card.setAttribute("type", "button")
+        if (attachment.type == "activity") {
+            card.setAttribute("aria-label", Town.t("viewActivity"))
+            card.appendChild(el("span", "activity-emoji", text = attachment.emoji.ifBlank { "✨" }))
+            val copy = el("span", "chat-product-attachment-copy")
+            copy.appendChild(el("small", text = Town.t("activityAttachment")))
+            copy.appendChild(el("strong", text = attachment.name))
+            if (attachment.description.isNotBlank()) copy.appendChild(el("span", text = attachment.description))
+            card.appendChild(copy)
+            card.asDynamic().addEventListener("click", { event: dynamic ->
+                event.stopPropagation()
+                openActivitySheet(host, router, attachment.activityId)
+            })
+        } else {
+            card.setAttribute("aria-label", Town.t("viewProduct"))
+            if (!attachment.photoUrl.isNullOrBlank()) {
+                val image = el("img", "chat-product-attachment-photo")
+                image.setAttribute("src", attachment.photoUrl)
+                image.setAttribute("alt", "")
+                card.appendChild(image)
             }
-        })
-        bubble.appendChild(product)
+            val copy = el("span", "chat-product-attachment-copy")
+            copy.appendChild(el("small", text = Town.t("productAttachment")))
+            copy.appendChild(el("strong", text = attachment.name))
+            copy.appendChild(el("span", text = formatVnd(attachment.price)))
+            card.appendChild(copy)
+            card.asDynamic().addEventListener("click", { event: dynamic ->
+                event.stopPropagation()
+                http("GET", "/api/products/${encodeQuery(attachment.productId)}") { status, body ->
+                    if (status == 200) openProductDetails(host, router, parseJson(body))
+                    else toast(host, Town.t("unavailable"))
+                }
+            })
+        }
+        bubble.appendChild(card)
     }
     if (message.photoUrls.isNotEmpty()) {
         val photos = el("div", "chat-photos")
@@ -1256,14 +1270,18 @@ private data class ChatMessage(
     val photoUrls: List<String>,
     val createdAt: Long,
     val reactions: List<ReactionChip>,
-    val attachment: ProductAttachment?,
+    val attachment: ChatAttachmentCard?,
 )
 
-private data class ProductAttachment(
-    val productId: String,
-    val name: String,
-    val price: Long,
-    val photoUrl: String?,
+private data class ChatAttachmentCard(
+    val type: String,
+    val productId: String = "",
+    val name: String = "",
+    val price: Long = 0,
+    val photoUrl: String? = null,
+    val activityId: String = "",
+    val emoji: String = "",
+    val description: String = "",
 )
 
 private data class ReactionChip(val emoji: String, val count: Int, val mine: Boolean)
@@ -1313,17 +1331,29 @@ private fun messageFrom(node: dynamic) = ChatMessage(
     photoUrls = readStringList(node.photoUrls).map(::prefixServerOrigin),
     createdAt = num(node.createdAt).toLong(),
     reactions = readReactions(node.reactions),
-    attachment = productAttachmentFrom(node.attachment),
+    attachment = chatAttachmentFrom(node.attachment),
 )
 
-private fun productAttachmentFrom(node: dynamic): ProductAttachment? {
-    if (node == null || node == undefined || node.type != "product") return null
-    return ProductAttachment(
-        productId = (node.productId as? String).orEmpty(),
-        name = (node.productName as? String).orEmpty(),
-        price = num(node.price).toLong(),
-        photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
-    )
+private fun chatAttachmentFrom(node: dynamic): ChatAttachmentCard? {
+    if (node == null || node == undefined) return null
+    val type = node.type as? String ?: return null
+    return when (type) {
+        "activity" -> ChatAttachmentCard(
+            type = type,
+            name = (node.activityName as? String).orEmpty(),
+            activityId = (node.activityId as? String).orEmpty(),
+            emoji = (node.activityEmoji as? String).orEmpty(),
+            description = (node.activityDescription as? String).orEmpty(),
+        )
+        "product" -> ChatAttachmentCard(
+            type = type,
+            productId = (node.productId as? String).orEmpty(),
+            name = (node.productName as? String).orEmpty(),
+            price = num(node.price).toLong(),
+            photoUrl = (node.photoUrl as? String)?.let(::prefixServerOrigin),
+        )
+        else -> null
+    }
 }
 
 private fun readMessages(node: dynamic): List<ChatMessage> {

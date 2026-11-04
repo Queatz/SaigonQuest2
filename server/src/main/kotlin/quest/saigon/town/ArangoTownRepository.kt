@@ -18,7 +18,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
             POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
-            CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
+            ACTIVITIES, ACTIVITY_INTERESTS, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -45,6 +45,12 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(FEATURE_VOTES).ensurePersistentIndex(listOf("suggestionKey"), PersistentIndexOptions())
         db.collection(PRODUCTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(PRODUCT_ORDERS).ensurePersistentIndex(listOf("sellerKey", "createdAt"), PersistentIndexOptions())
+        db.collection(ACTIVITIES).ensurePersistentIndex(listOf("createdBy", "createdAt"), PersistentIndexOptions())
+        db.collection(ACTIVITIES).ensurePersistentIndex(listOf("interestedCount", "createdAt"), PersistentIndexOptions())
+        db.collection(ACTIVITIES).ensurePersistentIndex(listOf("locationId"), PersistentIndexOptions())
+        db.collection(ACTIVITIES).ensurePersistentIndex(listOf("placeId"), PersistentIndexOptions())
+        db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("activityKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("activityKey", "createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -1946,6 +1952,255 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return ProductPage(page.map(::productFrom), count, next)
     }
 
+    override fun insertActivity(activity: ActivityRecord): ActivityRecord {
+        val doc = activityDocument(activity)
+        val key = db.collection(ACTIVITIES).insertDocument(doc).key
+        return activity.copy(id = key)
+    }
+
+    override fun findActivity(id: String): ActivityRecord? =
+        db.collection(ACTIVITIES).getDocument(id, BaseDocument::class.java)?.let(::activityFrom)
+
+    override fun updateActivity(activity: ActivityRecord): ActivityRecord? {
+        if (!db.collection(ACTIVITIES).documentExists(activity.id)) return null
+        db.collection(ACTIVITIES).replaceDocument(activity.id, activityDocument(activity.id, activity))
+        return activity
+    }
+
+    override fun deleteActivity(id: String): ActivityRecord? {
+        val activity = findActivity(id) ?: return null
+        exec(
+            """
+            FOR i IN $ACTIVITY_INTERESTS FILTER i.activityKey == @id REMOVE i IN $ACTIVITY_INTERESTS RETURN OLD
+            """.trimIndent(),
+            mapOf("id" to id),
+        )
+        db.collection(ACTIVITIES).deleteDocument(id)
+        return activity
+    }
+
+    override fun activitiesByUser(userId: String, cursor: String?, limit: Int): ActivityPage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER a.createdBy == @userKey
+              FILTER @hasCursor == false OR a.createdAt < @cursorAt OR (a.createdAt == @cursorAt AND a._key < @cursorKey)
+              SORT a.createdAt DESC, a._key DESC
+              LIMIT @limit
+              RETURN a
+            """.trimIndent(),
+            mapOf(
+                "userKey" to userId,
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(long(it, "createdAt"), it.key) } else null
+        return ActivityPage(page.map(::activityFrom), next)
+    }
+
+    override fun activitiesForLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+        cursor: String?,
+        limit: Int,
+    ): ActivityPage {
+        val parsed = Cursors.parseActivity(cursor)
+        val customId = locationId?.takeIf { it.isNotBlank() }.orEmpty()
+        val pid = placeId?.takeIf { it.isNotBlank() }.orEmpty()
+        val rows = queryList(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER (
+                (@locationId != "" AND a.locationId == @locationId)
+                OR (@locationId == "" AND @placeId != "" AND (a.locationId == null OR a.locationId == "") AND a.placeId == @placeId)
+                OR (
+                  @locationId == "" AND @placeId == ""
+                  AND (a.locationId == null OR a.locationId == "")
+                  AND (a.placeId == null OR a.placeId == "")
+                  AND LOWER(TO_STRING(a.locationName == null ? "" : a.locationName)) == @locationName
+                )
+              )
+              FILTER @hasCursor == false
+                OR a.interestedCount < @cursorCount
+                OR (a.interestedCount == @cursorCount AND a.createdAt < @cursorAt)
+                OR (a.interestedCount == @cursorCount AND a.createdAt == @cursorAt AND a._key < @cursorKey)
+              SORT a.interestedCount DESC, a.createdAt DESC, a._key DESC
+              LIMIT @limit
+              RETURN a
+            """.trimIndent(),
+            mapOf(
+                "locationId" to customId,
+                "placeId" to pid,
+                "locationName" to locationName.trim().lowercase(),
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorCount" to (parsed?.interestedCount ?: 0L),
+                "cursorAt" to (parsed?.createdAt ?: 0L),
+                "cursorKey" to (parsed?.id ?: ""),
+            ),
+        )
+        return pageActivities(rows, limit)
+    }
+
+    override fun searchActivities(cursor: String?, limit: Int): ActivityPage {
+        val parsed = Cursors.parseActivity(cursor)
+        val rows = queryList(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER @hasCursor == false
+                OR a.interestedCount < @cursorCount
+                OR (a.interestedCount == @cursorCount AND a.createdAt < @cursorAt)
+                OR (a.interestedCount == @cursorCount AND a.createdAt == @cursorAt AND a._key < @cursorKey)
+              SORT a.interestedCount DESC, a.createdAt DESC, a._key DESC
+              LIMIT @limit
+              RETURN a
+            """.trimIndent(),
+            mapOf(
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorCount" to (parsed?.interestedCount ?: 0L),
+                "cursorAt" to (parsed?.createdAt ?: 0L),
+                "cursorKey" to (parsed?.id ?: ""),
+            ),
+        )
+        return pageActivities(rows, limit)
+    }
+
+    override fun addActivityInterest(activityId: String, userId: String, createdAt: Long): Boolean {
+        if (findActivity(activityId) == null) return false
+        val key = membershipKey(activityId, userId)
+        if (db.collection(ACTIVITY_INTERESTS).documentExists(key)) return false
+        val doc = BaseDocument(key)
+        doc.addAttribute("activityKey", activityId)
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("createdAt", createdAt)
+        try {
+            db.collection(ACTIVITY_INTERESTS).insertDocument(doc)
+        } catch (_: ArangoDBException) {
+            return false
+        }
+        exec(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER a._key == @id
+              UPDATE a WITH { interestedCount: (a.interestedCount == null ? 0 : a.interestedCount) + 1 } IN $ACTIVITIES
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to activityId),
+        )
+        return true
+    }
+
+    override fun removeActivityInterest(activityId: String, userId: String): Boolean {
+        val key = membershipKey(activityId, userId)
+        if (!db.collection(ACTIVITY_INTERESTS).documentExists(key)) return false
+        db.collection(ACTIVITY_INTERESTS).deleteDocument(key)
+        exec(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER a._key == @id
+              UPDATE a WITH { interestedCount: (a.interestedCount == null || a.interestedCount < 1 ? 0 : a.interestedCount - 1) } IN $ACTIVITIES
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to activityId),
+        )
+        return true
+    }
+
+    override fun isActivityInterested(activityId: String, userId: String): Boolean =
+        db.collection(ACTIVITY_INTERESTS).documentExists(membershipKey(activityId, userId))
+
+    override fun activityInterested(activityId: String, cursor: String?, limit: Int): EventAttendeePage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR i IN $ACTIVITY_INTERESTS
+              FILTER i.activityKey == @activityKey
+              FILTER @hasCursor == false OR i.createdAt < @cursorAt OR (i.createdAt == @cursorAt AND i._key < @cursorKey)
+              SORT i.createdAt DESC, i._key DESC
+              LIMIT @limit
+              LET u = DOCUMENT("$USERS", i.userKey)
+              FILTER u != null
+              RETURN {
+                id: u._key,
+                name: u.name,
+                profilePhotoPath: u.profilePhotoPath,
+                location: u.location,
+                intro: u.intro,
+                phone: u.phone,
+                joinedAt: i.createdAt,
+                memberKey: i._key
+              }
+            """.trimIndent(),
+            mapOf(
+                "activityKey" to activityId,
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val items = page.map { row ->
+            EventAttendee(
+                id = string(row, "id"),
+                name = string(row, "name"),
+                profilePhotoPath = optional(row, "profilePhotoPath"),
+                location = string(row, "location"),
+                intro = string(row, "intro"),
+                phone = optional(row, "phone"),
+                joinedAt = long(row, "joinedAt"),
+            )
+        }
+        val next = if (rows.size > limit) {
+            page.lastOrNull()?.let { Cursors.encode(long(it, "joinedAt"), string(it, "memberKey")) }
+        } else {
+            null
+        }
+        return EventAttendeePage(items, next)
+    }
+
+    override fun activityInterestedIds(activityId: String): List<String> = queryList(
+        "FOR i IN $ACTIVITY_INTERESTS FILTER i.activityKey == @activityKey RETURN i",
+        mapOf("activityKey" to activityId),
+    ).map { string(it, "userKey") }
+
+    override fun activityLocationFlags(): ActivityLocationFlags {
+        val locationIds = queryList(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER a.locationId != null AND a.locationId != ""
+              RETURN { id: a.locationId }
+            """.trimIndent(),
+            emptyMap(),
+        ).map { string(it, "id") }.filter { it.isNotBlank() }.toSet()
+        val placeIds = queryList(
+            """
+            FOR a IN $ACTIVITIES
+              FILTER (a.locationId == null OR a.locationId == "") AND a.placeId != null AND a.placeId != ""
+              RETURN { id: a.placeId }
+            """.trimIndent(),
+            emptyMap(),
+        ).map { string(it, "id") }.filter { it.isNotBlank() }.toSet()
+        return ActivityLocationFlags(locationIds, placeIds)
+    }
+
+    private fun pageActivities(rows: List<BaseDocument>, limit: Int): ActivityPage {
+        val page = rows.take(limit)
+        val next = if (rows.size > limit) {
+            page.lastOrNull()?.let { Cursors.encodeActivity(long(it, "interestedCount"), long(it, "createdAt"), it.key) }
+        } else {
+            null
+        }
+        return ActivityPage(page.map(::activityFrom), next)
+    }
+
     override fun insertProductOrder(order: ProductOrderRecord): ProductOrderRecord {
         val doc = productOrderDocument(order)
         val key = db.collection(PRODUCT_ORDERS).insertDocument(doc).key
@@ -2697,6 +2952,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             doc.addAttribute("attachmentProductName", attachment.productName)
             doc.addAttribute("attachmentPrice", attachment.price)
             attachment.photoPath?.let { doc.addAttribute("attachmentPhotoPath", it) }
+            doc.addAttribute("attachmentActivityId", attachment.activityId)
+            doc.addAttribute("attachmentActivityName", attachment.activityName)
+            doc.addAttribute("attachmentActivityEmoji", attachment.activityEmoji)
+            doc.addAttribute("attachmentActivityDescription", attachment.activityDescription)
         }
         val key = db.collection(CHAT_MESSAGES).insertDocument(doc).key
         return message.copy(id = key)
@@ -3026,6 +3285,73 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         createdAt = long(doc, "createdAt"),
     )
 
+    private fun activityDocument(activity: ActivityRecord): BaseDocument =
+        activityDocument(null, activity)
+
+    private fun activityDocument(key: String?, activity: ActivityRecord): BaseDocument {
+        val doc = if (key == null) BaseDocument() else BaseDocument(key)
+        doc.addAttribute("createdBy", activity.createdBy)
+        doc.addAttribute("emoji", activity.emoji)
+        doc.addAttribute("name", activity.name)
+        doc.addAttribute("description", activity.description)
+        doc.addAttribute("locationName", activity.locationName)
+        activity.locationId?.let { doc.addAttribute("locationId", it) }
+        activity.placeId?.let { doc.addAttribute("placeId", it) }
+        activity.lat?.let { doc.addAttribute("lat", it) }
+        activity.lng?.let { doc.addAttribute("lng", it) }
+        activity.hostUserId?.let { doc.addAttribute("hostUserId", it) }
+        doc.addAttribute(
+            "schedule",
+            activity.schedule.map { slot ->
+                mapOf(
+                    "dayOfWeek" to slot.dayOfWeek,
+                    "startMinutes" to slot.startMinutes,
+                    "endMinutes" to slot.endMinutes,
+                )
+            },
+        )
+        doc.addAttribute("interestedCount", activity.interestedCount)
+        doc.addAttribute("createdAt", activity.createdAt)
+        return doc
+    }
+
+    private fun activityFrom(doc: BaseDocument) = ActivityRecord(
+        id = doc.key,
+        createdBy = string(doc, "createdBy"),
+        emoji = string(doc, "emoji"),
+        name = string(doc, "name"),
+        description = string(doc, "description"),
+        locationName = string(doc, "locationName"),
+        locationId = optional(doc, "locationId"),
+        placeId = optional(doc, "placeId"),
+        lat = doubleOrNull(doc, "lat"),
+        lng = doubleOrNull(doc, "lng"),
+        hostUserId = optional(doc, "hostUserId"),
+        schedule = scheduleFrom(doc),
+        interestedCount = long(doc, "interestedCount"),
+        createdAt = long(doc, "createdAt"),
+    )
+
+    private fun scheduleFrom(doc: BaseDocument): List<ActivityScheduleSlot> {
+        val raw = doc.getAttribute("schedule") ?: return emptyList()
+        val rows = when (raw) {
+            is Collection<*> -> raw
+            is Array<*> -> raw.toList()
+            else -> return emptyList()
+        }
+        return rows.mapNotNull { row ->
+            fun read(name: String): Any? = when (row) {
+                is BaseDocument -> row.getAttribute(name)
+                is Map<*, *> -> row[name]
+                else -> null
+            }
+            val day = (read("dayOfWeek") as? Number)?.toInt() ?: return@mapNotNull null
+            val start = (read("startMinutes") as? Number)?.toInt() ?: return@mapNotNull null
+            val end = (read("endMinutes") as? Number)?.toInt() ?: return@mapNotNull null
+            ActivityScheduleSlot(day, start, end)
+        }
+    }
+
     private fun productOrderDocument(order: ProductOrderRecord): BaseDocument =
         BaseDocument().apply {
             addAttribute("buyerKey", order.buyerId)
@@ -3314,6 +3640,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 productName = string(doc, "attachmentProductName"),
                 price = long(doc, "attachmentPrice"),
                 photoPath = string(doc, "attachmentPhotoPath").takeIf { it.isNotBlank() && it != "null" },
+                activityId = string(doc, "attachmentActivityId"),
+                activityName = string(doc, "attachmentActivityName"),
+                activityEmoji = string(doc, "attachmentActivityEmoji"),
+                activityDescription = string(doc, "attachmentActivityDescription"),
             )
         },
     )
@@ -3462,6 +3792,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val FEATURE_VOTES = "featureVotes"
         private const val PRODUCTS = "products"
         private const val PRODUCT_ORDERS = "productOrders"
+        private const val ACTIVITIES = "activities"
+        private const val ACTIVITY_INTERESTS = "activityInterests"
         private const val CHATS = "chats"
         private const val CHAT_MEMBERS = "chatMembers"
         private const val CHAT_MESSAGES = "chatMessages"
