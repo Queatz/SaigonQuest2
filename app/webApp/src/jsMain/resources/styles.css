@@ -3923,6 +3923,71 @@ span.event-face {
     padding-bottom: 32px;
 }
 
+.messages-list-pane {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.messages-chat-pane {
+    display: none;
+    min-width: 0;
+    min-height: 0;
+}
+
+.messages-empty-chat {
+    display: grid;
+    flex: 1 1 auto;
+    place-items: center;
+    margin: 0;
+    color: var(--muted);
+}
+
+@media (min-width: 800px) {
+    .messages-shell {
+        width: calc(100% - 24px);
+        height: calc(100% - 24px);
+        margin: 12px;
+        flex-direction: row;
+    }
+
+    .messages-list-pane {
+        flex: 0 0 320px;
+        border-right: 1px solid var(--line);
+    }
+
+    .messages-chat-pane {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+    }
+
+    .messages-chat-pane > .chat-shell {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+    }
+}
+
+@media (max-width: 799px) {
+    .messages-shell.has-selected-chat .messages-list-pane {
+        display: none;
+    }
+
+    .messages-shell.has-selected-chat .messages-chat-pane {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+    }
+
+    .messages-shell.has-selected-chat .messages-chat-pane > .chat-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+}
+
 .chat-row {
     display: flex;
     align-items: center;
@@ -3932,13 +3997,18 @@ span.event-face {
     background: transparent;
     color: inherit;
     text-align: left;
+    border-radius: 16px;
     padding: 12px 4px;
-    border-bottom: 1px solid var(--line);
     cursor: pointer;
     font: inherit;
 }
 
 .chat-row:last-child { border-bottom: 0; }
+
+.chat-row.selected {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+}
 
 .chat-faces {
     display: flex;
@@ -4151,6 +4221,8 @@ span.event-face {
     padding: 0 16px 8px;
     color: var(--muted);
 }
+
+.chat-typing[hidden] { display: none !important; }
 
 .typing-dots {
     letter-spacing: 2px;

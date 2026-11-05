@@ -4,6 +4,12 @@ import quest.saigon.AppRoute
 import web.html.HTMLElement
 
 internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute) {
+    val isMessagesRoute = route == AppRoute.Messages || route is AppRoute.Chat
+    if (isMessagesRoute && !Town.signedOut && root.asDynamic().querySelector(".messages-shell") != null) {
+        Town.applyLanguage()
+        selectMessagesChat((route as? AppRoute.Chat)?.id)
+        return
+    }
     clearFeedKeys()
     clearChatScreen()
     stopMusicPreview()
@@ -39,7 +45,7 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         route == AppRoute.Discover -> eventsScreen(router)
         route == AppRoute.Shop -> shopScreen(router)
         route == AppRoute.Messages -> messagesScreen(router)
-        route is AppRoute.Chat -> chatScreen(router, route.id)
+        route is AppRoute.Chat -> messagesScreen(router, route.id)
         route is AppRoute.Community -> feedScreen(router, communityId = route.id)
         else -> missingScreen(router)
     }

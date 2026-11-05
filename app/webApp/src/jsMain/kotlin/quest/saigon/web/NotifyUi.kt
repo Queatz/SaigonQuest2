@@ -20,11 +20,11 @@ internal object NotifyInbox {
         refresh()
         WebPush.enable()
         ChatInbox.connect()
-        stopStream = openNotificationStream { _ ->
+        stopStream = openNotificationStream(onEvent = { _ ->
             unread += 1
             paintBadges()
             playNotifySound()
-        }
+        })
     }
 
     fun disconnect() {
@@ -188,8 +188,10 @@ internal fun playNotifySound() {
 internal fun openNotificationStream(
     path: String = "/api/notifications/stream",
     onEvent: (dynamic) -> Unit,
+    onReconnect: () -> Unit = {},
 ): () -> Unit {
     var stopped = false
+    var connected = false
     var abort = js("new AbortController()")
     var retryTimer: dynamic = null
     var start: () -> Unit = {}
@@ -214,8 +216,10 @@ internal fun openNotificationStream(
         init.method = "GET"
         init.credentials = "include"
         init.signal = abort.signal
+        init.cache = "no-store"
         val headers = js("({})")
         headers["Accept"] = "text/event-stream"
+        headers["Cache-Control"] = "no-cache"
         init.headers = headers
         window.asDynamic().fetch(prefixServerOrigin(path), init).then({ response: dynamic ->
             if (stopped) return@then
@@ -228,6 +232,8 @@ internal fun openNotificationStream(
                 retry()
                 return@then
             }
+            if (connected) onReconnect()
+            connected = true
             val decoder = js("new TextDecoder()")
             var buffer = ""
             fun pump() {
@@ -239,7 +245,7 @@ internal fun openNotificationStream(
                         return@then
                     }
                     buffer += decoder.decode(chunk.value) as String
-                    val parts = buffer.split("\n\n")
+                    val parts = buffer.replace("\r\n", "\n").split("\n\n")
                     buffer = parts.last()
                     for (i in 0 until parts.size - 1) {
                         val block = parts[i]

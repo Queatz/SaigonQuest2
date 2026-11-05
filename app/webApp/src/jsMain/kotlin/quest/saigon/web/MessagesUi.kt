@@ -18,10 +18,12 @@ private const val MENU_ICON =
     """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="18" r="1.6" fill="currentColor"/></svg>"""
 
 private var chatLeave: (() -> Unit)? = null
+private var messagesSelection: ((String?) -> Unit)? = null
 
 internal fun clearChatScreen() {
     chatLeave?.invoke()
     chatLeave = null
+    messagesSelection = null
 }
 
 internal object ChatInbox {
@@ -37,21 +39,38 @@ internal object ChatInbox {
         }
         stopStream?.invoke()
         stopStream = null
+        notifyReconnect()
         refresh()
-        stopStream = openNotificationStream("/api/chats/stream") { event ->
-            val count = num(event.unreadCount).toInt()
-            if (event.unreadCount != null && event.unreadCount != undefined) unread = count
-            else if ((event.type as? String) == "message") unread += 1
-            paintBadges()
-            val incoming = event.message?.userId as? String
-            if ((event.type as? String) == "message" && incoming != Town.me?.id) playNotifySound()
-            listeners.toList().forEach { listener ->
-                try {
-                    listener(event)
-                } catch (_: Throwable) {
-                }
+        stopStream = openNotificationStream(
+            "/api/chats/stream",
+            onEvent = { event ->
+                val type = jsText(event.type)
+                val count = num(event.unreadCount).toInt()
+                if (event.unreadCount != null && event.unreadCount != undefined) unread = count
+                else if (type == "message") unread += 1
+                paintBadges()
+                val message = event.message
+                val incoming = if (message == null || message == undefined) "" else jsText(message.userId)
+                if (type == "message" && incoming != Town.me?.id) playNotifySound()
+                notifyListeners(event)
+            },
+            onReconnect = { notifyReconnect() },
+        )
+    }
+
+    private fun notifyListeners(event: dynamic) {
+        listeners.toList().forEach { listener ->
+            try {
+                listener(event)
+            } catch (_: Throwable) {
             }
         }
+    }
+
+    private fun notifyReconnect() {
+        val event = js("({})")
+        event.type = "reconnect"
+        notifyListeners(event)
     }
 
     fun disconnect() {
@@ -107,8 +126,9 @@ internal fun messagesButton(router: HistoryRouter): HTMLElement {
     return button
 }
 
-internal fun messagesScreen(router: HistoryRouter): HTMLElement {
+internal fun messagesScreen(router: HistoryRouter, chatId: String? = null): HTMLElement {
     val shell = el("section", "shell page-shell messages-shell")
+    val listPane = el("section", "messages-list-pane")
     val head = el("header", "page-head has-profile messages-head")
     head.appendChild(el("button", "icon-btn", text = "‹") { button ->
         button.setAttribute("type", "button")
@@ -126,50 +146,99 @@ internal fun messagesScreen(router: HistoryRouter): HTMLElement {
     actions.appendChild(notificationButton(router, shell))
     actions.appendChild(viewerButton(router, toComposer = false, editBadge = true))
     head.appendChild(actions)
-    shell.appendChild(head)
+    listPane.appendChild(head)
     val list = el("div", "page-body chat-list")
-    shell.appendChild(list)
+    listPane.appendChild(list)
+    shell.appendChild(listPane)
+    val chatPane = el("section", "messages-chat-pane")
+    shell.appendChild(chatPane)
+    var selectedChatId = chatId
+    var leaveChat: (() -> Unit)? = null
+
+    fun selectChat(id: String?) {
+        selectedChatId = id?.takeIf { it.isNotBlank() }
+        shell.asDynamic().classList.toggle("has-selected-chat", selectedChatId != null)
+        val rows = list.asDynamic().querySelectorAll(".chat-row")
+        val length = rows.length as Int
+        for (i in 0 until length) {
+            val row = rows[i]
+            row.classList.toggle("selected", row.getAttribute("data-chat-id") == selectedChatId)
+        }
+        leaveChat?.invoke()
+        leaveChat = null
+        chatPane.clear()
+        val selected = selectedChatId
+        if (selected == null) {
+            chatPane.appendChild(el("p", "messages-empty-chat", text = Town.t("noChatSelected")))
+        } else {
+            val (content, stop) = chatScreen(router, selected)
+            leaveChat = stop
+            chatPane.appendChild(content)
+        }
+    }
+
     fun paint(chats: List<ChatCard>) {
         list.clear()
         if (chats.isEmpty()) {
             list.appendChild(el("p", "hint", text = Town.t("noChats")))
             return
         }
-        chats.forEach { chat -> list.appendChild(chatRow(chat, router)) }
+        chats.forEach { chat -> list.appendChild(chatRow(chat, router, selectedChatId)) }
     }
-    http("GET", "/api/chats") { status, body ->
-        if (status != 200) {
-            list.appendChild(el("p", "hint", text = errorText(body, status)))
-            return@http
+    fun refreshChats() {
+        http("GET", "/api/chats") { status, body ->
+            if (shell.asDynamic().isConnected == false) return@http
+            if (status != 200) {
+                if (list.childElementCount == 0) list.appendChild(el("p", "hint", text = errorText(body, status)))
+                return@http
+            }
+            val parsed = parseJson(body)
+            ChatInbox.unread = num(parsed.unreadCount).toInt()
+            ChatInbox.paintBadges()
+            paint(readChats(parsed.chats))
+            http("POST", "/api/chats/notices/read", "{}") { _, _ -> }
         }
-        val parsed = parseJson(body)
-        ChatInbox.unread = num(parsed.unreadCount).toInt()
-        ChatInbox.paintBadges()
-        paint(readChats(parsed.chats))
-        http("POST", "/api/chats/notices/read", "{}") { _, _ -> }
     }
+    refreshChats()
     val stop = ChatInbox.listen { event ->
         if (shell.asDynamic().isConnected == false) return@listen
-        val type = event.type as? String ?: return@listen
+        val type = jsText(event.type)
         if (event.unreadCount != null && event.unreadCount != undefined) {
             ChatInbox.unread = num(event.unreadCount).toInt()
             ChatInbox.paintBadges()
         }
+        if (type == "reconnect") {
+            refreshChats()
+            return@listen
+        }
         if (type == "chat_deleted") {
-            val id = (event.chatId as? String).orEmpty()
+            val id = jsText(event.chatId)
             list.asDynamic().querySelector("""[data-chat-id="$id"]""")?.remove()
             if (list.childElementCount == 0) paint(emptyList())
             return@listen
         }
-        val chat = event.chat ?: return@listen
-        upsertChatRow(list, chatFrom(chat), router)
+        val chat = event.chat
+        if (chat == null || chat == undefined) return@listen
+        upsertChatRow(list, chatFrom(chat), router, selectedChatId)
     }
-    chatLeave = stop
+    messagesSelection = { id -> selectChat(id) }
+    chatLeave = {
+        stop()
+        leaveChat?.invoke()
+        leaveChat = null
+        messagesSelection = null
+    }
+    selectChat(chatId)
+    ChatInbox.connect()
     return shell
 }
 
-internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
-    val shell = el("section", "shell page-shell chat-shell")
+internal fun selectMessagesChat(chatId: String?) {
+    messagesSelection?.invoke(chatId)
+}
+
+private fun chatScreen(router: HistoryRouter, chatId: String): Pair<HTMLElement, () -> Unit> {
+    val shell = el("section", "chat-shell")
     var chatType = "direct"
     var owner = false
     val head = el("header", "page-head chat-head")
@@ -229,8 +298,8 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
     var atBottom = true
     var defaults = listOf("❤️", "👍", "😂", "😮", "😢")
     val pending = mutableListOf<dynamic>()
-    var typingTimer: dynamic = null
     val typingPeople = mutableMapOf<String, Pair<String, String?>>()
+    val typingTimers = mutableMapOf<String, dynamic>()
 
     fun stick() {
         thread.asDynamic().scrollTop = thread.asDynamic().scrollHeight
@@ -249,6 +318,12 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
         typing.appendChild(el("span", "typing-dots", text = "•••"))
     }
 
+    fun stopTyping(userId: String) {
+        val timer = typingTimers.remove(userId)
+        if (timer != null && timer != undefined) window.asDynamic().clearTimeout(timer)
+        typingPeople.remove(userId)
+    }
+
     fun appendMessage(message: ChatMessage, prepend: Boolean = false) {
         val existing = thread.asDynamic().querySelector("""[data-message-id="${message.id}"]""")
         if (existing != null && existing != undefined) {
@@ -258,6 +333,24 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
         val node = messageBubble(message, shell, chatId, owner, defaults, router)
         if (prepend) thread.asDynamic().insertBefore(node, thread.firstChild)
         else thread.appendChild(node)
+    }
+
+    fun loadLatestMessages(markRead: Boolean = true) {
+        http("GET", "/api/chats/$chatId/messages?limit=${Limits.CHAT_MESSAGE_PAGE_SIZE}") { messageStatus, messageBody ->
+            if (messageStatus != 200 || shell.asDynamic().isConnected == false) return@http
+            val page = parseJson(messageBody)
+            cursor = page.nextCursor as? String
+            readMessages(page.messages).forEach { appendMessage(it) }
+            if (atBottom) stick()
+            if (markRead) {
+                http("POST", "/api/chats/$chatId/read", "{}") { _, readBody ->
+                    if (readBody.isNotBlank()) {
+                        ChatInbox.unread = num(parseJson(readBody).unreadCount).toInt()
+                        ChatInbox.paintBadges()
+                    }
+                }
+            }
+        }
     }
 
     fun loadOlder() {
@@ -372,19 +465,17 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
                 ChatInbox.paintBadges()
             }
         }
-        http("GET", "/api/chats/$chatId/messages?limit=${Limits.CHAT_MESSAGE_PAGE_SIZE}") { messageStatus, messageBody ->
-            if (messageStatus != 200) return@http
-            val page = parseJson(messageBody)
-            cursor = page.nextCursor as? String
-            readMessages(page.messages).forEach { appendMessage(it) }
-            stick()
-        }
+        loadLatestMessages(markRead = false)
     }
 
     val stop = ChatInbox.listen { event ->
         if (shell.asDynamic().isConnected == false) return@listen
-        val type = event.type as? String ?: return@listen
-        if (type == "chat_deleted" && (event.chatId as? String) == chatId) {
+        val type = jsText(event.type)
+        if (type == "reconnect") {
+            loadLatestMessages()
+            return@listen
+        }
+        if (type == "chat_deleted" && jsText(event.chatId) == chatId) {
             toast(shell, Town.t("chatDeleted"))
             router.navigate("/messages")
             return@listen
@@ -397,41 +488,52 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
             owner = chat.owner
             membersBtn.asDynamic().hidden = chat.type != "group"
         }
-        if (type == "typing" && (event.chatId as? String) == chatId) {
-            val userId = (event.userId as? String).orEmpty()
+        if (type == "typing" && jsText(event.chatId) == chatId) {
+            val userId = jsText(event.userId)
             if (userId.isBlank() || userId == Town.me?.id) return@listen
-            typingPeople[userId] = (event.name as? String).orEmpty() to (event.photoUrl as? String)?.let(::prefixServerOrigin)
+            typingPeople[userId] = jsText(event.name) to jsText(event.photoUrl).takeIf { it.isNotBlank() }?.let(::prefixServerOrigin)
             paintTyping()
-            if (typingTimer != null) window.asDynamic().clearTimeout(typingTimer)
-            typingTimer = window.asDynamic().setTimeout({
-                typingPeople.clear()
+            val timer = typingTimers.remove(userId)
+            if (timer != null && timer != undefined) window.asDynamic().clearTimeout(timer)
+            typingTimers[userId] = window.asDynamic().setTimeout({
+                typingTimers.remove(userId)
+                typingPeople.remove(userId)
                 paintTyping()
             }, 3000)
             return@listen
         }
-        if (type == "message_deleted" && (event.chatId as? String) == chatId) {
-            val id = (event.messageId as? String).orEmpty()
+        if (type == "message_deleted" && jsText(event.chatId) == chatId) {
+            val id = jsText(event.messageId)
             thread.asDynamic().querySelector("""[data-message-id="$id"]""")?.remove()
             return@listen
         }
         if (type == "reaction") {
-            val incomingChatId = jsText(event.chatId).ifBlank { jsText(event.message?.chatId) }
+            val incomingMessage = event.message
+            val messageChatId = if (incomingMessage == null || incomingMessage == undefined) "" else jsText(incomingMessage.chatId)
+            val incomingChatId = jsText(event.chatId).ifBlank { messageChatId }
             if (incomingChatId == chatId) {
-                val messageId = jsText(event.messageId).ifBlank { jsText(event.message?.id) }
+                val messageId = jsText(event.messageId).ifBlank {
+                    if (incomingMessage == null || incomingMessage == undefined) "" else jsText(incomingMessage.id)
+                }
                 val reactions = readReactions(event.reactions).ifEmpty {
-                    val incoming = event.message
-                    if (incoming == null || incoming == undefined) emptyList()
-                    else messageFrom(incoming).reactions
+                    if (incomingMessage == null || incomingMessage == undefined) emptyList()
+                    else messageFrom(incomingMessage).reactions
                 }
                 applyMessageReactions(thread, chatId, messageId, reactions)
             }
             return@listen
         }
         if (type == "message") {
-            val message = event.message ?: return@listen
+            val message = event.message
+            if (message == null || message == undefined) return@listen
             if (jsText(message.chatId) != chatId) return@listen
+            val senderId = jsText(message.userId)
+            if (senderId.isNotBlank()) {
+                stopTyping(senderId)
+                paintTyping()
+            }
             appendMessage(messageFrom(message))
-            if (atBottom) stick()
+            if (atBottom || senderId != Town.me?.id) stick()
             http("POST", "/api/chats/$chatId/read", "{}") { _, readBody ->
                 if (readBody.isNotBlank()) {
                     ChatInbox.unread = num(parseJson(readBody).unreadCount).toInt()
@@ -440,12 +542,13 @@ internal fun chatScreen(router: HistoryRouter, chatId: String): HTMLElement {
             }
         }
     }
-    chatLeave = {
+    val leave = {
         stop()
-        if (typingTimer != null) window.asDynamic().clearTimeout(typingTimer)
+        typingTimers.values.forEach { timer -> window.asDynamic().clearTimeout(timer) }
+        typingTimers.clear()
     }
     window.asDynamic().setTimeout({ field.asDynamic().focus() }, 30)
-    return shell
+    return shell to leave
 }
 
 internal fun openDirectChat(
@@ -919,9 +1022,14 @@ private fun openMemberMenu(host: HTMLElement, chatId: String, userId: String, is
     host.appendChild(backdrop)
 }
 
-private fun chatRow(chat: ChatCard, router: HistoryRouter): HTMLElement {
+private fun chatRow(chat: ChatCard, router: HistoryRouter, selectedChatId: String?): HTMLElement {
     val unread = chat.unreadCount > 0
-    val row = el("button", if (unread) "chat-row unread" else "chat-row")
+    val classes = buildList {
+        add("chat-row")
+        if (unread) add("unread")
+        if (chat.id == selectedChatId) add("selected")
+    }.joinToString(" ")
+    val row = el("button", classes)
     row.setAttribute("type", "button")
     row.setAttribute("data-chat-id", chat.id)
     row.appendChild(chatFaces(chat))
@@ -944,10 +1052,10 @@ private fun chatRow(chat: ChatCard, router: HistoryRouter): HTMLElement {
     return row
 }
 
-private fun upsertChatRow(list: HTMLElement, chat: ChatCard, router: HistoryRouter) {
+private fun upsertChatRow(list: HTMLElement, chat: ChatCard, router: HistoryRouter, selectedChatId: String?) {
     list.asDynamic().querySelector(".hint")?.remove()
     list.asDynamic().querySelector("""[data-chat-id="${chat.id}"]""")?.remove()
-    val row = chatRow(chat, router)
+    val row = chatRow(chat, router, selectedChatId)
     if (list.firstChild == null) list.appendChild(row) else list.asDynamic().insertBefore(row, list.firstChild)
 }
 
