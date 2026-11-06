@@ -1007,6 +1007,12 @@ private data class MapMarkerBox(
 ) {
     fun overlaps(other: MapMarkerBox): Boolean =
         left < other.right && right > other.left && top < other.bottom && bottom > other.top
+
+    fun overlapArea(other: MapMarkerBox): Double {
+        val overlapWidth = (minOf(right, other.right) - maxOf(left, other.left)).coerceAtLeast(0.0)
+        val overlapHeight = (minOf(bottom, other.bottom) - maxOf(top, other.top)).coerceAtLeast(0.0)
+        return overlapWidth * overlapHeight
+    }
 }
 
 private class EventsMapMarker(
@@ -1168,6 +1174,61 @@ private fun mountEventsMap(
                     }
                 val packed = packMapMarkers(positioned)
                 val markerCount = packed.size
+                val mapWidth = num(host.asDynamic().clientWidth)
+                val mapHeight = num(host.asDynamic().clientHeight)
+                val placedLabels = mutableListOf<MapMarkerBox>()
+                packed.forEach { item ->
+                    val marker = item.marker
+                    if (!marker.isLocation || marker.isBubble) return@forEach
+                    val label = marker.content.asDynamic().querySelector(".user-location-name")
+                    if (label == null || label == undefined) return@forEach
+                    val labelWidth = num(label.offsetWidth)
+                    val labelHeight = num(label.offsetHeight)
+                    if (labelWidth <= 0.0 || labelHeight <= 0.0) return@forEach
+                    val gap = 8.0
+                    val centerX = (item.box.left + item.box.right) / 2.0
+                    val centerY = (item.box.top + item.box.bottom) / 2.0
+                    val preferredLeft = centerX > mapWidth / 2.0
+                    fun labelBox(left: Boolean): MapMarkerBox {
+                        val labelLeft = if (left) {
+                            item.box.left - gap - labelWidth
+                        } else {
+                            item.box.right + gap
+                        }
+                        return MapMarkerBox(
+                            left = labelLeft,
+                            top = centerY - labelHeight / 2.0,
+                            right = labelLeft + labelWidth,
+                            bottom = centerY + labelHeight / 2.0,
+                        )
+                    }
+                    fun overlapArea(box: MapMarkerBox): Double =
+                        packed.asSequence()
+                            .filter { it.marker !== marker }
+                            .sumOf { box.overlapArea(it.box) } +
+                            placedLabels.sumOf { box.overlapArea(it) }
+                    fun overflowArea(box: MapMarkerBox): Double {
+                        if (mapWidth <= 0.0 || mapHeight <= 0.0) return 0.0
+                        val mapBounds = MapMarkerBox(0.0, 0.0, mapWidth, mapHeight)
+                        return (box.right - box.left) * (box.bottom - box.top) - box.overlapArea(mapBounds)
+                    }
+                    val leftBox = labelBox(true)
+                    val rightBox = labelBox(false)
+                    val leftOverlap = overlapArea(leftBox)
+                    val rightOverlap = overlapArea(rightBox)
+                    val leftOverflow = overflowArea(leftBox)
+                    val rightOverflow = overflowArea(rightBox)
+                    val useLeft = when {
+                        leftOverlap < rightOverlap -> true
+                        rightOverlap < leftOverlap -> false
+                        leftOverflow < rightOverflow -> true
+                        rightOverflow < leftOverflow -> false
+                        else -> preferredLeft
+                    }
+                    val chosenBox = if (useLeft) leftBox else rightBox
+                    marker.content.asDynamic().classList.toggle("is-label-left", useLeft)
+                    placedLabels += chosenBox
+                }
                 packed.forEachIndexed { index, item ->
                     val marker = item.marker
                     marker.content.asDynamic().style.zIndex =
@@ -1217,6 +1278,11 @@ private fun userLocationDot(location: PlacePick, host: HTMLElement, router: Hist
         dot.asDynamic().style.backgroundImage = "url(\"${prefixServerOrigin(photoUrl)}\")"
     }
     if (location.hasActivities) dot.appendChild(activityMapDot())
+    if (location.name.isNotBlank()) {
+        val name = el("span", "user-location-name", text = location.name)
+        name.setAttribute("aria-hidden", "true")
+        dot.appendChild(name)
+    }
     dot.onClick {
         openLocationSheet(
             host,
