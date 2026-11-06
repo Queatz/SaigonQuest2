@@ -104,6 +104,8 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     tabs.appendChild(peopleChip)
     tabs.appendChild(communitiesChip)
     val split = el("div", "events-split")
+    val mapPane = el("div", "events-map-pane")
+    val listPane = el("div", "events-list-pane")
     val eventCol = el("div", "events-col")
     val activityCol = el("div", "events-col")
     val peopleCol = el("div", "events-col")
@@ -126,8 +128,10 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     split.appendChild(communityCol)
     lists.appendChild(tabs)
     lists.appendChild(split)
-    body.appendChild(mapBox)
-    body.appendChild(lists)
+    mapPane.appendChild(mapBox)
+    listPane.appendChild(lists)
+    body.appendChild(mapPane)
+    body.appendChild(listPane)
     shell.appendChild(body)
     var searchView: HTMLElement? = null
     var feedOverlay: HTMLElement? = null
