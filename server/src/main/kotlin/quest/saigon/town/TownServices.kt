@@ -10,6 +10,7 @@ import quest.saigon.ai.CommunitySuggester
 import quest.saigon.ai.MusicPipeline
 import quest.saigon.ai.QuickReplyPipeline
 import quest.saigon.ai.QwenClient
+import quest.saigon.ai.TranslationPrompts
 import quest.saigon.auth.RateLimiter
 import quest.saigon.auth.SessionTokens
 import quest.saigon.maps.GooglePlaces
@@ -43,7 +44,8 @@ class TownServices(
     val chatHub: NotificationHub = NotificationHub(),
     val chats: ChatService = ChatService(repo, chatHub, clock, pusher),
     val products: ProductService = ProductService(repo, uploads, hub, clock, pusher, chats),
-    val activities: ActivityService = ActivityService(repo, chats, clock),
+    val translations: TranslationService = TranslationService(),
+    val activities: ActivityService = ActivityService(repo, chats, clock, translations),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock, pusher)
 
@@ -77,6 +79,21 @@ class TownServices(
                 events = events,
                 chatHub = chatHub,
                 chats = ChatService(repo, chatHub, clock, pusher),
+                translations = TranslationService(
+                    translator = Translator { fields, locales ->
+                        TranslationPrompts.parse(
+                            qwen.chat(
+                                TranslationPrompts.system(fields, locales),
+                                TranslationPrompts.user(fields, locales),
+                                temperature = 0.2,
+                            ),
+                            fields,
+                            locales,
+                        )
+                    },
+                    configured = config.qwenConfigured,
+                    clock = clock,
+                ),
             )
         }
     }

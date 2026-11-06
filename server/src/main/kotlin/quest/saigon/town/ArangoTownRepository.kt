@@ -3312,6 +3312,18 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
         doc.addAttribute("interestedCount", activity.interestedCount)
         doc.addAttribute("createdAt", activity.createdAt)
+        activity.translations?.let { translations ->
+            doc.addAttribute(
+                "translations",
+                mapOf(
+                    "sourceHash" to translations.sourceHash,
+                    "status" to translations.status,
+                    "error" to translations.error,
+                    "updatedAt" to translations.updatedAt,
+                    "locales" to translations.locales,
+                ),
+            )
+        }
         return doc
     }
 
@@ -3330,7 +3342,36 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         schedule = scheduleFrom(doc),
         interestedCount = long(doc, "interestedCount"),
         createdAt = long(doc, "createdAt"),
+        translations = translationBlobFrom(doc),
     )
+
+    private fun translationBlobFrom(doc: BaseDocument): TranslationBlob? {
+        val values = objectProperties(doc.getAttribute("translations")) ?: return null
+        val sourceHash = values["sourceHash"] as? String ?: return null
+        val status = values["status"] as? String ?: return null
+        val locales = objectProperties(values["locales"]).orEmpty().mapNotNull { (locale, rawFields) ->
+            val name = locale as? String ?: return@mapNotNull null
+            val fields = objectProperties(rawFields).orEmpty().mapNotNull { (field, value) ->
+                val fieldName = field as? String ?: return@mapNotNull null
+                val text = value as? String ?: return@mapNotNull null
+                fieldName to text
+            }.toMap()
+            name to fields
+        }.toMap()
+        return TranslationBlob(
+            sourceHash = sourceHash,
+            status = status,
+            error = values["error"]?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            updatedAt = (values["updatedAt"] as? Number)?.toLong() ?: 0L,
+            locales = locales,
+        )
+    }
+
+    private fun objectProperties(value: Any?): Map<*, *>? = when (value) {
+        is Map<*, *> -> value
+        is BaseDocument -> value.properties
+        else -> null
+    }
 
     private fun scheduleFrom(doc: BaseDocument): List<ActivityScheduleSlot> {
         val raw = doc.getAttribute("schedule") ?: return emptyList()

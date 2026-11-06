@@ -6,6 +6,7 @@ class ActivityService(
     private val repo: TownRepository,
     private val chats: ChatService,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val translations: TranslationService = TranslationService(),
 ) {
     fun create(
         actor: UserRecord,
@@ -41,7 +42,7 @@ class ActivityService(
             ),
         )
         if (interested) repo.addActivityInterest(stored.id, actor.id, clock())
-        return view(repo.findActivity(stored.id) ?: stored, actor.id, includePeople = true)
+        return view(ensureTranslations(repo.findActivity(stored.id) ?: stored), actor.id, includePeople = true)
     }
 
     fun update(
@@ -52,6 +53,7 @@ class ActivityService(
         description: String,
         hostUserId: String?,
         schedule: List<ActivityScheduleSlot>,
+        translationOverrides: Map<String, Map<String, String>>? = null,
     ): ActivityView {
         ensureAvailable(actor)
         val current = owned(actor, id)
@@ -67,16 +69,25 @@ class ActivityService(
             hostUserId,
             schedule,
         )
-        val updated = repo.updateActivity(
-            current.copy(
-                emoji = cleaned.emoji,
-                name = cleaned.name,
-                description = cleaned.description,
-                hostUserId = cleaned.hostUserId,
-                schedule = cleaned.schedule,
-            ),
-        ) ?: throw TownException("not_found")
-        return view(updated, actor.id, includePeople = true)
+        val sourceChanged = cleaned.name != current.name || cleaned.description != current.description
+        val sourceFields = mapOf("name" to cleaned.name, "description" to cleaned.description)
+        val next = current.copy(
+            emoji = cleaned.emoji,
+            name = cleaned.name,
+            description = cleaned.description,
+            hostUserId = cleaned.hostUserId,
+            schedule = cleaned.schedule,
+            translations = when {
+                sourceChanged -> null
+                translationOverrides != null -> translations.override(
+                    sourceFields,
+                    cleanTranslationOverrides(translationOverrides),
+                )
+                else -> current.translations
+            },
+        )
+        val updated = repo.updateActivity(next) ?: throw TownException("not_found")
+        return view(ensureTranslations(updated), actor.id, includePeople = true)
     }
 
     fun delete(actor: UserRecord, id: String) {
@@ -87,7 +98,7 @@ class ActivityService(
 
     fun get(id: String, viewerId: String?): ActivityView {
         val activity = repo.findActivity(id) ?: throw TownException("not_found")
-        return view(activity, viewerId, includePeople = true)
+        return view(ensureTranslations(activity), viewerId, includePeople = true)
     }
 
     fun list(
@@ -104,26 +115,26 @@ class ActivityService(
         } else {
             repo.searchActivities(cursor, pageLimit)
         }
-        return page.items.map { view(it, viewerId, includePeople = false) } to page.nextCursor
+        return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false) } to page.nextCursor
     }
 
     fun mine(actor: UserRecord, cursor: String?, limit: Int): Pair<List<ActivityView>, String?> {
         val page = repo.activitiesByUser(actor.id, cursor, limit.coerceIn(1, 50))
-        return page.items.map { view(it, actor.id, includePeople = false) } to page.nextCursor
+        return page.items.map { view(ensureTranslations(it), actor.id, includePeople = false) } to page.nextCursor
     }
 
     fun interest(actor: UserRecord, id: String): ActivityView {
         ensureAvailable(actor)
         val activity = repo.findActivity(id) ?: throw TownException("not_found")
         repo.addActivityInterest(activity.id, actor.id, clock())
-        return view(repo.findActivity(activity.id) ?: activity, actor.id, includePeople = true)
+        return view(ensureTranslations(repo.findActivity(activity.id) ?: activity), actor.id, includePeople = true)
     }
 
     fun uninterest(actor: UserRecord, id: String): ActivityView {
         ensureAvailable(actor)
         val activity = repo.findActivity(id) ?: throw TownException("not_found")
         repo.removeActivityInterest(activity.id, actor.id)
-        return view(repo.findActivity(activity.id) ?: activity, actor.id, includePeople = true)
+        return view(ensureTranslations(repo.findActivity(activity.id) ?: activity), actor.id, includePeople = true)
     }
 
     fun startChat(actor: UserRecord, id: String, userIds: List<String>): ChatSummary {
@@ -169,6 +180,51 @@ class ActivityService(
             emptyList()
         }
         return ActivityView(activity, interested, host, people)
+    }
+
+    private fun ensureTranslations(activity: ActivityRecord): ActivityRecord {
+        val fields = translationFields(activity)
+        translations.ensure(
+            id = "activity:${activity.id}",
+            fields = fields,
+            current = activity.translations,
+            persist = { blob ->
+                val live = repo.findActivity(activity.id) ?: return@ensure
+                if (TranslationService.sourceHash(translationFields(live)) != blob.sourceHash) return@ensure
+                if (live.translations?.let { it.sourceHash == blob.sourceHash && it.status == TranslationService.STATUS_READY } == true) {
+                    return@ensure
+                }
+                repo.updateActivity(live.copy(translations = blob))
+            },
+            maxLengths = mapOf(
+                "name" to Limits.ACTIVITY_NAME_MAX,
+                "description" to Limits.ACTIVITY_DESCRIPTION_MAX,
+            ),
+        )
+        return repo.findActivity(activity.id) ?: activity
+    }
+
+    private fun translationFields(activity: ActivityRecord): Map<String, String> =
+        mapOf("name" to activity.name, "description" to activity.description)
+
+    private fun cleanTranslationOverrides(
+        overrides: Map<String, Map<String, String>>,
+    ): Map<String, Map<String, String>> {
+        if (overrides.keys != TranslationService.LOCALES.toSet()) throw TownException("invalid_activity_translations")
+        return TranslationService.LOCALES.associateWith { locale ->
+            val fields = overrides[locale] ?: throw TownException("invalid_activity_translations")
+            val name = fields["name"]?.trim()?.replace(Regex("\\s+"), " ")
+                ?: throw TownException("invalid_activity_translations")
+            val description = fields["description"]?.replace("\r\n", "\n")?.trim()
+                ?: throw TownException("invalid_activity_translations")
+            if (name.length > Limits.ACTIVITY_NAME_MAX || name.any(Char::isISOControl)) {
+                throw TownException("invalid_activity_translations")
+            }
+            if (description.length > Limits.ACTIVITY_DESCRIPTION_MAX || description.any { it.isISOControl() && it != '\n' }) {
+                throw TownException("invalid_activity_translations")
+            }
+            mapOf("name" to name, "description" to description)
+        }
     }
 
     private fun attendeeFor(userId: String): EventAttendee? {

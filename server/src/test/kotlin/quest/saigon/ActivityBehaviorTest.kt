@@ -70,6 +70,7 @@ class ActivityBehaviorTest {
         val activity = mapper.readTree(created.bodyAsText())
         val activityId = activity.path("id").asText()
         assertEquals("Coffee walk", activity.path("name").asText())
+        assertFalse(activity.has("translations"))
         assertEquals("☕", activity.path("emoji").asText())
         assertTrue(activity.path("interested").asBoolean())
         assertEquals(1, activity.path("interestedCount").asInt())

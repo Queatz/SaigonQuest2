@@ -4582,6 +4582,10 @@ span.event-face {
 }
 .attendee-row.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 999px; padding-left: 8px; padding-right: 8px; }
 .activity-editor-dialog { max-height: calc(100dvh - 24px); overflow: auto; display: grid; gap: 10px; }
+.activity-translation-review { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.activity-translation-locale { display: grid; gap: 8px; }
+.activity-translation-locale h3,
+.activity-translation-status { margin: 0; }
 .activity-schedule-editor { display: grid; gap: 8px; }
 .activity-schedule-mode,
 .activity-schedule-master { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

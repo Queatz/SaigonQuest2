@@ -62,6 +62,7 @@ import quest.saigon.town.PushSubscriptionRecord
 import quest.saigon.town.TownException
 import quest.saigon.town.SaigonDays
 import quest.saigon.town.TownServices
+import quest.saigon.town.TranslationService
 import quest.saigon.town.UserRecord
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -989,6 +990,7 @@ fun Route.townApi(services: TownServices) {
                 description = Jsons.text(body, "description"),
                 hostUserId = Jsons.text(body, "hostUserId").ifBlank { null },
                 schedule = parseActivitySchedule(body),
+                translationOverrides = parseActivityTranslations(body),
             )
         } catch (error: TownException) {
             return@patch call.fail(error.code)
@@ -2085,7 +2087,7 @@ private fun productOrderPayload(order: ProductOrderRecord) = mapOf(
 private fun activityPayload(view: ActivityView): Map<String, Any?> {
     val activity = view.activity
     val hostId = activity.hostUserId
-    return mapOf(
+    val payload = mapOf(
         "id" to activity.id,
         "createdBy" to activity.createdBy,
         "emoji" to activity.emoji,
@@ -2111,6 +2113,14 @@ private fun activityPayload(view: ActivityView): Map<String, Any?> {
             attendeePayload(person, includePhone = false) + mapOf("host" to (hostId != null && person.id == hostId))
         },
         "createdAt" to activity.createdAt,
+    )
+    val translations = activity.translations ?: return payload
+    return payload + (
+        "translations" to mapOf(
+            "status" to translations.status,
+            "en" to translations.locales["en"].orEmpty(),
+            "vi" to translations.locales["vi"].orEmpty(),
+        )
     )
 }
 
@@ -2392,6 +2402,19 @@ private fun parseActivitySchedule(body: JsonNode): List<ActivityScheduleSlot> {
             startMinutes = slot.path("startMinutes").asInt(-1),
             endMinutes = slot.path("endMinutes").asInt(-1),
         )
+    }
+}
+
+private fun parseActivityTranslations(body: JsonNode): Map<String, Map<String, String>>? {
+    val translations = body.path("translations")
+    if (translations.isMissingNode || translations.isNull) return null
+    if (!translations.isObject) return emptyMap()
+    return TranslationService.LOCALES.associateWith { locale ->
+        val values = translations.path(locale)
+        if (!values.isObject) return@associateWith emptyMap()
+        listOf("name", "description").mapNotNull { field ->
+            values.path(field).takeIf { it.isTextual }?.asText()?.let { field to it }
+        }.toMap()
     }
 }
 

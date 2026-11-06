@@ -579,6 +579,14 @@ data class ActivityScheduleSlot(
     val endMinutes: Int,
 )
 
+data class TranslationBlob(
+    val sourceHash: String,
+    val status: String,
+    val error: String? = null,
+    val updatedAt: Long = 0L,
+    val locales: Map<String, Map<String, String>> = emptyMap(),
+)
+
 data class ActivityRecord(
     val id: String,
     val createdBy: String,
@@ -594,6 +602,7 @@ data class ActivityRecord(
     val schedule: List<ActivityScheduleSlot> = emptyList(),
     val interestedCount: Long = 0,
     val createdAt: Long,
+    val translations: TranslationBlob? = null,
 )
 
 data class ActivityView(

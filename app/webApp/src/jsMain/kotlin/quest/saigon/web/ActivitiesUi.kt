@@ -26,7 +26,7 @@ internal fun activityEditorDialog(
     lat: Double?,
     lng: Double?,
     activity: dynamic,
-    onSaved: (() -> Unit)? = null,
+    onSaved: ((dynamic) -> Unit)? = null,
 ) {
     if (Town.me == null) {
         showAuthDialog(host, onSuccess = {
@@ -35,11 +35,30 @@ internal fun activityEditorDialog(
         return
     }
     if (host.asDynamic().querySelector(".activity-editor-backdrop") != null) return
-    val current: dynamic = activity
-    val editing = (current.id as? String)?.isNotBlank() == true
+    var current: dynamic = activity
+    var editing = (current.id as? String)?.isNotBlank() == true
     val backdrop = el("div", "dialog-backdrop activity-editor-backdrop")
     val card = el("form", "dialog activity-editor-dialog")
-    card.appendChild(el("h2", text = Town.t(if (editing) "editActivity" else "createActivity")))
+    val title = el("h2", text = Town.t(if (editing) "editActivity" else "createActivity"))
+    card.appendChild(title)
+    var emojiTimer: dynamic = null
+    var emojiTicket = 0
+    var translationPollTimer: dynamic = null
+    var translationPollGeneration = 0
+    var editorClosed = false
+    var saved = false
+    fun closeEditor() {
+        if (editorClosed) return
+        editorClosed = true
+        if (emojiTimer != null) window.asDynamic().clearTimeout(emojiTimer)
+        emojiTimer = null
+        emojiTicket++
+        if (translationPollTimer != null) window.asDynamic().clearTimeout(translationPollTimer)
+        translationPollTimer = null
+        translationPollGeneration++
+        backdrop.asDynamic().remove()
+        if (saved && onSaved == null) refresh(router)
+    }
     val emoji = field(Town.t("activityEmoji"), "text", "")
     emoji.input.setAttribute("maxlength", "8")
     emoji.input.setAttribute("placeholder", "✨")
@@ -56,8 +75,117 @@ internal fun activityEditorDialog(
     card.appendChild(emoji.root)
     card.appendChild(name.root)
     card.appendChild(description.root)
-    var emojiTimer: dynamic = null
-    var emojiTicket = 0
+    val translationReview = el("section", "activity-translation-review")
+    val englishFields = el("section", "activity-translation-locale")
+    englishFields.appendChild(el("h3", text = Town.t("languageEn")))
+    val englishName = field(Town.t("activityName"), "text", "")
+    englishName.input.setAttribute("maxlength", Limits.ACTIVITY_NAME_MAX.toString())
+    val englishDescription = area(Town.t("activityDescription"), "", Limits.ACTIVITY_DESCRIPTION_MAX)
+    englishFields.appendChild(englishName.root)
+    englishFields.appendChild(englishDescription.root)
+    val vietnameseFields = el("section", "activity-translation-locale")
+    vietnameseFields.appendChild(el("h3", text = Town.t("languageVi")))
+    val vietnameseName = field(Town.t("activityName"), "text", "")
+    vietnameseName.input.setAttribute("maxlength", Limits.ACTIVITY_NAME_MAX.toString())
+    val vietnameseDescription = area(Town.t("activityDescription"), "", Limits.ACTIVITY_DESCRIPTION_MAX)
+    vietnameseFields.appendChild(vietnameseName.root)
+    vietnameseFields.appendChild(vietnameseDescription.root)
+    val translationStatusHint = el("p", "hint activity-translation-status")
+    translationStatusHint.asDynamic().hidden = true
+    translationReview.appendChild(englishFields)
+    translationReview.appendChild(vietnameseFields)
+    translationReview.appendChild(translationStatusHint)
+    translationReview.asDynamic().hidden = !editing
+    card.appendChild(translationReview)
+    val translationInputs = listOf(
+        englishName.input,
+        englishDescription.input,
+        vietnameseName.input,
+        vietnameseDescription.input,
+    )
+    var translationState = ""
+    var translationsEdited = false
+    fun translationValue(translations: dynamic, locale: String, fieldName: String): String {
+        if (translations == null || translations == undefined) return ""
+        val localized = translations[locale]
+        if (localized == null || localized == undefined) return ""
+        return (localized[fieldName] as? String).orEmpty()
+    }
+    fun applyTranslationState(record: dynamic) {
+        val translations = record.translations
+        if (translations == null || translations == undefined) {
+            translationState = ""
+            translationStatusHint.asDynamic().hidden = true
+            translationInputs.forEach { it.removeAttribute("disabled") }
+            return
+        }
+        translationState = (translations.status as? String).orEmpty()
+        if (translationState == "ready" || translationState == "pending") {
+            englishName.input.asDynamic().value = translationValue(translations, "en", "name")
+            englishDescription.input.asDynamic().value = translationValue(translations, "en", "description")
+            vietnameseName.input.asDynamic().value = translationValue(translations, "vi", "name")
+            vietnameseDescription.input.asDynamic().value = translationValue(translations, "vi", "description")
+        }
+        val pending = translationState == "pending"
+        translationInputs.forEach { input ->
+            if (pending) input.setAttribute("disabled", "disabled") else input.removeAttribute("disabled")
+        }
+        when (translationState) {
+            "pending" -> {
+                translationStatusHint.textContent = Town.t("translating")
+                translationStatusHint.asDynamic().hidden = false
+            }
+            "failed" -> {
+                translationStatusHint.textContent = Town.t("translationFailed")
+                translationStatusHint.asDynamic().hidden = false
+            }
+            else -> translationStatusHint.asDynamic().hidden = true
+        }
+    }
+    translationInputs.forEach { input ->
+        input.asDynamic().oninput = { translationsEdited = true }
+    }
+    if (editing) applyTranslationState(current)
+    fun pollTranslations(attempt: Int, generation: Int) {
+        if (editorClosed || !editing || generation != translationPollGeneration) return
+        if (attempt >= 40) {
+            translationState = "failed"
+            translationStatusHint.textContent = Town.t("translationFailed")
+            translationStatusHint.asDynamic().hidden = false
+            translationInputs.forEach { it.removeAttribute("disabled") }
+            return
+        }
+        val activityId = current.id as? String ?: return
+        http("GET", "/api/activities/${encodeQuery(activityId)}") { status, body ->
+            if (editorClosed || generation != translationPollGeneration) return@http
+            if (status == 200) {
+                current = parseJson(body)
+                applyTranslationState(current)
+                if (translationState == "pending") {
+                    translationPollTimer = window.asDynamic().setTimeout({
+                        translationPollTimer = null
+                        pollTranslations(attempt + 1, generation)
+                    }, 1_500)
+                } else {
+                    translationPollTimer = null
+                }
+            } else {
+                translationPollTimer = window.asDynamic().setTimeout({
+                    translationPollTimer = null
+                    pollTranslations(attempt + 1, generation)
+                }, 1_500)
+            }
+        }
+    }
+    fun stopTranslationPolling() {
+        if (translationPollTimer != null) window.asDynamic().clearTimeout(translationPollTimer)
+        translationPollTimer = null
+        translationPollGeneration++
+    }
+    fun startTranslationPolling() {
+        stopTranslationPolling()
+        pollTranslations(0, translationPollGeneration)
+    }
     var emojiManual = editing
     fun stopEmojiGeneration() {
         if (emojiTimer != null) window.asDynamic().clearTimeout(emojiTimer)
@@ -146,7 +274,7 @@ internal fun activityEditorDialog(
     card.appendChild(submit)
     card.appendChild(el("button", "text-button", text = Town.t("cancel")) { button ->
         button.setAttribute("type", "button")
-        button.onClick { backdrop.asDynamic().remove() }
+        button.onClick { closeEditor() }
     })
     card.asDynamic().addEventListener("submit", { event: dynamic ->
         event.preventDefault()
@@ -167,6 +295,19 @@ internal fun activityEditorDialog(
         payload.description = description.value()
         payload.hostUserId = hostId.orEmpty()
         payload.schedule = slots
+        val reviewVisible = translationReview.asDynamic().hidden != true
+        if (reviewVisible && translationState != "pending" && (translationState == "ready" || translationsEdited)) {
+            val english = js("({})")
+            english.name = englishName.value()
+            english.description = englishDescription.value()
+            val vietnamese = js("({})")
+            vietnamese.name = vietnameseName.value()
+            vietnamese.description = vietnameseDescription.value()
+            val overrides = js("({})")
+            overrides.en = english
+            overrides.vi = vietnamese
+            payload.translations = overrides
+        }
         if (!editing) {
             payload.locationName = locationName
             payload.locationId = locationId.orEmpty()
@@ -178,9 +319,23 @@ internal fun activityEditorDialog(
         val url = if (editing) "/api/activities/${current.id}" else "/api/activities"
         http(if (editing) "PATCH" else "POST", url, jsonStringify(payload)) { status, body ->
             if (status == 200 || status == 201) {
-                backdrop.asDynamic().remove()
+                stopEmojiGeneration()
+                current = parseJson(body)
+                editing = true
+                saved = true
+                emojiManual = true
+                name.input.asDynamic().value = (current.name as? String).orEmpty()
+                description.input.asDynamic().value = (current.description as? String).orEmpty()
+                emoji.input.asDynamic().value = (current.emoji as? String).orEmpty()
+                title.textContent = Town.t("editActivity")
+                submit.textContent = Town.t("save")
+                submit.removeAttribute("disabled")
+                translationReview.asDynamic().hidden = false
+                translationsEdited = false
+                applyTranslationState(current)
                 toast(host, Town.t("activitySaved"))
-                onSaved?.invoke() ?: refresh(router)
+                onSaved?.invoke(current)
+                if (translationState == "pending") startTranslationPolling() else stopTranslationPolling()
             } else {
                 submit.removeAttribute("disabled")
                 toast(host, errorText(body, status))
@@ -188,8 +343,9 @@ internal fun activityEditorDialog(
         }
     })
     backdrop.appendChild(card)
-    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
+    backdrop.closeOnOutsideClick { closeEditor() }
     host.appendChild(backdrop)
+    if (editing && translationState != "ready") startTranslationPolling()
 }
 
 internal fun activitiesPreview(shell: HTMLElement, router: HistoryRouter): HTMLElement {
@@ -238,12 +394,12 @@ internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryR
     }
     card.appendChild(el("span", "activity-emoji", text = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨"))
     val copy = el("div", "activity-card-copy")
-    copy.appendChild(el("strong", text = activity.name as? String ?: ""))
+    copy.appendChild(el("strong", text = localizedActivityText(activity, "name")))
     val locationName = activity.locationName as? String ?: ""
     if (showLocation && locationName.isNotBlank()) {
         copy.appendChild(el("p", "activity-location", text = "📍 $locationName"))
     }
-    val description = activity.description as? String ?: ""
+    val description = localizedActivityText(activity, "description")
     if (description.isNotBlank()) copy.appendChild(el("p", "hint", text = description))
     card.appendChild(copy)
     val interest = interestButton(activity)
@@ -264,7 +420,9 @@ internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryR
                     if (activity.lat == null || activity.lat == undefined) null else num(activity.lat),
                     if (activity.lng == null || activity.lng == undefined) null else num(activity.lng),
                     activity,
-                ) { refresh(router) }
+                ) { updated ->
+                    card.asDynamic().replaceWith(activityCard(updated, host, router, manage, showLocation))
+                }
             }
         })
         actions.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
@@ -315,7 +473,7 @@ internal fun loadLocationActivities(
             if (activityName.isEmpty()) return@onClick
             val draft = js("({})")
             draft.name = activityName
-            activityEditorDialog(host, router, locationName, locationId, placeId, lat, lng, draft) {
+            activityEditorDialog(host, router, locationName, locationId, placeId, lat, lng, draft) { _ ->
                 loadLocationActivities(list, host, router, locationName, placeId, locationId, lat, lng)
             }
         }
@@ -357,7 +515,7 @@ internal fun loadDiscoverActivities(list: HTMLElement, host: HTMLElement, router
 
 private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity: dynamic) {
     if (host.asDynamic().querySelector(".activity-sheet") != null) return
-    val name = activity.name as? String ?: ""
+    val name = localizedActivityText(activity, "name")
     val activityId = activity.id as? String ?: return
     val chrome = SheetChrome("comment-sheet activity-sheet", name)
     val body = el("div", "activity-sheet-body")
@@ -376,7 +534,7 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
     } else {
         null
     }
-    val description = activity.description as? String ?: ""
+    val description = localizedActivityText(activity, "description")
     if (description.isNotBlank()) {
         body.appendChild(el("h3", "activity-section-title", text = Town.t("details")))
         body.appendChild(linkedParagraph(description, "product-detail-description"))

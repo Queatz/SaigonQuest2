@@ -125,6 +125,16 @@ internal object Town {
     }
 }
 
+internal fun localizedActivityText(activity: dynamic, field: String): String {
+    val original = (activity[field] as? String).orEmpty()
+    val locale = if (Town.language == Language.VI) "vi" else "en"
+    val translations = activity.translations
+    if (translations == null || translations == undefined) return original
+    val localized = translations[locale]
+    if (localized == null || localized == undefined) return original
+    return (localized[field] as? String)?.takeIf { it.isNotBlank() } ?: original
+}
+
 internal fun meFrom(node: dynamic): Me = Me(
     id = node.id as String,
     name = node.name as String,
