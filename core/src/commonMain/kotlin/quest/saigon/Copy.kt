@@ -114,6 +114,13 @@ object Copy {
         "tooManyPhotos" to "You can add up to 20 photos.",
         "addPhoto" to "Add photo",
         "removePhoto" to "Remove photo",
+        "photos" to "Photos",
+        "photo" to "Photo",
+        "deletePhotoAsk" to "Delete this photo?",
+        "deletePhotoHint" to "This photo will be removed for everyone.",
+        "closePhotoViewer" to "Close photo viewer",
+        "previousPhoto" to "Previous photo",
+        "nextPhoto" to "Next photo",
         "avatarRequired" to "Select an avatar.",
         "profilePhotoRequired" to "Add a profile photo first.",
         "avatarBusy" to "An avatar is already being created.",
@@ -226,7 +233,7 @@ object Copy {
                 "\n" +
                 "Thanks so much for stopping by!\n" +
                 "\n" +
-                "— Jacob Ferrero, creator",
+                "— Jacob Ferrero, Saigon.Town creator",
         "visitorWelcomeGo" to "Let's go!",
         "swipeDown" to "Swipe down",
         "selectMusic" to "Select music",
@@ -624,6 +631,13 @@ object Copy {
         "tooManyPhotos" to "Bạn thêm được tối đa 20 ảnh.",
         "addPhoto" to "Thêm ảnh",
         "removePhoto" to "Xóa ảnh",
+        "photos" to "Ảnh",
+        "photo" to "Ảnh",
+        "deletePhotoAsk" to "Xóa ảnh này?",
+        "deletePhotoHint" to "Ảnh sẽ bị xóa với mọi người.",
+        "closePhotoViewer" to "Đóng trình xem ảnh",
+        "previousPhoto" to "Ảnh trước",
+        "nextPhoto" to "Ảnh tiếp theo",
         "avatarRequired" to "Chọn một avatar.",
         "profilePhotoRequired" to "Hãy thêm ảnh hồ sơ trước.",
         "avatarBusy" to "Đang tạo một avatar khác.",
@@ -735,7 +749,7 @@ object Copy {
                 "\n" +
                 "Cảm ơn bạn ghé chơi nhiều nha!\n" +
                 "\n" +
-                "— Jacob Ferrero, người tạo app",
+                "— Jacob Ferrero, người tạo Saigon.Town",
         "visitorWelcomeGo" to "Vào thui!",
         "swipeDown" to "Vuốt xuống",
         "selectMusic" to "Chọn nhạc",

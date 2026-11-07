@@ -728,6 +728,11 @@ small, .hint { color: var(--muted); font-size: 13px; }
     z-index: 10;
 }
 
+.photo-viewer-backdrop > .confirm-backdrop {
+    position: absolute;
+    inset: 0;
+}
+
 .dialog {
     width: min(100%, 380px);
     background: var(--surface);
@@ -755,9 +760,25 @@ small, .hint { color: var(--muted); font-size: 13px; }
 .dialog.visitor-welcome {
     text-align: center;
     display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     justify-items: center;
     gap: 10px;
+    position: relative;
+    max-height: 65%;
+    min-height: 0;
+    overflow: hidden;
     padding: 28px 22px 16px;
+}
+
+.visitor-welcome-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    border-color: var(--line);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 26px;
+    line-height: 1;
 }
 
 .visitor-welcome-emojis {
@@ -781,11 +802,30 @@ small, .hint { color: var(--muted); font-size: 13px; }
 .visitor-welcome-emojis .bob-3 { animation-delay: .56s; }
 
 .visitor-welcome-text {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     margin: 4px 0 8px;
     font-size: 17px;
     font-weight: 500;
     line-height: 1.45;
     white-space: pre-wrap;
+}
+
+.visitor-welcome-text.fade-top {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 100%);
+    mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 100%);
+}
+
+.visitor-welcome-text.fade-bottom {
+    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 16px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 16px), transparent 100%);
+}
+
+.visitor-welcome-text.fade-top.fade-bottom {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
 }
 
 @keyframes float-bob {
@@ -4646,4 +4686,159 @@ span.event-face {
     font-weight: 400;
     white-space: normal;
     overflow-wrap: anywhere;
+}
+
+.user-photos { display: grid; gap: 8px; min-width: 0; }
+.user-photos > h3 { margin: 0; }
+.user-photos-row {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 2px 2px 8px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+}
+.user-photos-picker { display: none; }
+.user-photo-add,
+.user-photo-tile,
+.user-photo-open { box-sizing: border-box; flex: 0 0 82px; width: 82px; height: 82px; }
+.user-photo-add {
+    display: grid;
+    place-items: center;
+    border: 2px dashed var(--line);
+    border-radius: 14px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 32px;
+    scroll-snap-align: start;
+}
+.user-photo-tile { position: relative; scroll-snap-align: start; }
+.user-photo-open {
+    display: block;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+}
+.user-photo-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.user-photo-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, .68);
+    color: #fff;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.photo-viewer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    overflow: hidden;
+    background: #080808;
+    backdrop-filter: none;
+}
+.photo-viewer { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; color: #fff; }
+.photo-viewer-stage {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    touch-action: pan-y;
+    cursor: grab;
+}
+.photo-viewer-stage::-webkit-scrollbar { display: none; }
+.photo-viewer-stage.dragging { cursor: grabbing; scroll-snap-type: none; }
+.photo-viewer-slide {
+    box-sizing: border-box;
+    display: flex;
+    flex: 0 0 100%;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: calc(44px + env(safe-area-inset-top)) 0 calc(88px + env(safe-area-inset-bottom));
+    scroll-snap-align: center;
+}
+.photo-viewer-image { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.photo-viewer-close,
+.photo-viewer-delete,
+.photo-viewer-arrow {
+    position: absolute;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, .36);
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+}
+.photo-viewer-close,
+.photo-viewer-delete {
+    top: calc(12px + env(safe-area-inset-top));
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    font-size: 25px;
+}
+.photo-viewer-close { right: 14px; }
+.photo-viewer-delete { right: 64px; }
+.photo-viewer-delete svg { width: 20px; height: 20px; }
+.photo-viewer-delete[hidden] { display: none; }
+.photo-viewer-arrow {
+    top: 50%;
+    width: 48px;
+    height: 64px;
+    border-radius: 16px;
+    transform: translateY(-50%);
+    font-size: 42px;
+    line-height: 1;
+}
+.photo-viewer-previous { left: 10px; }
+.photo-viewer-next { right: 10px; }
+.photo-viewer-arrow:disabled { opacity: .28; }
+.photo-viewer-thumbs {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(0, 0, 0, .78);
+    scrollbar-width: thin;
+}
+.photo-viewer-thumb {
+    box-sizing: border-box;
+    flex: 0 0 56px;
+    width: 56px;
+    height: 56px;
+    overflow: hidden;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 9px;
+    background: #222;
+    opacity: .68;
+}
+.photo-viewer-thumb.active { border-color: #fff; opacity: 1; }
+.photo-viewer-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+@media (max-width: 520px) {
+    .photo-viewer-arrow { width: 36px; height: 52px; border-radius: 12px; font-size: 34px; }
+    .photo-viewer-previous { left: 4px; }
+    .photo-viewer-next { right: 4px; }
 }

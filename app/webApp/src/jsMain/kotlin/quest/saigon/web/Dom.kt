@@ -10,6 +10,7 @@ import web.html.HTMLElement
 import web.location.location
 import web.window.window
 import kotlin.js.ExperimentalWasmJsInterop
+import kotlin.math.roundToInt
 
 internal fun el(
     tag: String,
@@ -107,22 +108,27 @@ internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
     })
 }
 
-private val openSheets = mutableListOf<SheetChrome>()
-private var ignoreNextSheetPopState = false
+private class OverlayHistoryEntry(
+    val closeFromHistory: () -> Unit,
+    val closeForRouteChange: () -> Unit,
+)
+
+private val openOverlayHistory = mutableListOf<OverlayHistoryEntry>()
+private var ignoreNextOverlayPopState = false
 
 internal fun consumeSheetBack(): Boolean {
-    if (ignoreNextSheetPopState) {
-        ignoreNextSheetPopState = false
+    if (ignoreNextOverlayPopState) {
+        ignoreNextOverlayPopState = false
         return true
     }
-    val sheet = openSheets.lastOrNull() ?: return false
-    sheet.closeFromHistory()
+    val overlay = openOverlayHistory.lastOrNull() ?: return false
+    overlay.closeFromHistory()
     return true
 }
 
 internal fun clearSheetStack() {
-    openSheets.toList().forEach { it.closeForRouteChange() }
-    openSheets.clear()
+    openOverlayHistory.toList().forEach { it.closeForRouteChange() }
+    openOverlayHistory.clear()
 }
 
 internal class SheetChrome(
@@ -133,6 +139,7 @@ internal class SheetChrome(
     val sheet: HTMLElement = el("div", className)
     private val backdrop: HTMLElement = el("div", "dialog-backdrop comment-backdrop")
     private var isOpen = false
+    private lateinit var historyEntry: OverlayHistoryEntry
 
     init {
         sheet.setAttribute("role", "dialog")
@@ -170,13 +177,13 @@ internal class SheetChrome(
     private fun dismiss(updateHistory: Boolean) {
         if (!isOpen) return
         isOpen = false
-        openSheets.remove(this)
+        openOverlayHistory.remove(historyEntry)
         beforeClose()
         sheet.asDynamic().style.transform = ""
         sheet.asDynamic().classList.remove("open")
         backdrop.asDynamic().remove()
         if (updateHistory) {
-            ignoreNextSheetPopState = true
+            ignoreNextOverlayPopState = true
             history.back()
         }
     }
@@ -185,7 +192,8 @@ internal class SheetChrome(
         if (isOpen) return
         isOpen = true
         history.pushState(null, "", location.href)
-        openSheets.add(this)
+        historyEntry = OverlayHistoryEntry(::closeFromHistory, ::closeForRouteChange)
+        openOverlayHistory.add(historyEntry)
         host.appendChild(backdrop)
         window.asDynamic().requestAnimationFrame {
             window.asDynamic().requestAnimationFrame {
@@ -264,3 +272,232 @@ internal fun routeLink(router: HistoryRouter, path: String, label: String, activ
             router.navigate(path)
         }
     }
+
+internal fun openPhotoViewer(
+    source: List<UserPhoto>,
+    startIndex: Int,
+    onDelete: ((String, () -> Unit) -> Unit)? = null,
+) {
+    if (source.isEmpty()) return
+    val selected = startIndex.coerceIn(source.indices)
+    var photos = source.drop(selected) + source.take(selected)
+    var current = 0
+    var closed = false
+    var dragging = false
+    var settling = false
+    var dragStartX = 0.0
+    var dragStartScroll = 0.0
+    var dragStartIndex = 0
+    var settleTimeout: dynamic = null
+    lateinit var keyHandler: (dynamic) -> Unit
+    lateinit var historyEntry: OverlayHistoryEntry
+
+    val backdrop = el("div", "dialog-backdrop photo-viewer-backdrop")
+    backdrop.setAttribute("role", "dialog")
+    backdrop.setAttribute("aria-modal", "true")
+    val viewer = el("div", "photo-viewer")
+    val stage = el("div", "photo-viewer-stage")
+    val previous = el("button", "photo-viewer-arrow photo-viewer-previous", text = "‹")
+    val next = el("button", "photo-viewer-arrow photo-viewer-next", text = "›")
+    val close = el("button", "photo-viewer-close", text = "×")
+    val remove = el("button", "photo-viewer-delete")
+    remove.asDynamic().innerHTML = """
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    """.trimIndent()
+    val thumbs = el("div", "photo-viewer-thumbs")
+    val thumbButtons = mutableListOf<HTMLElement>()
+
+    fun updateControls() {
+        previous.asDynamic().disabled = current <= 0
+        next.asDynamic().disabled = current >= photos.lastIndex
+        val photo = photos.getOrNull(current)
+        remove.asDynamic().hidden = photo == null || onDelete == null || !photo.canDelete
+        thumbButtons.forEachIndexed { index, button ->
+            button.asDynamic().classList.toggle("active", index == current)
+            if (index == current) button.setAttribute("aria-current", "true") else button.removeAttribute("aria-current")
+        }
+    }
+
+    fun scrollToPhoto(index: Int, smooth: Boolean = true) {
+        if (photos.isEmpty()) return
+        current = index.coerceIn(photos.indices)
+        if (settleTimeout != null && settleTimeout != undefined) {
+            window.asDynamic().clearTimeout(settleTimeout)
+            settleTimeout = null
+        }
+        settling = smooth
+        val width = num(stage.asDynamic().clientWidth)
+        if (width > 0) {
+            val options = js("({})")
+            options.left = width * current
+            options.behavior = if (smooth) "smooth" else "instant"
+            stage.asDynamic().scrollTo(options)
+        }
+        updateControls()
+        if (smooth) {
+            settleTimeout = window.asDynamic().setTimeout({
+                settling = false
+                if (!dragging) stage.asDynamic().classList.remove("dragging")
+                settleTimeout = null
+            }, 700)
+        }
+    }
+
+    fun closeViewer(updateHistory: Boolean = true) {
+        if (closed) return
+        closed = true
+        document.asDynamic().removeEventListener("keydown", keyHandler)
+        backdrop.asDynamic().remove()
+        openOverlayHistory.remove(historyEntry)
+        if (updateHistory) {
+            ignoreNextOverlayPopState = true
+            history.back()
+        }
+    }
+
+    fun renderPhotos() {
+        stage.clear()
+        thumbs.clear()
+        thumbButtons.clear()
+        photos.forEachIndexed { index, photo ->
+            val slide = el("div", "photo-viewer-slide")
+            val image = el("img", "photo-viewer-image")
+            image.setAttribute("src", photo.url)
+            image.setAttribute("alt", Town.t("photo"))
+            slide.appendChild(image)
+            stage.appendChild(slide)
+
+            val thumb = el("button", "photo-viewer-thumb")
+            thumb.setAttribute("type", "button")
+            thumb.setAttribute("aria-label", Town.t("photo"))
+            val thumbnail = el("img")
+            thumbnail.setAttribute("src", photo.url)
+            thumbnail.setAttribute("alt", "")
+            thumb.appendChild(thumbnail)
+            thumb.onClick { scrollToPhoto(index) }
+            thumbButtons += thumb
+            thumbs.appendChild(thumb)
+        }
+        updateControls()
+    }
+
+    close.setAttribute("type", "button")
+    close.setAttribute("aria-label", Town.t("closePhotoViewer"))
+    close.onClick { closeViewer() }
+    previous.setAttribute("type", "button")
+    previous.setAttribute("aria-label", Town.t("previousPhoto"))
+    previous.onClick { scrollToPhoto(current - 1) }
+    next.setAttribute("type", "button")
+    next.setAttribute("aria-label", Town.t("nextPhoto"))
+    next.onClick { scrollToPhoto(current + 1) }
+    remove.setAttribute("type", "button")
+    remove.setAttribute("aria-label", Town.t("deletePhotoAsk"))
+    remove.onClick {
+        val photo = photos.getOrNull(current) ?: return@onClick
+        onDelete?.invoke(photo.id) {
+            val index = current
+            photos = photos.filterNot { it.id == photo.id }
+            if (photos.isEmpty()) {
+                closeViewer()
+            } else {
+                current = index.coerceAtMost(photos.lastIndex)
+                renderPhotos()
+                window.asDynamic().requestAnimationFrame { scrollToPhoto(current, smooth = false) }
+            }
+        }
+    }
+
+    stage.asDynamic().addEventListener("scroll", {
+        val width = num(stage.asDynamic().clientWidth)
+        if (width > 0 && !dragging && !settling) {
+            current = (num(stage.asDynamic().scrollLeft) / width).roundToInt().coerceIn(0, photos.lastIndex)
+            updateControls()
+        }
+    })
+    stage.asDynamic().addEventListener("scrollend", {
+        if (!dragging) {
+            if (settleTimeout != null && settleTimeout != undefined) {
+                window.asDynamic().clearTimeout(settleTimeout)
+                settleTimeout = null
+            }
+            settling = false
+            val width = num(stage.asDynamic().clientWidth)
+            if (width > 0) {
+                current = (num(stage.asDynamic().scrollLeft) / width).roundToInt().coerceIn(0, photos.lastIndex)
+                updateControls()
+            }
+            stage.asDynamic().classList.remove("dragging")
+        }
+    })
+    stage.asDynamic().addEventListener("pointerdown", { event: dynamic ->
+        if (event.button != 0) return@addEventListener
+        if (settleTimeout != null && settleTimeout != undefined) {
+            window.asDynamic().clearTimeout(settleTimeout)
+            settleTimeout = null
+        }
+        dragging = true
+        dragStartX = num(event.clientX)
+        dragStartScroll = num(stage.asDynamic().scrollLeft)
+        dragStartIndex = current
+        stage.asDynamic().classList.add("dragging")
+        if (stage.asDynamic().setPointerCapture != undefined) stage.asDynamic().setPointerCapture(event.pointerId)
+    })
+    stage.asDynamic().addEventListener("pointermove", { event: dynamic ->
+        if (!dragging) return@addEventListener
+        event.preventDefault()
+        stage.asDynamic().scrollLeft = dragStartScroll - (num(event.clientX) - dragStartX)
+    })
+    val endDrag: (dynamic) -> Unit = { event ->
+        if (dragging) {
+            dragging = false
+            val width = num(stage.asDynamic().clientWidth)
+            val dragDistance = dragStartX - num(event.clientX)
+            val target = when {
+                width > 0 && dragDistance > width * 0.15 -> dragStartIndex + 1
+                width > 0 && dragDistance < -width * 0.15 -> dragStartIndex - 1
+                else -> dragStartIndex
+            }
+            scrollToPhoto(target)
+            settleTimeout = window.asDynamic().setTimeout({
+                if (!dragging) stage.asDynamic().classList.remove("dragging")
+                settleTimeout = null
+            }, 700)
+        }
+    }
+    stage.asDynamic().addEventListener("pointerup", endDrag)
+    stage.asDynamic().addEventListener("pointercancel", endDrag)
+
+    keyHandler = { event ->
+        when (event.key as? String) {
+            "Escape" -> {
+                event.preventDefault()
+                event.stopPropagation()
+                closeViewer()
+            }
+            "ArrowLeft" -> {
+                event.preventDefault()
+                scrollToPhoto(current - 1)
+            }
+            "ArrowRight" -> {
+                event.preventDefault()
+                scrollToPhoto(current + 1)
+            }
+        }
+    }
+    viewer.appendChild(close)
+    viewer.appendChild(remove)
+    viewer.appendChild(previous)
+    viewer.appendChild(stage)
+    viewer.appendChild(next)
+    viewer.appendChild(thumbs)
+    backdrop.appendChild(viewer)
+    document.asDynamic().addEventListener("keydown", keyHandler)
+    document.body.appendChild(backdrop)
+    history.pushState(null, "", location.href)
+    historyEntry = OverlayHistoryEntry({ closeViewer(updateHistory = false) }, { closeViewer(updateHistory = false) })
+    openOverlayHistory.add(historyEntry)
+    renderPhotos()
+    window.asDynamic().requestAnimationFrame { scrollToPhoto(0, smooth = false) }
+}

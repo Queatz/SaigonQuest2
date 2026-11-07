@@ -122,6 +122,12 @@ interface TownRepository {
     fun activityInterested(activityId: String, cursor: String?, limit: Int): EventAttendeePage
     fun activityInterestedIds(activityId: String): List<String>
     fun activityLocationFlags(): ActivityLocationFlags
+    fun insertUserPhoto(photo: UserPhotoRecord): UserPhotoRecord
+    fun findUserPhoto(id: String): UserPhotoRecord?
+    fun deleteUserPhoto(id: String): UserPhotoRecord?
+    fun userPhotosForActivity(activityId: String, limit: Int): List<UserPhotoRecord>
+    fun userPhotosAtLocation(locationName: String, placeId: String?, locationId: String?, limit: Int): List<UserPhotoRecord>
+    fun deleteActivityPhotos(activityId: String): List<UserPhotoRecord>
     fun insertUserLocation(name: String, lat: Double, lng: Double, createdBy: String, createdAt: Long): UserLocationRecord
     fun searchUserLocations(query: String, limit: Int): List<UserLocationRecord>
     fun userLocations(): List<UserLocationRecord>

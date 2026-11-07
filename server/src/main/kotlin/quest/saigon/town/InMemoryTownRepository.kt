@@ -30,6 +30,7 @@ class InMemoryTownRepository : TownRepository {
     private val productOrders = ConcurrentHashMap<String, ProductOrderRecord>()
     private val activities = ConcurrentHashMap<String, ActivityRecord>()
     private val activityInterests = ConcurrentHashMap<String, ActivityInterest>()
+    private val userPhotos = ConcurrentHashMap<String, UserPhotoRecord>()
     private val chats = ConcurrentHashMap<String, ChatRecord>()
     private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
     private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
@@ -1150,6 +1151,36 @@ class InMemoryTownRepository : TownRepository {
             .toSet()
         return ActivityLocationFlags(locationIds, placeIds)
     }
+
+    override fun insertUserPhoto(photo: UserPhotoRecord): UserPhotoRecord {
+        val stored = photo.copy(id = photo.id.ifBlank { newId() })
+        userPhotos[stored.id] = stored
+        return stored
+    }
+
+    override fun findUserPhoto(id: String): UserPhotoRecord? = userPhotos[id]
+
+    override fun deleteUserPhoto(id: String): UserPhotoRecord? = userPhotos.remove(id)
+
+    override fun userPhotosForActivity(activityId: String, limit: Int): List<UserPhotoRecord> =
+        userPhotos.values.filter { it.activityId == activityId }
+            .sortedWith(compareByDescending<UserPhotoRecord> { it.createdAt }.thenByDescending { it.id })
+            .take(limit.coerceAtLeast(0))
+
+    override fun userPhotosAtLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+        limit: Int,
+    ): List<UserPhotoRecord> = userPhotos.values.filter { photo ->
+        photo.activityId == null && userPhotoMatchesLocation(photo, locationName, placeId, locationId)
+    }.sortedWith(compareByDescending<UserPhotoRecord> { it.createdAt }.thenByDescending { it.id })
+        .take(limit.coerceAtLeast(0))
+
+    override fun deleteActivityPhotos(activityId: String): List<UserPhotoRecord> =
+        userPhotos.values.filter { it.activityId == activityId }.mapNotNull { photo ->
+            userPhotos.remove(photo.id)
+        }
 
     private fun afterActivityCursor(activity: ActivityRecord, cursor: ActivityCursor): Boolean =
         activity.interestedCount < cursor.interestedCount ||

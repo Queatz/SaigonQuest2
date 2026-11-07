@@ -877,6 +877,11 @@ internal fun showVisitorWelcome(host: HTMLElement) {
     card.setAttribute("role", "dialog")
     card.setAttribute("aria-modal", "true")
     card.setAttribute("aria-labelledby", "visitor-welcome-text")
+    val close = el("button", "icon-btn visitor-welcome-close", text = "×")
+    close.setAttribute("type", "button")
+    close.setAttribute("aria-label", Town.t("close"))
+    close.onClick { backdrop.asDynamic().remove() }
+    card.appendChild(close)
     val emojis = el("div", "visitor-welcome-emojis")
     emojis.setAttribute("aria-hidden", "true")
     listOf("📍", "😍", "🍵").forEachIndexed { index, emoji ->
@@ -886,13 +891,19 @@ internal fun showVisitorWelcome(host: HTMLElement) {
     val message = el("p", "visitor-welcome-text", text = Town.t("visitorWelcome"))
     message.setAttribute("id", "visitor-welcome-text")
     card.appendChild(message)
-    card.appendChild(el("button", "text-button", text = Town.t("close")) { button ->
-        button.setAttribute("type", "button")
-        button.onClick { backdrop.asDynamic().remove() }
-    })
+    fun updateMessageFade() {
+        val top = num(message.asDynamic().scrollTop)
+        val height = num(message.asDynamic().clientHeight)
+        val full = num(message.asDynamic().scrollHeight)
+        val overflows = full > height + 1
+        message.asDynamic().classList.toggle("fade-top", overflows && top > 1)
+        message.asDynamic().classList.toggle("fade-bottom", overflows && top + height < full - 1)
+    }
+    message.asDynamic().addEventListener("scroll", { updateMessageFade() })
     backdrop.appendChild(card)
     backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
     host.appendChild(backdrop)
+    updateMessageFade()
 }
 
 internal fun openMiniProfile(

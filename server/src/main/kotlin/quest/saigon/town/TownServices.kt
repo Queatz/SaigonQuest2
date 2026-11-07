@@ -45,9 +45,18 @@ class TownServices(
     val chats: ChatService = ChatService(repo, chatHub, clock, pusher),
     val products: ProductService = ProductService(repo, uploads, hub, clock, pusher, chats),
     val translations: TranslationService = TranslationService(),
-    val activities: ActivityService = ActivityService(repo, chats, clock, translations),
+    val activities: ActivityService = ActivityService(repo, chats, clock, translations, uploads),
 ) {
     val comments: CommentService = CommentService(repo, hub, clock, pusher)
+    private val photoTimestampLock = Any()
+    private var lastPhotoTimestamp = Long.MIN_VALUE
+
+    fun nextPhotoCreatedAt(): Long = synchronized(photoTimestampLock) {
+        val now = clock()
+        val next = if (lastPhotoTimestamp == Long.MAX_VALUE) now else maxOf(now, lastPhotoTimestamp + 1)
+        lastPhotoTimestamp = next
+        next
+    }
 
     companion object {
         fun open(config: AppConfig): TownServices {

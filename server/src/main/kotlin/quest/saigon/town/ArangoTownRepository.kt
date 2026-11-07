@@ -18,7 +18,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
             POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
-            ACTIVITIES, ACTIVITY_INTERESTS, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
+            ACTIVITIES, ACTIVITY_INTERESTS, USER_PHOTOS, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -51,6 +51,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(ACTIVITIES).ensurePersistentIndex(listOf("placeId"), PersistentIndexOptions())
         db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("activityKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("activityKey", "createdAt"), PersistentIndexOptions())
+        db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("activityKey", "createdAt"), PersistentIndexOptions())
+        db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("locationId", "createdAt"), PersistentIndexOptions())
+        db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("placeId", "createdAt"), PersistentIndexOptions())
+        db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("locationName", "createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -2191,6 +2195,67 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return ActivityLocationFlags(locationIds, placeIds)
     }
 
+    override fun insertUserPhoto(photo: UserPhotoRecord): UserPhotoRecord {
+        val key = db.collection(USER_PHOTOS).insertDocument(userPhotoDocument(photo)).key
+        return photo.copy(id = key)
+    }
+
+    override fun findUserPhoto(id: String): UserPhotoRecord? =
+        db.collection(USER_PHOTOS).getDocument(id, BaseDocument::class.java)?.let(::userPhotoFrom)
+
+    override fun deleteUserPhoto(id: String): UserPhotoRecord? {
+        val photo = findUserPhoto(id) ?: return null
+        db.collection(USER_PHOTOS).deleteDocument(id)
+        return photo
+    }
+
+    override fun userPhotosForActivity(activityId: String, limit: Int): List<UserPhotoRecord> = queryList(
+        """
+        FOR p IN $USER_PHOTOS
+          FILTER p.activityKey == @activityKey
+          SORT p.createdAt DESC, p._key DESC
+          LIMIT @limit
+          RETURN p
+        """.trimIndent(),
+        mapOf("activityKey" to activityId, "limit" to limit.coerceAtLeast(0)),
+    ).map(::userPhotoFrom)
+
+    override fun userPhotosAtLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+        limit: Int,
+    ): List<UserPhotoRecord> = queryList(
+        """
+        FOR p IN $USER_PHOTOS
+          FILTER p.activityKey == null
+          FILTER (
+            (@locationId != "" AND p.locationId == @locationId)
+            OR (@locationId == "" AND @placeId != "" AND (p.locationId == null OR p.locationId == "") AND p.placeId == @placeId)
+            OR (
+              @locationId == "" AND @placeId == ""
+              AND (p.locationId == null OR p.locationId == "")
+              AND (p.placeId == null OR p.placeId == "")
+              AND LOWER(TO_STRING(p.locationName == null ? "" : p.locationName)) == @locationName
+            )
+          )
+          SORT p.createdAt DESC, p._key DESC
+          LIMIT @limit
+          RETURN p
+        """.trimIndent(),
+        mapOf(
+            "locationId" to locationId?.takeIf { it.isNotBlank() }.orEmpty(),
+            "placeId" to placeId?.takeIf { it.isNotBlank() }.orEmpty(),
+            "locationName" to locationName.trim().lowercase(),
+            "limit" to limit.coerceAtLeast(0),
+        ),
+    ).map(::userPhotoFrom)
+
+    override fun deleteActivityPhotos(activityId: String): List<UserPhotoRecord> = queryList(
+        "FOR p IN $USER_PHOTOS FILTER p.activityKey == @activityKey REMOVE p IN $USER_PHOTOS RETURN OLD",
+        mapOf("activityKey" to activityId),
+    ).map(::userPhotoFrom)
+
     private fun pageActivities(rows: List<BaseDocument>, limit: Int): ActivityPage {
         val page = rows.take(limit)
         val next = if (rows.size > limit) {
@@ -3345,6 +3410,27 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         translations = translationBlobFrom(doc),
     )
 
+    private fun userPhotoDocument(photo: UserPhotoRecord): BaseDocument = BaseDocument().apply {
+        addAttribute("userKey", photo.userId)
+        addAttribute("photoPath", photo.photoPath)
+        addAttribute("createdAt", photo.createdAt)
+        addAttribute("activityKey", photo.activityId)
+        addAttribute("locationName", photo.locationName)
+        addAttribute("placeId", photo.placeId)
+        addAttribute("locationId", photo.locationId)
+    }
+
+    private fun userPhotoFrom(doc: BaseDocument) = UserPhotoRecord(
+        id = doc.key,
+        userId = string(doc, "userKey"),
+        photoPath = string(doc, "photoPath"),
+        createdAt = long(doc, "createdAt"),
+        activityId = optional(doc, "activityKey"),
+        locationName = optional(doc, "locationName"),
+        placeId = optional(doc, "placeId"),
+        locationId = optional(doc, "locationId"),
+    )
+
     private fun translationBlobFrom(doc: BaseDocument): TranslationBlob? {
         val values = objectProperties(doc.getAttribute("translations")) ?: return null
         val sourceHash = values["sourceHash"] as? String ?: return null
@@ -3835,6 +3921,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val PRODUCT_ORDERS = "productOrders"
         private const val ACTIVITIES = "activities"
         private const val ACTIVITY_INTERESTS = "activityInterests"
+        private const val USER_PHOTOS = "userPhotos"
         private const val CHATS = "chats"
         private const val CHAT_MEMBERS = "chatMembers"
         private const val CHAT_MESSAGES = "chatMessages"

@@ -63,6 +63,7 @@ import quest.saigon.town.TownException
 import quest.saigon.town.SaigonDays
 import quest.saigon.town.TownServices
 import quest.saigon.town.TranslationService
+import quest.saigon.town.UserPhotoRecord
 import quest.saigon.town.UserRecord
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -954,6 +955,51 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(activityPayload(view))
     }
 
+    get("/activities/{id}/photos") {
+        val activityId = call.parameters["id"].orEmpty()
+        if (services.repo.findActivity(activityId) == null) return@get call.fail("not_found")
+        val viewer = call.user(services)
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, Limits.PHOTOS_MAX)
+            ?: Limits.PHOTOS_MAX
+        val photos = services.repo.userPhotosForActivity(activityId, limit)
+        val isAdmin = viewer != null && services.repo.findAdmin(viewer.id) != null
+        call.respondJson(mapOf("photos" to photos.map { userPhotoPayload(it, viewer, isAdmin) }))
+    }
+
+    post("/activities/{id}/photos") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (user.paused) return@post call.fail("account_paused")
+        val activityId = call.parameters["id"].orEmpty()
+        if (services.repo.findActivity(activityId) == null) return@post call.fail("not_found")
+        val form = try {
+            call.formParts()
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        val photos = try {
+            storeUserPhotos(services, user.id, form.files("photos"), activityId = activityId)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("photos" to photos.map { userPhotoPayload(it, user, isAdmin = false) }), HttpStatusCode.Created)
+    }
+
+    delete("/activities/{id}/photos/{photoId}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        if (user.paused) return@delete call.fail("account_paused")
+        val activityId = call.parameters["id"].orEmpty()
+        if (services.repo.findActivity(activityId) == null) return@delete call.fail("not_found")
+        val photo = services.repo.findUserPhoto(call.parameters["photoId"].orEmpty())
+            ?.takeIf { it.activityId == activityId }
+            ?: return@delete call.fail("not_found")
+        if (photo.userId != user.id && services.repo.findAdmin(user.id) == null) {
+            return@delete call.fail("forbidden")
+        }
+        val removed = services.repo.deleteUserPhoto(photo.id) ?: return@delete call.fail("not_found")
+        services.uploads.delete(removed.photoPath)
+        call.respondJson(mapOf("ok" to true))
+    }
+
     post("/activities") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
         val body = Jsons.parse(call.receiveText())
@@ -1140,6 +1186,64 @@ fun Route.townApi(services: TownServices) {
         val photo = services.places.photo(photoName) ?: return@get call.fail("not_found")
         call.response.headers.append(HttpHeaders.CacheControl, "private, max-age=86400")
         call.respondBytes(photo, ContentType.Image.JPEG)
+    }
+
+    get("/places/photos") {
+        val name = call.request.queryParameters["name"]?.trim().orEmpty()
+        if (name.isEmpty() || name.length > Limits.LOCATION_MAX) return@get call.fail("invalid_location")
+        val placeId = cleanPlaceId(call.request.queryParameters["placeId"].orEmpty())
+        val locationId = cleanLocationId(call.request.queryParameters["locationId"].orEmpty())
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, Limits.PHOTOS_MAX)
+            ?: Limits.PHOTOS_MAX
+        val viewer = call.user(services)
+        val photos = services.repo.userPhotosAtLocation(name, placeId, locationId, limit)
+        val isAdmin = viewer != null && services.repo.findAdmin(viewer.id) != null
+        call.respondJson(mapOf("photos" to photos.map { userPhotoPayload(it, viewer, isAdmin) }))
+    }
+
+    post("/places/photos") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        if (user.paused) return@post call.fail("account_paused")
+        val form = try {
+            call.formParts()
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        val name = cleanUserLocationName(form.text("name")) ?: return@post call.fail("invalid_location")
+        val rawPlaceId = form.text("placeId")
+        val rawLocationId = form.text("locationId")
+        val placeId = cleanPlaceId(rawPlaceId)
+        val locationId = cleanLocationId(rawLocationId)
+        if ((rawPlaceId.isNotBlank() && placeId == null) || (rawLocationId.isNotBlank() && locationId == null)) {
+            return@post call.fail("invalid_location")
+        }
+        val photos = try {
+            storeUserPhotos(
+                services,
+                user.id,
+                form.files("photos"),
+                locationName = name,
+                placeId = placeId,
+                locationId = locationId,
+            )
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(mapOf("photos" to photos.map { userPhotoPayload(it, user, isAdmin = false) }), HttpStatusCode.Created)
+    }
+
+    delete("/places/photos/{photoId}") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        if (user.paused) return@delete call.fail("account_paused")
+        val photo = services.repo.findUserPhoto(call.parameters["photoId"].orEmpty())
+            ?.takeIf { it.activityId == null }
+            ?: return@delete call.fail("not_found")
+        if (photo.userId != user.id && services.repo.findAdmin(user.id) == null) {
+            return@delete call.fail("forbidden")
+        }
+        val removed = services.repo.deleteUserPhoto(photo.id) ?: return@delete call.fail("not_found")
+        services.uploads.delete(removed.photoPath)
+        call.respondJson(mapOf("ok" to true))
     }
 
     get("/places/{id}") {
@@ -2495,6 +2599,57 @@ private fun productPhotoPaths(services: TownServices, photos: List<ByteArray>): 
     }
     return paths
 }
+
+private fun storeUserPhotos(
+    services: TownServices,
+    userId: String,
+    photos: List<ByteArray>,
+    activityId: String? = null,
+    locationName: String? = null,
+    placeId: String? = null,
+    locationId: String? = null,
+): List<UserPhotoRecord> {
+    if (photos.isEmpty()) throw TownException("invalid_photo")
+    if (photos.size > Limits.PHOTOS_MAX) throw TownException("too_many_photos")
+    val records = mutableListOf<UserPhotoRecord>()
+    val paths = mutableListOf<String>()
+    try {
+        photos.forEach { photo ->
+            val jpeg = try {
+                services.images.prepareChatPhoto(photo)
+            } catch (_: Exception) {
+                throw TownException("invalid_photo")
+            }
+            val path = services.uploads.writePhoto(jpeg)
+            paths += path
+            records += services.repo.insertUserPhoto(
+                UserPhotoRecord(
+                    id = "",
+                    userId = userId,
+                    photoPath = path,
+                    createdAt = services.nextPhotoCreatedAt(),
+                    activityId = activityId,
+                    locationName = locationName,
+                    placeId = placeId,
+                    locationId = locationId,
+                ),
+            )
+        }
+    } catch (error: Exception) {
+        records.forEach { services.repo.deleteUserPhoto(it.id) }
+        paths.forEach(services.uploads::delete)
+        throw error
+    }
+    return records
+}
+
+private fun userPhotoPayload(photo: UserPhotoRecord, viewer: UserRecord?, isAdmin: Boolean) = mapOf(
+    "id" to photo.id,
+    "url" to "/media/${photo.photoPath}",
+    "userId" to photo.userId,
+    "createdAt" to photo.createdAt,
+    "canDelete" to (viewer != null && !viewer.paused && (viewer.id == photo.userId || isAdmin)),
+)
 
 private fun deletePostPhotos(services: TownServices, post: PostRecord) {
     services.uploads.delete(post.photoPath)

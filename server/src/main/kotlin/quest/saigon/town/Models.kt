@@ -605,6 +605,33 @@ data class ActivityRecord(
     val translations: TranslationBlob? = null,
 )
 
+data class UserPhotoRecord(
+    val id: String,
+    val userId: String,
+    val photoPath: String,
+    val createdAt: Long,
+    val activityId: String? = null,
+    val locationName: String? = null,
+    val placeId: String? = null,
+    val locationId: String? = null,
+)
+
+fun userPhotoMatchesLocation(
+    photo: UserPhotoRecord,
+    locationName: String,
+    placeId: String?,
+    locationId: String?,
+): Boolean {
+    val customId = locationId?.takeIf { it.isNotBlank() }
+    val pid = placeId?.takeIf { it.isNotBlank() }
+    return when {
+        customId != null -> photo.locationId == customId
+        pid != null -> photo.locationId.isNullOrBlank() && photo.placeId == pid
+        else -> photo.locationId.isNullOrBlank() && photo.placeId.isNullOrBlank() &&
+            photo.locationName.equals(locationName.trim(), ignoreCase = true)
+    }
+}
+
 data class ActivityView(
     val activity: ActivityRecord,
     val interested: Boolean,

@@ -36,6 +36,26 @@ internal fun openLocationSheet(
         ?: encodeLocationToken(place)
     actions.appendChild(copyLinkIconButton(host, "/l/$linkId", "location-sheet-copy-link"))
     body.appendChild(actions)
+    val galleryLocationId = customLocationId?.takeIf { it.isNotBlank() }
+    val galleryPlaceId = placeId?.takeIf { it.isNotBlank() && galleryLocationId == null }
+    val galleryQuery = when {
+        galleryLocationId != null -> "&locationId=${encodeQuery(galleryLocationId)}"
+        galleryPlaceId != null -> "&placeId=${encodeQuery(galleryPlaceId)}"
+        else -> ""
+    }
+    val galleryFields = buildMap {
+        put("name", place)
+        if (galleryLocationId != null) put("locationId", galleryLocationId)
+        else if (galleryPlaceId != null) put("placeId", galleryPlaceId)
+    }
+    body.appendChild(
+        userPhotosSection(
+            host,
+            "/api/places/photos?name=${encodeQuery(place)}$galleryQuery",
+            "/api/places/photos",
+            galleryFields,
+        ) { photoId -> "/api/places/photos/${encodeQuery(photoId)}" },
+    )
     val activityList = el("div", "activity-list")
     val activitiesHead = el("div", "section-head")
     activitiesHead.appendChild(el("h3", text = Town.t("activities")))

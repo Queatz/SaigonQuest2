@@ -1,12 +1,14 @@
 package quest.saigon.town
 
 import quest.saigon.Limits
+import quest.saigon.media.UploadStore
 
 class ActivityService(
     private val repo: TownRepository,
     private val chats: ChatService,
     private val clock: () -> Long = System::currentTimeMillis,
     private val translations: TranslationService = TranslationService(),
+    private val uploads: UploadStore,
 ) {
     fun create(
         actor: UserRecord,
@@ -94,6 +96,7 @@ class ActivityService(
         ensureAvailable(actor)
         owned(actor, id)
         repo.deleteActivity(id) ?: throw TownException("not_found")
+        repo.deleteActivityPhotos(id).forEach { uploads.delete(it.photoPath) }
     }
 
     fun get(id: String, viewerId: String?): ActivityView {

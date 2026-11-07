@@ -539,6 +539,14 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
         body.appendChild(el("h3", "activity-section-title", text = Town.t("details")))
         body.appendChild(linkedParagraph(description, "product-detail-description"))
     }
+    body.appendChild(
+        userPhotosSection(
+            host,
+            "/api/activities/$activityId/photos",
+            "/api/activities/$activityId/photos",
+            emptyMap(),
+        ) { photoId -> "/api/activities/$activityId/photos/${encodeQuery(photoId)}" },
+    )
     if (locationName.isNotBlank()) {
         val section = el("section", "activity-location-section")
         section.appendChild(el("h3", "activity-section-title", text = Town.t("location")))
