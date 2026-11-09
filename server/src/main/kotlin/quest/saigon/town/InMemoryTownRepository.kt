@@ -1165,12 +1165,36 @@ class InMemoryTownRepository : TownRepository {
         activityInterests.values.filter { it.activityId == activityId }.map { it.userId }
 
     override fun activityLocationFlags(): ActivityLocationFlags {
-        val locationIds = activities.values.mapNotNull { it.locationId?.takeIf { id -> id.isNotBlank() } }.toSet()
-        val placeIds = activities.values
+        val ordered = activities.values.sortedWith(
+            compareByDescending<ActivityRecord> { it.interestedCount }
+                .thenByDescending { it.createdAt }
+                .thenByDescending { it.id },
+        )
+        val locationActivities = ordered
+            .filter { !it.locationId.isNullOrBlank() }
+            .groupBy { it.locationId!! }
+            .mapValues { (_, matching) ->
+                ActivityLocationSummary(
+                    count = matching.size.toLong(),
+                    emojis = matching.map { it.emoji }.filter { it.isNotBlank() }.distinct(),
+                )
+            }
+        val placeActivities = ordered
             .filter { it.locationId.isNullOrBlank() }
-            .mapNotNull { it.placeId?.takeIf { id -> id.isNotBlank() } }
-            .toSet()
-        return ActivityLocationFlags(locationIds, placeIds)
+            .filter { !it.placeId.isNullOrBlank() }
+            .groupBy { it.placeId!! }
+            .mapValues { (_, matching) ->
+                ActivityLocationSummary(
+                    count = matching.size.toLong(),
+                    emojis = matching.map { it.emoji }.filter { it.isNotBlank() }.distinct(),
+                )
+            }
+        return ActivityLocationFlags(
+            locationIds = locationActivities.keys,
+            placeIds = placeActivities.keys,
+            locationActivities = locationActivities,
+            placeActivities = placeActivities,
+        )
     }
 
     override fun insertUserPhoto(photo: UserPhotoRecord): UserPhotoRecord {

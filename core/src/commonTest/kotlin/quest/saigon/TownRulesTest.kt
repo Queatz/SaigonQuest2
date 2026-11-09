@@ -185,6 +185,14 @@ class TownRulesTest {
     }
 
     @Test
+    fun activityCountLabelsPluralizeInBothLanguages() {
+        assertEquals("1 activity", Copy.text(Language.EN, "activityCountShort", mapOf("count" to "1")))
+        assertEquals("2 activities", Copy.text(Language.EN, "activityCountShort", mapOf("count" to "2")))
+        assertEquals("1 hoạt động", Copy.text(Language.VI, "activityCountShort", mapOf("count" to "1")))
+        assertEquals("2 hoạt động", Copy.text(Language.VI, "activityCountShort", mapOf("count" to "2")))
+    }
+
+    @Test
     fun postAgeUsesShortEnglishAndVietnameseLabels() {
         val now = 1_700_000_000_000L
         fun age(ago: Long, language: Language) = PostAge.relative(now - ago, now, language)

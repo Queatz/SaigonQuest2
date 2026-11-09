@@ -562,6 +562,8 @@ data class PlaceSuggestion(
     val id: String? = null,
     val custom: Boolean = false,
     val hasActivities: Boolean = false,
+    val activityCount: Long = 0,
+    val activityEmojis: List<String> = emptyList(),
 )
 
 data class UserLocationRecord(
@@ -648,6 +650,13 @@ data class ActivityPage(
 data class ActivityLocationFlags(
     val locationIds: Set<String>,
     val placeIds: Set<String>,
+    val locationActivities: Map<String, ActivityLocationSummary> = emptyMap(),
+    val placeActivities: Map<String, ActivityLocationSummary> = emptyMap(),
+)
+
+data class ActivityLocationSummary(
+    val count: Long,
+    val emojis: List<String>,
 )
 
 fun activityMatchesLocation(

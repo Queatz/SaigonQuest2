@@ -927,11 +927,16 @@ fun Route.townApi(services: TownServices) {
                             id = location.id,
                             custom = true,
                             hasActivities = location.id in activityFlags.locationIds,
+                            activityCount = activityFlags.locationActivities[location.id]?.count ?: 0,
+                            activityEmojis = activityFlags.locationActivities[location.id]?.emojis.orEmpty(),
                         )
                     } + services.repo.postedGooglePlaces(viewer?.id).map { place ->
+                        val activitySummary = place.placeId?.let(activityFlags.placeActivities::get)
                         place.copy(
                             postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer?.id),
-                            hasActivities = place.placeId != null && place.placeId in activityFlags.placeIds,
+                            hasActivities = activitySummary != null,
+                            activityCount = activitySummary?.count ?: 0,
+                            activityEmojis = activitySummary?.emojis.orEmpty(),
                         )
                     }
                 ).map(::placePayload),
@@ -2392,6 +2397,8 @@ private fun placePayload(place: quest.saigon.town.PlaceSuggestion) = mapOf(
     "category" to place.category,
     "custom" to place.custom,
     "hasActivities" to place.hasActivities,
+    "activityCount" to place.activityCount,
+    "activityEmojis" to place.activityEmojis,
 )
 
 private fun commentPayload(item: CommentItem) = mapOf(

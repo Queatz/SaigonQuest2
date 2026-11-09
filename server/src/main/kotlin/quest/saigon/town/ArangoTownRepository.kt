@@ -2208,23 +2208,40 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     ).map { string(it, "userKey") }
 
     override fun activityLocationFlags(): ActivityLocationFlags {
-        val locationIds = queryList(
+        val activities = queryList(
             """
             FOR a IN $ACTIVITIES
-              FILTER a.locationId != null AND a.locationId != ""
-              RETURN { id: a.locationId }
+              FILTER (a.locationId != null AND a.locationId != "")
+                OR ((a.locationId == null OR a.locationId == "") AND a.placeId != null AND a.placeId != "")
+              SORT a.interestedCount DESC, a.createdAt DESC, a._key DESC
+              RETURN { locationId: a.locationId, placeId: a.placeId, emoji: a.emoji }
             """.trimIndent(),
             emptyMap(),
-        ).map { string(it, "id") }.filter { it.isNotBlank() }.toSet()
-        val placeIds = queryList(
-            """
-            FOR a IN $ACTIVITIES
-              FILTER (a.locationId == null OR a.locationId == "") AND a.placeId != null AND a.placeId != ""
-              RETURN { id: a.placeId }
-            """.trimIndent(),
-            emptyMap(),
-        ).map { string(it, "id") }.filter { it.isNotBlank() }.toSet()
-        return ActivityLocationFlags(locationIds, placeIds)
+        )
+        val locationActivities = activities
+            .filter { string(it, "locationId").isNotBlank() }
+            .groupBy { string(it, "locationId") }
+            .mapValues { (_, matching) ->
+                ActivityLocationSummary(
+                    count = matching.size.toLong(),
+                    emojis = matching.map { string(it, "emoji") }.filter { it.isNotBlank() }.distinct(),
+                )
+            }
+        val placeActivities = activities
+            .filter { string(it, "locationId").isBlank() && string(it, "placeId").isNotBlank() }
+            .groupBy { string(it, "placeId") }
+            .mapValues { (_, matching) ->
+                ActivityLocationSummary(
+                    count = matching.size.toLong(),
+                    emojis = matching.map { string(it, "emoji") }.filter { it.isNotBlank() }.distinct(),
+                )
+            }
+        return ActivityLocationFlags(
+            locationIds = locationActivities.keys,
+            placeIds = placeActivities.keys,
+            locationActivities = locationActivities,
+            placeActivities = placeActivities,
+        )
     }
 
     override fun insertUserPhoto(photo: UserPhotoRecord): UserPhotoRecord {

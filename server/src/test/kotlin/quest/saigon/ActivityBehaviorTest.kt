@@ -232,6 +232,41 @@ class ActivityBehaviorTest {
         assertTrue(mapper.readTree(response.bodyAsText()).path("emoji").asText().isNotBlank())
     }
 
+    @Test
+    fun mapLocationsIncludeActivityCountsAndDistinctEmojis() = testApplication {
+        var now = 1_700_000_000_000L
+        val services = services({ now })
+        application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        register(linh, "Linh", "0905550205")
+        val linhId = mapper.readTree(linh.get("/api/me").bodyAsText()).path("id").asText()
+        val location = services.repo.insertUserLocation("Climbing Gym", 10.77, 106.70, linhId, now)
+
+        suspend fun createActivity(emoji: String, name: String, interested: Boolean = false) {
+            val response = linh.post("/api/activities") {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    """{"emoji":"$emoji","name":"$name","locationName":"Climbing Gym","locationId":"${location.id}","interested":$interested}""",
+                )
+            }
+            assertEquals(HttpStatusCode.Created, response.status)
+            now += 1
+        }
+        createActivity("🧗", "Climb", interested = true)
+        createActivity("☕", "Coffee")
+        createActivity("🧗", "Bouldering")
+
+        val locations = mapper.readTree(linh.get("/api/events").bodyAsText()).path("locations")
+        val gym = (0 until locations.size()).map { locations.path(it) }
+            .first { it.path("id").asText() == location.id }
+        assertTrue(gym.path("hasActivities").asBoolean())
+        assertEquals(3, gym.path("activityCount").asInt())
+        assertEquals(
+            listOf("🧗", "☕"),
+            (0 until gym.path("activityEmojis").size()).map { gym.path("activityEmojis").path(it).asText() },
+        )
+    }
+
     private suspend fun register(client: io.ktor.client.HttpClient, name: String, phone: String) {
         val response = client.post("/api/auth/register") {
             contentType(ContentType.Application.Json)

@@ -30,6 +30,8 @@ internal class PlacePick(
     var postCount: Long = 0,
     var photoUrl: String? = null,
     var hasActivities: Boolean = false,
+    var activityCount: Long = 0,
+    var activityEmojis: List<String> = emptyList(),
 )
 
 internal fun bindLocationMapPicker(
@@ -106,6 +108,33 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     val split = el("div", "events-split")
     val mapPane = el("div", "events-map-pane")
     val listPane = el("div", "events-list-pane")
+    val mapLocations = mutableListOf<PlacePick>()
+    val sessionLocations = mutableListOf<PlacePick>()
+    val pendingMapLocations = mutableListOf<PlacePick>()
+    var eventsMapReady = false
+    var navigateEventsMap: (PlacePick) -> Unit = {}
+    var addEventsMapLocation: (PlacePick) -> Unit = {}
+    var pendingMapNavigation: PlacePick? = null
+    fun onMapLocationCreated(place: PlacePick) {
+        if (sessionLocations.none { samePlace(it, place) }) sessionLocations += place
+        if (eventsMapReady) {
+            addEventsMapLocation(place)
+        } else if (pendingMapLocations.none { samePlace(it, place) }) {
+            pendingMapLocations += place
+        }
+    }
+    eventsMapPlaceSearch(
+        mapPane,
+        shell,
+        findOnMap = { place ->
+            mapLocations.firstOrNull { samePlace(it, place) }
+                ?: sessionLocations.firstOrNull { samePlace(it, place) }
+        },
+        navigate = { place ->
+            if (eventsMapReady) navigateEventsMap(place) else pendingMapNavigation = place
+        },
+        onCreated = ::onMapLocationCreated,
+    )
     val eventCol = el("div", "events-col")
     val activityCol = el("div", "events-col")
     val peopleCol = el("div", "events-col")
@@ -213,7 +242,23 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
                 peopleList.appendChild(peopleRow(people[i], shell, router))
             }
         }
-        mountEventsMap(mapBox, events, readUserLocations(parsed.locations), shell, router)
+        val locations = readUserLocations(parsed.locations).toMutableList()
+        sessionLocations.forEach { place ->
+            if (locations.none { samePlace(it, place) }) locations += place
+        }
+        mapLocations.clear()
+        mapLocations.addAll(locations)
+        mountEventsMap(mapBox, events, locations, shell, router) { navigate, addLocation ->
+            eventsMapReady = true
+            navigateEventsMap = navigate
+            addEventsMapLocation = addLocation
+            pendingMapLocations.forEach { place ->
+                if (locations.none { samePlace(it, place) }) addLocation(place)
+            }
+            pendingMapLocations.clear()
+            pendingMapNavigation?.let(navigate)
+            pendingMapNavigation = null
+        }
     }
     fun loadCommunities() {
         http("GET", "/api/communities?limit=50") { status, body ->
@@ -664,6 +709,228 @@ internal fun openLocationPicker(
     }
 }
 
+private fun eventsMapPlaceSearch(
+    mapPane: HTMLElement,
+    overlayHost: HTMLElement,
+    findOnMap: (PlacePick) -> PlacePick?,
+    navigate: (PlacePick) -> Unit,
+    onCreated: (PlacePick) -> Unit,
+) {
+    val desktopSearch = el("div", "events-map-search events-map-search-desktop")
+    val desktopPanel = el("div", "events-map-search-panel")
+    desktopSearch.appendChild(desktopPanel)
+    mapPane.appendChild(desktopSearch)
+    eventsMapSearchPanel(desktopPanel, overlayHost, false, {}, findOnMap, navigate, onCreated)
+
+    val mobileButton = el("button", "icon-btn events-map-search-toggle")
+    mobileButton.setAttribute("type", "button")
+    mobileButton.setAttribute("aria-label", Town.t("searchPlaces"))
+    mobileButton.asDynamic().innerHTML =
+        """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>"""
+    mobileButton.onClick {
+        val backdrop = el("div", "dialog-backdrop events-place-search-backdrop")
+        val dialog = el("div", "dialog events-place-search-dialog")
+        dialog.setAttribute("role", "dialog")
+        dialog.setAttribute("aria-modal", "true")
+        dialog.setAttribute("aria-label", Town.t("searchPlaces"))
+        val heading = el("div", "events-place-search-heading")
+        heading.appendChild(el("h2", text = Town.t("searchPlaces")))
+        val close = el("button", "icon-btn", text = "×")
+        close.setAttribute("type", "button")
+        close.setAttribute("aria-label", Town.t("close"))
+        heading.appendChild(close)
+        dialog.appendChild(heading)
+        val panel = el("div", "events-map-search-panel")
+        dialog.appendChild(panel)
+        backdrop.appendChild(dialog)
+        fun closeDialog() {
+            backdrop.asDynamic().remove()
+        }
+        close.onClick { closeDialog() }
+        backdrop.closeOnOutsideClick { closeDialog() }
+        overlayHost.appendChild(backdrop)
+        eventsMapSearchPanel(panel, overlayHost, true, ::closeDialog, findOnMap, navigate, onCreated)
+    }
+    mapPane.appendChild(mobileButton)
+}
+
+private fun eventsMapSearchPanel(
+    host: HTMLElement,
+    overlayHost: HTMLElement,
+    closeOnExisting: Boolean,
+    close: () -> Unit,
+    findOnMap: (PlacePick) -> PlacePick?,
+    navigate: (PlacePick) -> Unit,
+    onCreated: (PlacePick) -> Unit,
+) {
+    val input = el("input", "events-map-search-input")
+    input.setAttribute("type", "search")
+    input.setAttribute("placeholder", Town.t("searchPlaces"))
+    input.setAttribute("autocomplete", "off")
+    val results = el("div", "events-map-search-results")
+    host.appendChild(input)
+    host.appendChild(results)
+    host.asDynamic().addEventListener("pointerdown", { event: dynamic -> event.stopPropagation() })
+
+    var request = 0
+    var selection = 0
+    var timer: dynamic = null
+    fun coordinates(place: PlacePick, done: (Boolean) -> Unit) {
+        if (place.lat != null && place.lng != null) {
+            done(true)
+            return
+        }
+        val placeId = place.placeId
+        if (placeId.isNullOrBlank()) {
+            done(false)
+            return
+        }
+        http("GET", "/api/places/details?id=${encodeQuery(placeId)}") { status, body ->
+            if (status == 200) {
+                val details = parseJson(body)
+                place.name = (details.name as? String)?.takeIf { it.isNotBlank() } ?: place.name
+                place.lat = if (details.lat == null || details.lat == undefined) null else num(details.lat)
+                place.lng = if (details.lng == null || details.lng == undefined) null else num(details.lng)
+            }
+            done(place.lat != null && place.lng != null)
+        }
+    }
+
+    fun addPlace(place: PlacePick, button: HTMLElement, hint: HTMLElement) {
+        if (Town.me == null) {
+            showAuthDialog(overlayHost, onSuccess = { addPlace(place, button, hint) })
+            return
+        }
+        button.asDynamic().disabled = true
+        coordinates(place) { hasCoordinates ->
+            if (!hasCoordinates) {
+                button.asDynamic().disabled = false
+                hint.textContent = Town.t("unavailable")
+                hint.asDynamic().hidden = false
+                return@coordinates
+            }
+            val payload = js("({})")
+            payload.name = place.name
+            payload.lat = place.lat
+            payload.lng = place.lng
+            http("POST", "/api/places", jsonStringify(payload)) { status, body ->
+                if (status != 201) {
+                    button.asDynamic().disabled = false
+                    hint.textContent = errorText(body, status)
+                    hint.asDynamic().hidden = false
+                    return@http
+                }
+                val created = parseJson(body)
+                val added = PlacePick(
+                    name = (created.name as? String)?.takeIf { it.isNotBlank() } ?: place.name,
+                    placeId = place.placeId,
+                    lat = if (created.lat == null || created.lat == undefined) place.lat else num(created.lat),
+                    lng = if (created.lng == null || created.lng == undefined) place.lng else num(created.lng),
+                    id = (created.id as? String)?.takeIf { it.isNotBlank() },
+                )
+                button.asDynamic().hidden = true
+                hint.asDynamic().hidden = true
+                onCreated(added)
+                navigate(added)
+                close()
+            }
+        }
+    }
+
+    fun placeRow(node: dynamic): HTMLElement {
+        val place = PlacePick(
+            name = (node.name as? String).orEmpty(),
+            placeId = (node.placeId as? String)?.takeIf { it.isNotBlank() },
+            lat = if (node.lat == null || node.lat == undefined) null else num(node.lat),
+            lng = if (node.lng == null || node.lng == undefined) null else num(node.lng),
+            id = (node.id as? String)?.takeIf { it.isNotBlank() },
+        )
+        val suggestion = el("div", "events-map-place-suggestion")
+        val select = el("button", "events-map-place-select")
+        select.setAttribute("type", "button")
+        select.appendChild(el("strong", text = place.name))
+        val address = (node.address as? String).orEmpty()
+        if (address.isNotBlank() && address != place.name) select.appendChild(el("small", text = address))
+        val add = el("button", "primary events-map-add-place", text = Town.t("addThisPlace"))
+        add.setAttribute("type", "button")
+        add.asDynamic().hidden = true
+        val hint = el("p", "hint events-map-place-hint")
+        hint.asDynamic().hidden = true
+        select.onClick {
+            val version = ++selection
+            val oldButtons = results.asDynamic().querySelectorAll(".events-map-add-place")
+            for (i in 0 until (oldButtons.length as Int)) oldButtons[i].hidden = true
+            val oldHints = results.asDynamic().querySelectorAll(".events-map-place-hint")
+            for (i in 0 until (oldHints.length as Int)) oldHints[i].hidden = true
+            hint.asDynamic().hidden = true
+            add.asDynamic().hidden = true
+            val existing = findOnMap(place)
+            if (existing != null) {
+                if (place.lat == null) place.lat = existing.lat
+                if (place.lng == null) place.lng = existing.lng
+                navigate(existing)
+                if (closeOnExisting) close()
+                return@onClick
+            }
+            coordinates(place) { hasCoordinates ->
+                if (version != selection) return@coordinates
+                if (!hasCoordinates) {
+                    hint.textContent = Town.t("unavailable")
+                    hint.asDynamic().hidden = false
+                    return@coordinates
+                }
+                navigate(place)
+                add.asDynamic().hidden = false
+            }
+        }
+        add.onClick { addPlace(place, add, hint) }
+        suggestion.appendChild(select)
+        suggestion.appendChild(add)
+        suggestion.appendChild(hint)
+        return suggestion
+    }
+
+    fun load(query: String) {
+        val token = ++request
+        results.clear()
+        if (query.trim().length < 2) return
+        results.appendChild(el("p", "hint events-map-search-loading", text = Town.t("loading")))
+        http("GET", "/api/places?q=${encodeQuery(query.trim())}") { status, body ->
+            if (token != request) return@http
+            results.clear()
+            if (status != 200) {
+                results.appendChild(el("p", "hint", text = errorText(body, status)))
+                return@http
+            }
+            val places = parseJson(body).places
+            val length = places?.length as? Int ?: 0
+            if (length == 0) {
+                results.appendChild(el("p", "hint", text = Town.t("noPlaceMatches")))
+                return@http
+            }
+            for (i in 0 until length) results.appendChild(placeRow(places[i]))
+        }
+    }
+
+    input.asDynamic().oninput = {
+        val query = (input.asDynamic().value as? String).orEmpty()
+        ++selection
+        results.clear()
+        if (timer != null) window.asDynamic().clearTimeout(timer)
+        timer = window.asDynamic().setTimeout({ load(query) }, 220)
+    }
+    if (closeOnExisting) input.asDynamic().focus()
+}
+
+private fun samePlace(first: PlacePick, second: PlacePick): Boolean {
+    val firstId = first.id?.takeIf { it.isNotBlank() }
+    val secondId = second.id?.takeIf { it.isNotBlank() }
+    if (firstId != null && secondId != null && firstId == secondId) return true
+    val firstPlaceId = first.placeId?.takeIf { it.isNotBlank() }
+    val secondPlaceId = second.placeId?.takeIf { it.isNotBlank() }
+    return firstPlaceId != null && secondPlaceId != null && firstPlaceId == secondPlaceId
+}
+
 internal fun composerEventFields(): ComposerEvent {
     val state = ComposerEvent()
     val box = el("div", "event-composer")
@@ -1087,6 +1354,7 @@ private fun mountEventsMap(
     locations: List<PlacePick>,
     sheetHost: HTMLElement,
     router: HistoryRouter,
+    onMapReady: ((PlacePick) -> Unit, (PlacePick) -> Unit) -> Unit,
 ) {
     val marked = events.filter { it.lat != null && it.lng != null }
     val markedLocations = locations.filter { it.lat != null && it.lng != null }
@@ -1110,7 +1378,9 @@ private fun mountEventsMap(
             val map = googleMap(host, opts)
             val bounds = googleBounds()
             val mapMarkers = mutableListOf<EventsMapMarker>()
+            val renderedLocations = markedLocations.toMutableList()
             var markerIndex = 0
+            var hasNavigated = false
             marked.forEach { post ->
                 val pos = js("{}")
                 pos.lat = post.lat
@@ -1237,9 +1507,55 @@ private fun mountEventsMap(
                 val visible = packed.map { it.marker }.toSet()
                 mapMarkers.forEach { marker -> setMapMarkerShown(marker.content, marker in visible) }
             }
+            fun navigate(place: PlacePick) {
+                val lat = place.lat ?: return
+                val lng = place.lng ?: return
+                hasNavigated = true
+                val pos = js("({})")
+                pos.lat = lat
+                pos.lng = lng
+                map.setCenter(pos)
+                map.setZoom(18)
+                window.asDynamic().requestAnimationFrame { updateMapMarkers() }
+            }
+            fun addLocation(location: PlacePick) {
+                val lat = location.lat ?: return
+                val lng = location.lng ?: return
+                if (renderedLocations.any { samePlace(it, location) }) return
+                renderedLocations += location
+                val pos = js("({})")
+                pos.lat = lat
+                pos.lng = lng
+                val dotContent = userLocationDot(location, sheetHost, router)
+                val dot = googleHtmlMarker(map, pos, dotContent, reveal = false)
+                mapMarkers += EventsMapMarker(
+                    overlay = dot,
+                    position = pos,
+                    content = dotContent,
+                    isBubble = false,
+                    isLocation = true,
+                    postCount = location.postCount.coerceAtLeast(0),
+                    attendeeCount = 0,
+                    index = markerIndex++,
+                )
+                val bubbleContent = userLocationBubble(location, sheetHost, router)
+                val bubble = googleHtmlMarker(map, pos, bubbleContent, reveal = false)
+                mapMarkers += EventsMapMarker(
+                    overlay = bubble,
+                    position = pos,
+                    content = bubbleContent,
+                    isBubble = true,
+                    isLocation = true,
+                    postCount = location.postCount.coerceAtLeast(0),
+                    attendeeCount = 0,
+                    index = markerIndex++,
+                )
+                updateMapMarkers()
+            }
             map.addListener("zoom_changed", { updateMapMarkers() })
             map.addListener("idle", { updateMapMarkers() })
             fun fit() {
+                if (hasNavigated) return
                 val total = marked.size + markedLocations.size
                 if (total == 1) {
                     val only = js("{}")
@@ -1263,6 +1579,7 @@ private fun mountEventsMap(
             updateMapMarkers()
             window.asDynamic().requestAnimationFrame { relayout() }
             window.asDynamic().setTimeout({ relayout() }, 120)
+            onMapReady(::navigate, ::addLocation)
         }
     }
     tryMount()
@@ -1272,15 +1589,19 @@ private fun userLocationDot(location: PlacePick, host: HTMLElement, router: Hist
     val dot = el("button", "user-location-dot")
     dot.setAttribute("type", "button")
     val count = location.postCount.coerceAtLeast(0)
-    dot.setAttribute("aria-label", "${location.name}, ${Town.t("postCount", mapOf("count" to count.toString()))}")
+    dot.setAttribute("aria-label", userLocationAriaLabel(location))
     dot.textContent = count.coerceAtMost(99).toString()
     location.photoUrl?.takeIf { it.isNotBlank() }?.let { photoUrl ->
         dot.asDynamic().style.backgroundImage = "url(\"${prefixServerOrigin(photoUrl)}\")"
     }
     if (location.hasActivities) dot.appendChild(activityMapDot())
     if (location.name.isNotBlank()) {
-        val name = el("span", "user-location-name", text = location.name)
+        val name = el("span", "user-location-name")
         name.setAttribute("aria-hidden", "true")
+        name.appendChild(el("span", "user-location-name-title", text = location.name))
+        if (location.activityEmojis.isNotEmpty()) {
+            name.appendChild(el("span", "user-location-activities", text = location.activityEmojis.joinToString(" ")))
+        }
         dot.appendChild(name)
     }
     dot.onClick {
@@ -1301,7 +1622,7 @@ private fun userLocationBubble(location: PlacePick, host: HTMLElement, router: H
     val bubble = el("button", "event-map-bubble custom-location-bubble")
     bubble.setAttribute("type", "button")
     val count = location.postCount.coerceAtLeast(0)
-    bubble.setAttribute("aria-label", "${location.name}, ${Town.t("postCount", mapOf("count" to count.toString()))}")
+    bubble.setAttribute("aria-label", userLocationAriaLabel(location))
     val photoUrl = location.photoUrl?.takeIf { it.isNotBlank() }
     if (photoUrl != null) {
         bubble.asDynamic().classList.add("has-photo")
@@ -1313,11 +1634,18 @@ private fun userLocationBubble(location: PlacePick, host: HTMLElement, router: H
     val heading = el("span", "event-map-bubble-title")
     heading.appendChild(el("span", "event-map-bubble-emoji", text = PLACE_ICON))
     heading.appendChild(el("strong", text = location.name))
-    val meta = el(
-        "span",
-        "event-map-bubble-meta",
-        text = Town.t("postCount", mapOf("count" to count.toString())),
-    )
+    val activityCount = location.activityCount.coerceAtLeast(0)
+    val counts = buildList {
+        if (activityCount > 0) {
+            add(Town.t("activityCountShort", mapOf("count" to activityCount.toString())))
+        }
+        add(Town.t("postCount", mapOf("count" to count.toString())))
+    }.joinToString(", ")
+    val meta = el("span", "event-map-bubble-meta")
+    if (activityCount > 0 && location.activityEmojis.isNotEmpty()) {
+        meta.appendChild(el("span", "event-map-bubble-activities", text = location.activityEmojis.joinToString(" ")))
+    }
+    meta.appendChild(el("span", "event-map-bubble-counts", text = counts))
     if (photoUrl != null) {
         val text = el("span", "custom-location-bubble-text")
         text.appendChild(heading)
@@ -1341,6 +1669,15 @@ private fun userLocationBubble(location: PlacePick, host: HTMLElement, router: H
     }
     return bubble
 }
+
+private fun userLocationAriaLabel(location: PlacePick): String = buildList {
+    add(location.name)
+    val activityCount = location.activityCount.coerceAtLeast(0)
+    if (activityCount > 0) {
+        add(Town.t("activityCountShort", mapOf("count" to activityCount.toString())))
+    }
+    add(Town.t("postCount", mapOf("count" to location.postCount.coerceAtLeast(0).toString())))
+}.joinToString(", ")
 
 private fun loadGoogleMaps(done: (Boolean) -> Unit) {
     fun capture(lib: dynamic = null): Boolean {
@@ -1629,6 +1966,8 @@ private fun readUserLocations(array: dynamic): List<PlacePick> {
                 postCount = postCount,
                 photoUrl = (place.photoUrl as? String)?.takeIf { it.isNotBlank() },
                 hasActivities = place.hasActivities == true,
+                activityCount = if (place.activityCount == null || place.activityCount == undefined) 0L else num(place.activityCount).toLong(),
+                activityEmojis = readStringList(place.activityEmojis),
             )
         }
     }
