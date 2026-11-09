@@ -24,6 +24,11 @@ object Limits {
     const val CTA_TITLE_MAX = 80
     const val CTA_TEXT_MAX = 40
     const val CTA_URL_MAX = 2048
+    const val OPEN_CHAT_HOURS_MIN = 1
+    const val OPEN_CHAT_HOURS_MAX = 24
+    const val OPEN_CHAT_HOURS_DEFAULT = 24
+    const val OPEN_CHAT_REMAINING_MIN = 1
+    const val OPEN_CHAT_REMAINING_MAX = 10
     const val INTRO_MAX = 280
     const val FEATURE_MAX = 280
     const val COMMUNITY_DESCRIPTION_MAX = 280

@@ -3086,6 +3086,9 @@ button.busy .avatar-spinner {
     cursor: pointer;
 }
 
+.cta-composer,
+.open-chat-composer { margin: 8px 0 16px; }
+
 .poll-composer { margin: 8px 0 16px; }
 
 .question-composer { margin: 8px 0 16px; }
@@ -3475,6 +3478,107 @@ span.event-face {
 .cta-destinations { margin: 0; }
 
 .cta-fields .hint { margin-top: -2px; }
+
+.open-chat-fields {
+    display: grid;
+    gap: 8px;
+}
+
+.open-chat-fields .field-label { font-weight: 800; }
+
+.open-chat-create-section {
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .35);
+}
+
+.open-chat-create { margin: 0; }
+
+.open-chat-number-control {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 44px auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.open-chat-number-input {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    box-sizing: border-box;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px 10px;
+    color: var(--text);
+    background: var(--surface);
+    font: inherit;
+    text-align: center;
+}
+
+.open-chat-step {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.open-chat-number-suffix { color: var(--muted); }
+
+.open-chat-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    align-items: center;
+    margin: 10px 0 4px;
+    padding: 12px 12px 12px 14px;
+    border: 1px solid var(--ink);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .72);
+    color: var(--ink);
+}
+
+.open-chat-details {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.open-chat-name {
+    min-width: 0;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.open-chat-meta {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.open-chat-action {
+    align-self: center;
+    min-width: 88px;
+    min-height: 48px;
+    padding: 12px 18px;
+    border: 0;
+    border-radius: 32px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
 
 .event-join.is-leave {
     background: none;

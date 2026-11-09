@@ -79,6 +79,11 @@ internal data class PostCard(
     val ctaDestination: String = "",
     val ctaUrl: String = "",
     val authorZaloUrl: String? = null,
+    val openChatId: String? = null,
+    val openChatName: String = "",
+    val openChatExpiresAt: Long? = null,
+    val openChatRemaining: Long? = null,
+    val openChatJoined: Boolean = false,
 )
 
 internal data class PollChoice(
@@ -194,6 +199,19 @@ internal fun postFrom(node: dynamic): PostCard = PostCard(
     ctaDestination = (node.ctaDestination as? String).orEmpty(),
     ctaUrl = (node.ctaUrl as? String).orEmpty(),
     authorZaloUrl = (node.authorZaloUrl as? String)?.takeIf { it.isNotBlank() },
+    openChatId = (node.openChatId as? String)?.takeIf { it.isNotBlank() },
+    openChatName = (node.openChatName as? String).orEmpty(),
+    openChatExpiresAt = if (node.openChatExpiresAt == null || node.openChatExpiresAt == undefined) {
+        null
+    } else {
+        num(node.openChatExpiresAt).toLong().takeIf { it > 0 }
+    },
+    openChatRemaining = if (node.openChatRemaining == null || node.openChatRemaining == undefined) {
+        null
+    } else {
+        num(node.openChatRemaining).toLong()
+    },
+    openChatJoined = node.openChatJoined == true,
 )
 
 internal fun eventPersonFrom(node: dynamic): EventPerson = EventPerson(
@@ -224,6 +242,8 @@ internal val PostCard.hasEvent: Boolean get() = (eventStartAt ?: 0L) > 0
 internal val PostCard.hasPoll: Boolean get() = pollOptions.isNotEmpty()
 
 internal val PostCard.hasCta: Boolean get() = ctaText.isNotBlank()
+
+internal val PostCard.hasOpenChat: Boolean get() = !openChatId.isNullOrBlank()
 
 internal fun readPollOptions(node: dynamic): List<PollChoice> {
     val items = mutableListOf<PollChoice>()

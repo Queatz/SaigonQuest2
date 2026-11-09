@@ -317,6 +317,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("ctaText", post.ctaText)
         doc.addAttribute("ctaDestination", post.ctaDestination)
         doc.addAttribute("ctaUrl", post.ctaUrl)
+        doc.addAttribute("openChatKey", post.openChatId)
+        doc.addAttribute("openChatName", post.openChatName)
+        doc.addAttribute("openChatExpiresAt", post.openChatExpiresAt)
+        doc.addAttribute("openChatRemaining", post.openChatRemaining)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -367,6 +371,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               OR CONTAINS(LOWER(TO_STRING(p.ctaText == null ? "" : p.ctaText)), @query)
               OR CONTAINS(LOWER(TO_STRING(p.ctaDestination == null ? "" : p.ctaDestination)), @query)
               OR CONTAINS(LOWER(TO_STRING(p.ctaUrl == null ? "" : p.ctaUrl)), @query)
+              OR CONTAINS(LOWER(TO_STRING(p.openChatName == null ? "" : p.openChatName)), @query)
             )
             AND (@hasCursor == false OR p.createdAt < @cursorAt OR (p.createdAt == @cursorAt AND p._key < @cursorKey))
         """.trimIndent()
@@ -470,7 +475,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 ),
                 ${pollOptionsAql()},
                 ${questionAql()},
-                ${ctaAql()}
+                ${ctaAql()},
+                ${openChatAql()}
               }
         """.trimIndent()
         val rows = queryList(query, bind)
@@ -516,6 +522,10 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 ctaText = string(doc, "ctaText"),
                 ctaDestination = string(doc, "ctaDestination"),
                 ctaUrl = string(doc, "ctaUrl"),
+                openChatId = optional(doc, "openChatKey"),
+                openChatName = string(doc, "openChatName"),
+                openChatExpiresAt = longOrNull(doc, "openChatExpiresAt"),
+                openChatRemaining = longOrNull(doc, "openChatRemaining"),
             )
         }
 
@@ -606,7 +616,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 ),
                 ${pollOptionsAql()},
                 ${questionAql()},
-                ${ctaAql()}
+                ${ctaAql()},
+                ${openChatAql()}
               }
         """.trimIndent()
         val row = first(query, bind) ?: return null
@@ -1508,6 +1519,20 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
 
     override fun isAttending(postId: String, userId: String): Boolean =
         db.collection(EVENT_ATTENDANCES).documentExists(membershipKey(postId, userId))
+
+    override fun consumeOpenChatSlot(postId: String): Boolean {
+        val post = findPost(postId) ?: return false
+        if (post.openChatRemaining == null) return true
+        return first(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id AND p.openChatRemaining > 0
+              UPDATE p WITH { openChatRemaining: p.openChatRemaining - 1 } IN $POSTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to postId),
+        ) != null
+    }
 
     override fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage {
         val parsed = Cursors.parse(cursor)
@@ -3611,6 +3636,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         ctaDestination = string(row, "ctaDestination"),
         ctaUrl = string(row, "ctaUrl"),
         authorZaloUrl = optional(row, "authorZaloUrl"),
+        openChatId = optional(row, "openChatId"),
+        openChatName = string(row, "openChatName"),
+        openChatExpiresAt = longOrNull(row, "openChatExpiresAt"),
+        openChatRemaining = longOrNull(row, "openChatRemaining"),
+        openChatJoined = boolean(row, "openChatJoined"),
     )
 
     private fun attendeeList(doc: BaseDocument, name: String): List<EventAttendee> =
@@ -3736,6 +3766,19 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
        authorZaloUrl: p.ctaDestination == "zalo" && author != null && author.phone != null && author.phone != ""
          ? CONCAT("https://zalo.me/", author.phone)
          : null
+   """.trimIndent()
+
+   private fun openChatAql(): String = """
+       openChatId: p.openChatKey,
+       openChatName: p.openChatName == null ? "" : p.openChatName,
+       openChatExpiresAt: p.openChatExpiresAt,
+       openChatRemaining: p.openChatRemaining,
+       openChatJoined: @viewerId != "" && LENGTH(
+         FOR m IN $CHAT_MEMBERS
+           FILTER m.chatKey == p.openChatKey AND m.userKey == @viewerId
+           LIMIT 1
+           RETURN 1
+       ) > 0
    """.trimIndent()
 
    private fun questionAnswerItemFrom(row: BaseDocument) = QuestionAnswerItem(

@@ -294,13 +294,15 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
     val questionGap = if (post.hasQuestion) 18.0 else 0.0
     val ctaH = if (post.hasCta) if (post.ctaTitle.isNotBlank()) 140.0 else 112.0 else 0.0
     val ctaGap = if (post.hasCta) 18.0 else 0.0
+    val openChatH = if (post.hasOpenChat) 128.0 else 0.0
+    val openChatGap = if (post.hasOpenChat) 18.0 else 0.0
     val textW = cardW - padX * 2
     val maxMessageH = (cardBottom - minCardTop) - padTop - replyGap - replyH -
-        eventH - eventGap - questionH - questionGap - ctaH - ctaGap - padBottom
+        eventH - eventGap - questionH - questionGap - ctaH - ctaGap - openChatH - openChatGap - padBottom
     val fitted = fitMessage(ctx, post.message, textW, maxMessageH.coerceAtLeast(80.0))
     val messageH = fitted.lines.size * fitted.lineHeight
     val cardH = padTop + messageH + eventGap + eventH + questionGap + questionH +
-        ctaGap + ctaH + replyGap + replyH + padBottom
+        ctaGap + ctaH + openChatGap + openChatH + replyGap + replyH + padBottom
     val cardY = cardBottom - cardH
 
     if (avatar != null) drawAvatar(ctx, avatar, cardX, cardY, cardW, footerY)
@@ -484,8 +486,40 @@ private fun paintShareCard(post: PostCard, photos: List<dynamic>, avatar: dynami
         ctx.fillText(ellipsize(ctx, actionLabel, actionW - 36.0), actionX + actionW / 2, actionY + actionH / 2)
     }
 
+    if (post.hasOpenChat) {
+        val openChatY = cardY + padTop + messageH + eventGap + eventH + questionGap + questionH +
+            ctaGap + ctaH + openChatGap
+        val openChatX = cardX + 28.0
+        val openChatW = cardW - 56.0
+        traceRound(ctx, openChatX, openChatY, openChatW, openChatH, 28.0)
+        ctx.fillStyle = "#ffffff"
+        ctx.fill()
+        ctx.strokeStyle = "#e6ddd2"
+        ctx.lineWidth = 3.0
+        ctx.stroke()
+        ctx.fillStyle = "#2a241e"
+        ctx.font = "800 32px $SHARE_FONT"
+        ctx.textAlign = "left"
+        ctx.textBaseline = "middle"
+        val name = post.openChatName.ifBlank { Town.t("unnamedGroupChat") }
+        ctx.fillText(ellipsize(ctx, name, openChatW - 48.0), openChatX + 24.0, openChatY + 36.0)
+        val actionH = 56.0
+        val actionX = openChatX + 20.0
+        val actionW = openChatW - 40.0
+        val actionY = openChatY + openChatH - actionH - 12.0
+        traceRound(ctx, actionX, actionY, actionW, actionH, actionH / 2)
+        ctx.fillStyle = "#e9897c"
+        ctx.fill()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "800 30px $SHARE_FONT"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText(ellipsize(ctx, Town.t("openChat"), actionW - 36.0), actionX + actionW / 2, actionY + actionH / 2)
+    }
+
     val replyX = cardX + 28.0
-    val replyY = cardY + padTop + messageH + eventGap + eventH + questionGap + questionH + ctaGap + ctaH + replyGap
+    val replyY = cardY + padTop + messageH + eventGap + eventH + questionGap + questionH +
+        ctaGap + ctaH + openChatGap + openChatH + replyGap
     val replyW = cardW - 56.0
     traceRound(ctx, replyX, replyY, replyW, replyH, 24.0)
     ctx.fillStyle = "#ffffff"

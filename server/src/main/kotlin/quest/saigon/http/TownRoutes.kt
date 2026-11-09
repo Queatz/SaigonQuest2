@@ -710,6 +710,41 @@ fun Route.townApi(services: TownServices) {
             val product = services.repo.findProduct(cta.url)
             if (product == null || product.userId != user.id) return@post call.fail("invalid_cta")
         }
+        val addOpenChat = form.text("addOpenChat").trim().let { it.equals("true", true) || it == "1" }
+        val openChatNew = form.text("openChatNew").trim().let { it.equals("true", true) || it == "1" }
+        val openChatIdInput = form.text("openChatId").trim().ifBlank { null }
+        val openChatRequested = addOpenChat && (openChatNew || openChatIdInput != null)
+        val openChatHours = if (!openChatRequested) {
+            null
+        } else {
+            val rawHours = form.text("openChatHours").trim()
+            val hours = if (rawHours.isBlank()) Limits.OPEN_CHAT_HOURS_DEFAULT else rawHours.toIntOrNull()
+                ?: return@post call.fail("invalid_open_chat")
+            if (hours !in Limits.OPEN_CHAT_HOURS_MIN..Limits.OPEN_CHAT_HOURS_MAX) {
+                return@post call.fail("invalid_open_chat")
+            }
+            hours
+        }
+        val openChatRemaining = if (!openChatRequested || form.text("openChatRemaining").isBlank()) {
+            null
+        } else {
+            val remaining = form.text("openChatRemaining").trim().toIntOrNull()
+                ?: return@post call.fail("invalid_open_chat")
+            if (remaining !in Limits.OPEN_CHAT_REMAINING_MIN..Limits.OPEN_CHAT_REMAINING_MAX) {
+                return@post call.fail("invalid_open_chat")
+            }
+            remaining.toLong()
+        }
+        val selectedOpenChat = if (openChatRequested && !openChatNew) {
+            val selected = openChatIdInput?.let(services.repo::findChat)
+                ?: return@post call.fail("invalid_open_chat")
+            if (selected.type != ChatType.GROUP || services.repo.findChatMember(selected.id, user.id) == null) {
+                return@post call.fail("invalid_open_chat")
+            }
+            services.repo.chatSummary(selected.id, user.id) ?: return@post call.fail("invalid_open_chat")
+        } else {
+            null
+        }
         val photos = form.files("photo")
         if (photos.isEmpty()) return@post call.fail("photo_required")
         if (photos.size > Limits.PHOTOS_MAX) return@post call.fail("too_many_photos")
@@ -722,6 +757,18 @@ fun Route.townApi(services: TownServices) {
             }
             paths += services.uploads.writePost(jpeg)
         }
+        val openChat = if (!openChatRequested) {
+            null
+        } else if (openChatNew) {
+            try {
+                services.chats.createGroup(user, form.text("openChatName"))
+            } catch (error: TownException) {
+                return@post call.fail(error.code)
+            }
+        } else {
+            selectedOpenChat
+        }
+        val createdAt = services.clock()
         val post = services.repo.insertPost(
             PostRecord(
                 id = "",
@@ -730,7 +777,7 @@ fun Route.townApi(services: TownServices) {
                 photoPath = paths.first(),
                 message = message,
                 location = location,
-                createdAt = services.clock(),
+                createdAt = createdAt,
                 musicId = music?.id,
                 extraPhotoPaths = paths.drop(1),
                 communityId = community?.id,
@@ -749,6 +796,10 @@ fun Route.townApi(services: TownServices) {
                 ctaText = cta?.text.orEmpty(),
                 ctaDestination = cta?.destination.orEmpty(),
                 ctaUrl = cta?.url.orEmpty(),
+                openChatId = openChat?.id,
+                openChatName = openChat?.name.orEmpty(),
+                openChatExpiresAt = openChatHours?.let { createdAt + it * 60L * 60 * 1000 },
+                openChatRemaining = openChatRemaining,
             ),
         )
         if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
@@ -793,6 +844,11 @@ fun Route.townApi(services: TownServices) {
                     ctaText = cta?.text.orEmpty(),
                     ctaDestination = cta?.destination.orEmpty(),
                     ctaUrl = cta?.url.orEmpty(),
+                    openChatId = openChat?.id,
+                    openChatName = openChat?.name.orEmpty(),
+                    openChatExpiresAt = post.openChatExpiresAt,
+                    openChatRemaining = openChatRemaining,
+                    openChatJoined = openChat != null,
                     authorZaloUrl = if (cta?.destination == CallToAction.ZALO) {
                         PhoneNumbers.zaloUrl(user.phone)
                     } else {
@@ -831,6 +887,21 @@ fun Route.townApi(services: TownServices) {
             return@post call.fail(error.code)
         }
         call.respondJson(postPayload(item))
+    }
+
+    post("/posts/{id}/open-chat") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val postId = call.parameters["id"].orEmpty()
+        val chat = try {
+            services.chats.joinOpenChat(user, postId)
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(
+            ChatService.chatPayload(chat) + mapOf(
+                "openChatRemaining" to services.repo.findPost(postId)?.openChatRemaining,
+            ),
+        )
     }
 
     post("/posts/{id}/leave") {
@@ -2311,6 +2382,11 @@ private fun postPayload(item: FeedItem) = mapOf(
     "ctaDestination" to item.ctaDestination,
     "ctaUrl" to item.ctaUrl.takeIf { it.isNotBlank() },
     "authorZaloUrl" to item.authorZaloUrl,
+    "openChatId" to item.openChatId,
+    "openChatName" to item.openChatName.takeIf { item.openChatId != null },
+    "openChatExpiresAt" to item.openChatExpiresAt,
+    "openChatRemaining" to item.openChatRemaining,
+    "openChatJoined" to item.openChatJoined,
 )
 
 private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(

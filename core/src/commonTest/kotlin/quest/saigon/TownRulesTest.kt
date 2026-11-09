@@ -51,6 +51,15 @@ class TownRulesTest {
     }
 
     @Test
+    fun openChatExpirationAndCapacityAreBounded() {
+        assertEquals(1, Limits.OPEN_CHAT_HOURS_MIN)
+        assertEquals(24, Limits.OPEN_CHAT_HOURS_MAX)
+        assertEquals(24, Limits.OPEN_CHAT_HOURS_DEFAULT)
+        assertEquals(1, Limits.OPEN_CHAT_REMAINING_MIN)
+        assertEquals(10, Limits.OPEN_CHAT_REMAINING_MAX)
+    }
+
+    @Test
     fun neighboringMessageBoxesFollowTheirOwnPost() {
         val height = 640.0
         val dragTowardPrevious = 200.0

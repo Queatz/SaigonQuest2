@@ -128,6 +128,10 @@ data class PostRecord(
     val ctaText: String = "",
     val ctaDestination: String = "",
     val ctaUrl: String = "",
+    val openChatId: String? = null,
+    val openChatName: String = "",
+    val openChatExpiresAt: Long? = null,
+    val openChatRemaining: Long? = null,
 )
 
 data class FeedItem(
@@ -172,6 +176,11 @@ data class FeedItem(
     val ctaDestination: String = "",
     val ctaUrl: String = "",
     val authorZaloUrl: String? = null,
+    val openChatId: String? = null,
+    val openChatName: String = "",
+    val openChatExpiresAt: Long? = null,
+    val openChatRemaining: Long? = null,
+    val openChatJoined: Boolean = false,
 )
 
 data class FeedPage(

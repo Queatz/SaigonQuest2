@@ -47,6 +47,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     val poll = composerPollFields()
     val question = composerQuestionFields()
     val cta = composerCtaFields(shell)
+    val openChat = composerOpenChatFields(shell)
     bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace) { communities.second.communityId }
 
     val avatarLabel = el("h3", text = "🙆 ${Town.t("selectAvatar")}")
@@ -223,6 +224,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                     form.append("ctaDestination", parsed.destination)
                     if (parsed.url.isNotEmpty()) form.append("ctaUrl", parsed.url)
                 }
+                appendOpenChatForm(openChat, form)
                 val avatarId = selectedAvatar
                 if (!avatarId.isNullOrBlank()) form.append("avatarId", avatarId)
                 val musicId = selectedMusicId
@@ -262,6 +264,7 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(poll.root)
     body.appendChild(question.root)
     body.appendChild(cta.root)
+    body.appendChild(openChat.root)
     body.appendChild(musicPicker(shell) { selectedMusicId = it })
     body.appendChild(avatarLabel)
     body.appendChild(avatarRow)

@@ -236,6 +236,31 @@ class ChatService(
         return repo.chatSummary(chat.id, actor.id) ?: throw TownException("not_found")
     }
 
+    fun joinOpenChat(actor: UserRecord, postId: String): ChatSummary {
+        val post = repo.findPost(postId) ?: throw TownException("not_found")
+        val chatId = post.openChatId ?: throw TownException("not_found")
+        val chat = repo.findChat(chatId) ?: throw TownException("not_found")
+        if (chat.type != ChatType.GROUP) throw TownException("not_found")
+        if (repo.findChatMember(chatId, actor.id) != null) {
+            return repo.chatSummary(chatId, actor.id) ?: throw TownException("not_found")
+        }
+        if (post.openChatExpiresAt == null || post.openChatExpiresAt <= clock()) {
+            throw TownException("open_chat_expired")
+        }
+        if (post.openChatRemaining != null && post.openChatRemaining <= 0) {
+            throw TownException("open_chat_full")
+        }
+        if (!repo.consumeOpenChatSlot(postId)) throw TownException("open_chat_full")
+        repo.upsertChatMember(
+            ChatMemberRecord(chatId, actor.id, owner = false, joinedAt = clock(), unreadCount = 1),
+        )
+        repo.chatMemberIds(chatId).forEach { memberId ->
+            val summary = repo.chatSummary(chatId, memberId) ?: return@forEach
+            publish(memberId, event("chat", memberId, summary = summary))
+        }
+        return repo.chatSummary(chatId, actor.id) ?: throw TownException("not_found")
+    }
+
     fun removeMember(actor: UserRecord, chatId: String, userId: String): ChatSummary {
         val member = requireMember(actor, chatId)
         val chat = repo.findChat(chatId) ?: throw TownException("not_found")

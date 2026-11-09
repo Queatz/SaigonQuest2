@@ -207,6 +207,7 @@ class InMemoryTownRepository : TownRepository {
                 post.ctaText,
                 post.ctaDestination,
                 post.ctaUrl,
+                post.openChatName,
             ) + post.pollOptions + eventDetails
             searchable.any { it.lowercase().contains(needle) }
         }
@@ -459,6 +460,13 @@ class InMemoryTownRepository : TownRepository {
             ctaText = post.ctaText,
             ctaDestination = post.ctaDestination,
             ctaUrl = post.ctaUrl,
+            openChatId = post.openChatId,
+            openChatName = post.openChatName,
+            openChatExpiresAt = post.openChatExpiresAt,
+            openChatRemaining = post.openChatRemaining,
+            openChatJoined = viewerId != null && post.openChatId?.let { chatId ->
+                findChatMember(chatId, viewerId) != null
+            } == true,
             authorZaloUrl = if (post.ctaDestination == CallToAction.ZALO) {
                 author?.phone?.takeIf { it.isNotBlank() }?.let(PhoneNumbers::zaloUrl)
             } else {
@@ -740,6 +748,14 @@ class InMemoryTownRepository : TownRepository {
 
     override fun isAttending(postId: String, userId: String): Boolean =
         attendances.containsKey(membershipKey(postId, userId))
+
+    override fun consumeOpenChatSlot(postId: String): Boolean = synchronized(this) {
+        val post = posts[postId] ?: return@synchronized false
+        val remaining = post.openChatRemaining ?: return@synchronized true
+        if (remaining <= 0) return@synchronized false
+        posts[postId] = post.copy(openChatRemaining = remaining - 1)
+        true
+    }
 
     override fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage {
         val parsed = Cursors.parse(cursor)

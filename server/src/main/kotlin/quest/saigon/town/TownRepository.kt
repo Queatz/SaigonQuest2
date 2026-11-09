@@ -99,6 +99,7 @@ interface TownRepository {
     fun joinEvent(postId: String, userId: String, joinedAt: Long): Boolean
     fun leaveEvent(postId: String, userId: String): Boolean
     fun isAttending(postId: String, userId: String): Boolean
+    fun consumeOpenChatSlot(postId: String): Boolean
     fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage
     fun attendeeIds(postId: String): List<String>
     fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
