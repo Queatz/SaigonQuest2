@@ -617,13 +617,9 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
     if (host.asDynamic().querySelector(".activity-sheet") != null) return
     val name = localizedActivityText(activity, "name")
     val activityId = activity.id as? String ?: return
-    val chrome = SheetChrome("comment-sheet activity-sheet", name)
+    val emoji = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨"
+    val chrome = SheetChrome("comment-sheet activity-sheet", "$emoji $name")
     val body = el("div", "activity-sheet-body")
-    val title = el("div", "product-detail-title-row")
-    title.appendChild(el("span", "activity-emoji", text = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨"))
-    title.appendChild(el("h2", "product-detail-name", text = name))
-    title.appendChild(copyLinkIconButton(host, "/activity/$activityId", "product-copy-link"))
-    body.appendChild(title)
     val locationName = activity.locationName as? String ?: ""
     val placeId = (activity.placeId as? String)?.takeIf { it.isNotBlank() }
     val locationId = (activity.locationId as? String)?.takeIf { it.isNotBlank() }
@@ -635,8 +631,11 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
         null
     }
     val description = localizedActivityText(activity, "description")
+    val detailsHeader = el("div", "activity-details-header")
+    detailsHeader.appendChild(el("h3", "activity-section-title", text = Town.t("details")))
+    detailsHeader.appendChild(copyLinkIconButton(host, "/activity/$activityId", "product-link-copy"))
+    body.appendChild(detailsHeader)
     if (description.isNotBlank()) {
-        body.appendChild(el("h3", "activity-section-title", text = Town.t("details")))
         body.appendChild(linkedParagraph(description, "product-detail-description"))
     }
     body.appendChild(

@@ -2087,7 +2087,8 @@ button.busy .avatar-spinner {
 
 .location-sheet .comment-bar h2,
 .profile-sheet .comment-bar h2,
-.members-sheet .comment-bar h2 {
+.members-sheet .comment-bar h2,
+.activity-sheet .comment-bar h2 {
     max-width: calc(100% - 72px);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -4676,7 +4677,7 @@ span.event-face {
 .product-detail-placeholder { width: min(84vw, 420px); height: min(84vw, 420px); flex: 0 0 min(84vw, 420px); border-radius: 16px; object-fit: cover; background: var(--card); scroll-snap-align: center; }
 .product-detail-name { margin: 0; }
 .product-detail-category { margin: 0; color: var(--muted); font-weight: 700; }
-.product-detail-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.product-detail-description { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 .product-buy-dock { position: sticky; z-index: 2; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
 .product-buy-dock .primary { width: 100%; }
 .product-buy-dialog { max-height: calc(100dvh - 32px); overflow: auto; }
@@ -4768,6 +4769,7 @@ span.event-face {
 .activity-location-map .event-map-bubble-title { gap: 3px; }
 .activity-location-map .event-map-bubble-emoji { font-size: 12px; }
 .activity-location-map .event-map-bubble-title strong { font-size: 10px; }
+.activity-details-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .activity-section-title { margin: 0; }
 .activity-people { max-height: none; overflow: visible; margin-top: 8px; }
 .attendee-profile {
