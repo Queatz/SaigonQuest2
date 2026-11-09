@@ -105,6 +105,11 @@ internal fun openNotifications(router: HistoryRouter, host: HTMLElement) {
     markAll.setAttribute("type", "button")
     markAll.setAttribute("hidden", "hidden")
     head.appendChild(markAll)
+    val closeBtn = el("button", "icon-btn sheet-close", text = "×")
+    closeBtn.setAttribute("type", "button")
+    closeBtn.setAttribute("aria-label", Town.t("close"))
+    closeBtn.onClick { backdrop.asDynamic().remove() }
+    head.appendChild(closeBtn)
     card.appendChild(head)
     val list = el("div", "notify-list")
     card.appendChild(list)
