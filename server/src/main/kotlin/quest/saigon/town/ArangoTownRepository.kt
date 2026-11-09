@@ -51,6 +51,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(ACTIVITIES).ensurePersistentIndex(listOf("placeId"), PersistentIndexOptions())
         db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("activityKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("activityKey", "createdAt"), PersistentIndexOptions())
+        db.collection(ACTIVITY_INTERESTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("activityKey", "createdAt"), PersistentIndexOptions())
         db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("locationId", "createdAt"), PersistentIndexOptions())
         db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("placeId", "createdAt"), PersistentIndexOptions())
@@ -2005,6 +2006,37 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         val page = rows.take(limit)
         val next = if (rows.size > limit) page.lastOrNull()?.let { Cursors.encode(long(it, "createdAt"), it.key) } else null
         return ActivityPage(page.map(::activityFrom), next)
+    }
+
+    override fun activitiesInterestedByUser(userId: String, cursor: String?, limit: Int): ActivityPage {
+        val parsed = Cursors.parse(cursor)
+        val rows = queryList(
+            """
+            FOR i IN $ACTIVITY_INTERESTS
+              FILTER i.userKey == @userKey
+              FILTER @hasCursor == false OR i.createdAt < @cursorAt OR (i.createdAt == @cursorAt AND i.activityKey < @cursorKey)
+              LET a = DOCUMENT("$ACTIVITIES", i.activityKey)
+              FILTER a != null
+              SORT i.createdAt DESC, i.activityKey DESC
+              LIMIT @limit
+              RETURN MERGE(a, { interestAt: i.createdAt })
+            """.trimIndent(),
+            mapOf(
+                "userKey" to userId,
+                "limit" to limit + 1,
+                "hasCursor" to (parsed != null),
+                "cursorAt" to (parsed?.first ?: 0L),
+                "cursorKey" to (parsed?.second ?: ""),
+            ),
+        )
+        val page = rows.take(limit)
+        val items = page.map(::activityFrom)
+        val next = if (rows.size > limit) {
+            page.lastOrNull()?.let { Cursors.encode(long(it, "interestAt"), it.key) }
+        } else {
+            null
+        }
+        return ActivityPage(items, next)
     }
 
     override fun activitiesForLocation(

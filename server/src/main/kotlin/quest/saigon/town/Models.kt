@@ -637,6 +637,7 @@ data class ActivityView(
     val interested: Boolean,
     val host: EventAttendee? = null,
     val interestedPeople: List<EventAttendee> = emptyList(),
+    val photoPaths: List<String> = emptyList(),
 )
 
 data class ActivityPage(

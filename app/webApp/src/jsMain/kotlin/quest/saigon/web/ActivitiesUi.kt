@@ -316,25 +316,27 @@ internal fun activityEditorDialog(
             if (lng != null) payload.lng = lng
             payload.interested = interested.asDynamic().checked == true
         }
+        val creating = !editing
         val url = if (editing) "/api/activities/${current.id}" else "/api/activities"
         http(if (editing) "PATCH" else "POST", url, jsonStringify(payload)) { status, body ->
             if (status == 200 || status == 201) {
                 stopEmojiGeneration()
                 current = parseJson(body)
-                editing = true
                 saved = true
+                toast(host, Town.t("activitySaved"))
+                onSaved?.invoke(current)
+                if (creating) {
+                    closeEditor()
+                    return@http
+                }
                 emojiManual = true
                 name.input.asDynamic().value = (current.name as? String).orEmpty()
                 description.input.asDynamic().value = (current.description as? String).orEmpty()
                 emoji.input.asDynamic().value = (current.emoji as? String).orEmpty()
-                title.textContent = Town.t("editActivity")
-                submit.textContent = Town.t("save")
                 submit.removeAttribute("disabled")
                 translationReview.asDynamic().hidden = false
                 translationsEdited = false
                 applyTranslationState(current)
-                toast(host, Town.t("activitySaved"))
-                onSaved?.invoke(current)
                 if (translationState == "pending") startTranslationPolling() else stopTranslationPolling()
             } else {
                 submit.removeAttribute("disabled")
@@ -375,6 +377,30 @@ internal fun activitiesPreview(shell: HTMLElement, router: HistoryRouter): HTMLE
     return section
 }
 
+internal fun miniProfileActivities(userId: String, router: HistoryRouter, host: HTMLElement): HTMLElement {
+    val section = el("section", "mini-activities")
+    section.asDynamic().hidden = true
+    http("GET", "/api/users/${encodeQuery(userId)}/activities?limit=${Limits.MINI_PROFILE_ACTIVITIES}") { status, text ->
+        if (status != 200 || section.asDynamic().isConnected == false) return@http
+        val parsed = parseJson(text)
+        val items: dynamic = parsed.activities
+        val count = jsLen(items)
+        if (count == 0) return@http
+        section.asDynamic().hidden = false
+        section.appendChild(
+            el(
+                "h3",
+                "profile-sheet-count",
+                text = Town.t("activityCount", mapOf("count" to count.toString())),
+            ),
+        )
+        val list = el("div", "activity-list mini-activity-list")
+        for (i in 0 until count) list.appendChild(activityCard(items[i], host, router))
+        section.appendChild(list)
+    }
+    return section
+}
+
 internal fun myActivitiesScreen(router: HistoryRouter): HTMLElement {
     val shell = el("section", "shell page-shell")
     shell.appendChild(pageHead(router, Town.t("myActivities"), showProfile = false))
@@ -399,12 +425,28 @@ internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryR
     if (showLocation && locationName.isNotBlank()) {
         copy.appendChild(el("p", "activity-location", text = "📍 $locationName"))
     }
+    val hostNode: dynamic = activity.host
+    if (hostNode != null && hostNode != undefined) {
+        val hostName = (hostNode.name as? String)?.takeIf { it.isNotBlank() }
+        if (hostName != null) {
+            copy.appendChild(el("p", "activity-card-host", text = hostLabel(hostNode.id as? String, hostName)))
+        }
+    }
     val description = localizedActivityText(activity, "description")
     if (description.isNotBlank()) copy.appendChild(el("p", "hint", text = description))
+    activityScheduleSummary(activity)?.let { summary ->
+        copy.appendChild(el("p", "activity-schedule-summary", text = summary))
+    }
     card.appendChild(copy)
     val interest = interestButton(activity)
-    stopClick(interest) { toggleActivityInterest(host, activity, interest, null) }
+    stopClick(interest) {
+        toggleActivityInterest(host, activity, interest) {
+            card.asDynamic().replaceWith(activityCard(activity, host, router, manage, showLocation))
+        }
+    }
     card.appendChild(interest)
+    activityCardInterested(activity)?.let(card::appendChild)
+    activityCardPhotos(activity)?.let(card::appendChild)
     card.onClick { open() }
     if (manage) {
         val actions = el("div", "product-actions")
@@ -441,6 +483,64 @@ internal fun activityCard(activity: dynamic, host: HTMLElement, router: HistoryR
         card.appendChild(actions)
     }
     return card
+}
+
+private fun activityCardInterested(activity: dynamic): HTMLElement? {
+    val people: dynamic = activity.interestedPeople
+    val count = jsLen(people)
+    if (count == 0) return null
+    val row = el("div", "activity-card-interested")
+    val faces = el("div", "activity-card-interested-faces")
+    val shownCount = minOf(count, Limits.ACTIVITY_CARD_INTERESTED_LIMIT)
+    for (i in 0 until shownCount) {
+        val person = people[i]
+        val name = person.name as? String ?: ""
+        val photoUrl = person.photoUrl as? String
+        if (!photoUrl.isNullOrBlank()) {
+            val face = el("img", "face")
+            face.setAttribute("src", photoUrl)
+            face.setAttribute("alt", "")
+            faces.appendChild(face)
+        } else {
+            faces.appendChild(el("span", "face initial", text = name.take(1).uppercase()))
+        }
+    }
+    row.appendChild(faces)
+    val names = (0 until minOf(count, 2)).mapNotNull { people[it].name as? String }
+    val totalInterested = maxOf(num(activity.interestedCount).toInt(), count)
+    val summary = when {
+        names.size == 2 && totalInterested > 2 -> Town.t(
+            "peopleNamesAndMore",
+            mapOf("first" to names[0], "second" to names[1], "count" to (totalInterested - 2).toString()),
+        )
+        else -> names.joinToString(", ")
+    }
+    if (summary.isNotBlank()) row.appendChild(el("span", "activity-card-interested-names", text = summary))
+    return row
+}
+
+private fun activityCardPhotos(activity: dynamic): HTMLElement? {
+    val photos: dynamic = activity.photoUrls
+    val count = minOf(jsLen(photos), Limits.ACTIVITY_CARD_PHOTO_LIMIT)
+    if (count == 0) return null
+    val row = el("div", "activity-card-photos")
+    for (i in 0 until count) {
+        val photo = el("img", "activity-card-photo")
+        photo.setAttribute("src", photos[i] as? String ?: continue)
+        photo.setAttribute("alt", "")
+        photo.setAttribute("loading", "lazy")
+        row.appendChild(photo)
+    }
+    return row
+}
+
+private fun activityScheduleSummary(activity: dynamic): String? {
+    val slots = readSchedule(activity.schedule)
+    if (slots.isEmpty()) return null
+    return slots.groupBy { it.startMinutes to it.endMinutes }.entries.joinToString(" · ") { (time, days) ->
+        val dayNames = days.joinToString(", ") { Town.t(weekdayKey(it.dayOfWeek)) }
+        "$dayNames ${formatMinutes(time.first)}–${formatMinutes(time.second)}"
+    }
 }
 
 internal fun loadLocationActivities(
@@ -837,6 +937,20 @@ private fun scheduleEditor(activity: dynamic): ScheduleEditor {
     master.appendChild(masterStart)
     master.appendChild(masterEnd)
     master.appendChild(apply)
+    fun paintDayRow(check: HTMLElement, start: HTMLElement, end: HTMLElement) {
+        val enabled = check.asDynamic().checked == true
+        if (enabled) {
+            start.removeAttribute("disabled")
+            end.removeAttribute("disabled")
+            start.asDynamic().style.opacity = "1"
+            end.asDynamic().style.opacity = "1"
+        } else {
+            start.setAttribute("disabled", "disabled")
+            end.setAttribute("disabled", "disabled")
+            start.asDynamic().style.opacity = "0.35"
+            end.asDynamic().style.opacity = "0.35"
+        }
+    }
     val built = (1..7).map { day ->
         val slot = existing.firstOrNull { it.dayOfWeek == day }
         val row = el("label", "activity-day-row")
@@ -854,6 +968,8 @@ private fun scheduleEditor(activity: dynamic): ScheduleEditor {
         row.appendChild(start)
         row.appendChild(end)
         days.appendChild(row)
+        check.asDynamic().onchange = { paintDayRow(check, start, end) }
+        paintDayRow(check, start, end)
         Triple(day, check, Pair(start, end))
     }
     fun paintMode() {
@@ -867,7 +983,10 @@ private fun scheduleEditor(activity: dynamic): ScheduleEditor {
             timed.asDynamic().classList.remove("selected")
             master.asDynamic().hidden = true
             days.asDynamic().hidden = true
-            built.forEach { (_, check, _) -> check.asDynamic().checked = false }
+            built.forEach { (_, check, times) ->
+                check.asDynamic().checked = false
+                paintDayRow(check, times.first, times.second)
+            }
         }
     }
     always.onClick {
@@ -885,6 +1004,7 @@ private fun scheduleEditor(activity: dynamic): ScheduleEditor {
             check.asDynamic().checked = true
             times.first.asDynamic().value = start
             times.second.asDynamic().value = end
+            paintDayRow(check, times.first, times.second)
         }
     }
     root.appendChild(master)

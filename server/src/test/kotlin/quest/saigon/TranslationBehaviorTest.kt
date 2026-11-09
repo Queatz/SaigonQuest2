@@ -23,7 +23,10 @@ import quest.saigon.town.TownServices
 import quest.saigon.town.TranslationService
 import quest.saigon.town.Translator
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -79,10 +82,12 @@ class TranslationBehaviorTest {
         val activity = mapper.readTree(created.bodyAsText())
         val activityId = activity.path("id").asText()
         assertEquals("Coffee walk", activity.path("name").asText())
-        assertEquals("ready", activity.path("translations").path("status").asText())
-        assertEquals("en:Coffee walk", activity.path("translations").path("en").path("name").asText())
-        assertEquals("vi:Meet at the workshop", activity.path("translations").path("vi").path("description").asText())
+        assertEquals("pending", activity.path("translations").path("status").asText())
         assertFalse(activity.path("translations").has("sourceHash"))
+        val ready = mapper.readTree(author.get("/api/activities/$activityId").bodyAsText())
+        assertEquals("ready", ready.path("translations").path("status").asText())
+        assertEquals("en:Coffee walk", ready.path("translations").path("en").path("name").asText())
+        assertEquals("vi:Meet at the workshop", ready.path("translations").path("vi").path("description").asText())
         assertEquals(1, calls)
         val listed = mapper.readTree(author.get("/api/activities").bodyAsText()).path("activities")
         assertEquals("en:Coffee walk", listed.path(0).path("translations").path("en").path("name").asText())
@@ -109,7 +114,9 @@ class TranslationBehaviorTest {
         assertEquals(HttpStatusCode.OK, changed.status)
         val changedBody = mapper.readTree(changed.bodyAsText())
         assertEquals("Tea walk", changedBody.path("name").asText())
-        assertEquals("en:Tea walk", changedBody.path("translations").path("en").path("name").asText())
+        assertEquals("pending", changedBody.path("translations").path("status").asText())
+        val retranslated = mapper.readTree(author.get("/api/activities/$activityId").bodyAsText())
+        assertEquals("en:Tea walk", retranslated.path("translations").path("en").path("name").asText())
         assertEquals(2, calls)
 
         viewer.post("/api/activities/$activityId/join")
@@ -157,6 +164,10 @@ class TranslationBehaviorTest {
         application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
         val client = createClient { install(HttpCookies) }
 
+        val started = mapper.readTree(client.get("/api/activities/${activity.id}").bodyAsText())
+        assertEquals("pending", started.path("translations").path("status").asText())
+        assertEquals(1, calls)
+
         val failed = mapper.readTree(client.get("/api/activities/${activity.id}").bodyAsText())
         assertEquals("failed", failed.path("translations").path("status").asText())
         assertEquals(1, calls)
@@ -167,9 +178,12 @@ class TranslationBehaviorTest {
 
         now += TranslationService.FAILED_COOLDOWN_MILLIS + 1
         val retried = mapper.readTree(client.get("/api/activities/${activity.id}").bodyAsText())
-        assertEquals("ready", retried.path("translations").path("status").asText())
-        assertEquals(Limits.ACTIVITY_NAME_MAX, retried.path("translations").path("en").path("name").asText().length)
-        assertEquals(Limits.ACTIVITY_DESCRIPTION_MAX, retried.path("translations").path("vi").path("description").asText().length)
+        assertEquals("pending", retried.path("translations").path("status").asText())
+        assertEquals(2, calls)
+        val ready = mapper.readTree(client.get("/api/activities/${activity.id}").bodyAsText())
+        assertEquals("ready", ready.path("translations").path("status").asText())
+        assertEquals(Limits.ACTIVITY_NAME_MAX, ready.path("translations").path("en").path("name").asText().length)
+        assertEquals(Limits.ACTIVITY_DESCRIPTION_MAX, ready.path("translations").path("vi").path("description").asText().length)
         assertEquals(2, calls)
     }
 
@@ -193,10 +207,41 @@ class TranslationBehaviorTest {
             contentType(ContentType.Application.Json)
             setBody("""{"emoji":"☕","name":"Coffee walk","description":"","locationName":"Workshop"}""")
         }
-        val activity = mapper.readTree(created.bodyAsText())
+        val activityId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        val activity = mapper.readTree(author.get("/api/activities/$activityId").bodyAsText())
         assertEquals("ready", activity.path("translations").path("status").asText())
         assertEquals("", activity.path("translations").path("en").path("description").asText())
         assertEquals("", activity.path("translations").path("vi").path("description").asText())
+    }
+
+    @Test
+    fun createDoesNotWaitForTranslator() = testApplication {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val translation = TranslationService(
+            translator = Translator { fields, locales ->
+                started.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                locales.associateWith { locale -> fields.mapValues { (_, value) -> "$locale:$value" } }
+            },
+            configured = true,
+            executor = Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "translation-test").apply { isDaemon = true }
+            },
+        )
+        val services = services({ 1_700_000_000_000L }, translation)
+        application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
+        val author = createClient { install(HttpCookies) }
+        register(author, "Linh", "0905550306")
+
+        val created = author.post("/api/activities") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"emoji":"☕","name":"Coffee walk","description":"Meet up","locationName":"Workshop"}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        assertEquals("pending", mapper.readTree(created.bodyAsText()).path("translations").path("status").asText())
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        release.countDown()
     }
 
     @Test

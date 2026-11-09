@@ -280,8 +280,8 @@ internal fun openPhotoViewer(
 ) {
     if (source.isEmpty()) return
     val selected = startIndex.coerceIn(source.indices)
-    var photos = source.drop(selected) + source.take(selected)
-    var current = 0
+    var photos = source.toList()
+    var current = selected
     var closed = false
     var dragging = false
     var settling = false
@@ -296,9 +296,20 @@ internal fun openPhotoViewer(
     backdrop.setAttribute("role", "dialog")
     backdrop.setAttribute("aria-modal", "true")
     val viewer = el("div", "photo-viewer")
+    val frame = el("div", "photo-viewer-frame")
     val stage = el("div", "photo-viewer-stage")
-    val previous = el("button", "photo-viewer-arrow photo-viewer-previous", text = "‹")
-    val next = el("button", "photo-viewer-arrow photo-viewer-next", text = "›")
+    val previous = el("button", "photo-viewer-arrow photo-viewer-previous")
+    previous.asDynamic().innerHTML = """
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M15 18 9 12 15 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    """.trimIndent()
+    val next = el("button", "photo-viewer-arrow photo-viewer-next")
+    next.asDynamic().innerHTML = """
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M9 18 15 12 9 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    """.trimIndent()
     val close = el("button", "photo-viewer-close", text = "×")
     val remove = el("button", "photo-viewer-delete")
     remove.asDynamic().innerHTML = """
@@ -486,11 +497,12 @@ internal fun openPhotoViewer(
             }
         }
     }
+    frame.appendChild(stage)
+    frame.appendChild(previous)
+    frame.appendChild(next)
     viewer.appendChild(close)
     viewer.appendChild(remove)
-    viewer.appendChild(previous)
-    viewer.appendChild(stage)
-    viewer.appendChild(next)
+    viewer.appendChild(frame)
     viewer.appendChild(thumbs)
     backdrop.appendChild(viewer)
     document.asDynamic().addEventListener("keydown", keyHandler)
@@ -499,5 +511,5 @@ internal fun openPhotoViewer(
     historyEntry = OverlayHistoryEntry({ closeViewer(updateHistory = false) }, { closeViewer(updateHistory = false) })
     openOverlayHistory.add(historyEntry)
     renderPhotos()
-    window.asDynamic().requestAnimationFrame { scrollToPhoto(0, smooth = false) }
+    window.asDynamic().requestAnimationFrame { scrollToPhoto(selected, smooth = false) }
 }

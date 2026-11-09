@@ -3714,7 +3714,7 @@ span.event-face {
     max-width: 148px;
     overflow: hidden;
     color: #fff;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
     line-height: 1.15;
     text-align: left;
@@ -3722,7 +3722,7 @@ span.event-face {
     overflow-wrap: break-word;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
-    text-shadow: 0px -1px 1px rgba(0, 0, 0, .9), 0 1px 3px rgba(0, 0, 0, .9);
+    text-shadow: 0 -1px 1px rgba(0, 0, 0, .9), 0 1px 3px rgba(0, 0, 0, .9);
     transform: translateY(-50%);
     pointer-events: auto;
     cursor: pointer;
@@ -4580,7 +4580,19 @@ span.event-face {
 .activity-emoji { font-size: 28px; line-height: 1; }
 .activity-card-copy { display: grid; gap: 2px; min-width: 0; }
 .activity-card-copy p { margin: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.activity-card-host { color: var(--muted); font-size: 13px; -webkit-line-clamp: 1; }
+.activity-card-interested,
+.activity-card-photos { grid-column: 1 / -1; }
+.activity-card-interested { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.activity-card-interested-faces { display: flex; flex: 0 0 auto; padding-left: 5px; }
+.activity-card-interested-faces .face { width: 26px; height: 26px; margin-left: -5px; border: 2px solid var(--surface); }
+.activity-card-interested-names { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.activity-card-photos { display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; }
+.activity-card-photo { width: 64px; height: 64px; flex: 0 0 auto; object-fit: cover; border-radius: 9px; }
+.activity-schedule-summary { color: var(--muted); font-size: 13px; }
 .activity-manage-card .product-actions { grid-column: 1 / -1; }
+.mini-activities { display: flex; flex-direction: column; gap: 8px; }
+.mini-activities > h3 { margin: 0; }
 .activity-sheet { display: flex; flex-direction: column; }
 .activity-sheet-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 16px 18px; display: grid; gap: 10px; align-content: start; }
 .activity-location {
@@ -4753,6 +4765,7 @@ span.event-face {
     backdrop-filter: none;
 }
 .photo-viewer { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; color: #fff; }
+.photo-viewer-frame { position: relative; display: flex; flex: 1 1 auto; min-height: 0; }
 .photo-viewer-stage {
     display: flex;
     flex: 1 1 auto;
@@ -4774,7 +4787,7 @@ span.event-face {
     align-items: center;
     justify-content: center;
     height: 100%;
-    padding: calc(44px + env(safe-area-inset-top)) 0 calc(88px + env(safe-area-inset-bottom));
+    padding: 44px 0;
     scroll-snap-align: center;
 }
 .photo-viewer-image { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
@@ -4804,14 +4817,13 @@ span.event-face {
 .photo-viewer-arrow {
     top: 50%;
     width: 48px;
-    height: 64px;
-    border-radius: 16px;
+    height: 48px;
+    border-radius: 50%;
     transform: translateY(-50%);
-    font-size: 42px;
-    line-height: 1;
 }
-.photo-viewer-previous { left: 10px; }
-.photo-viewer-next { right: 10px; }
+.photo-viewer-arrow svg { width: 24px; height: 24px; }
+.photo-viewer-previous { left: 20px; }
+.photo-viewer-next { right: 20px; }
 .photo-viewer-arrow:disabled { opacity: .28; }
 .photo-viewer-thumbs {
     display: flex;
@@ -4838,7 +4850,7 @@ span.event-face {
 .photo-viewer-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 @media (max-width: 520px) {
-    .photo-viewer-arrow { width: 36px; height: 52px; border-radius: 12px; font-size: 34px; }
-    .photo-viewer-previous { left: 4px; }
-    .photo-viewer-next { right: 4px; }
+    .photo-viewer-arrow { width: 40px; height: 40px; }
+    .photo-viewer-previous { left: 14px; }
+    .photo-viewer-next { right: 14px; }
 }

@@ -1060,6 +1060,27 @@ class InMemoryTownRepository : TownRepository {
         return pageActivities(filtered, limit) { Cursors.encode(it.createdAt, it.id) }
     }
 
+    override fun activitiesInterestedByUser(userId: String, cursor: String?, limit: Int): ActivityPage {
+        val parsed = Cursors.parse(cursor)
+        val sorted = activityInterests.values
+            .filter { it.userId == userId && activities.containsKey(it.activityId) }
+            .sortedWith(compareByDescending<ActivityInterest> { it.createdAt }.thenByDescending { it.activityId })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, activityId) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.activityId < activityId) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit).mapNotNull { activities[it.activityId] }
+        val next = if (page.size > limit) {
+            page.getOrNull(limit - 1)?.let { Cursors.encode(it.createdAt, it.activityId) }
+        } else {
+            null
+        }
+        return ActivityPage(items, next)
+    }
+
     override fun activitiesForLocation(
         locationName: String,
         placeId: String?,

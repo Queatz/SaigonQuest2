@@ -27,26 +27,31 @@ class TranslationService(
         current: TranslationBlob?,
         persist: (TranslationBlob) -> Unit,
         maxLengths: Map<String, Int> = emptyMap(),
-    ) {
-        if (!configured || fields.isEmpty()) return
+    ): TranslationBlob? {
+        if (!configured || fields.isEmpty()) return current
         val sourceFields = fields.toMap()
         val hash = sourceHash(sourceFields)
         val now = clock()
-        if (current?.sourceHash == hash && current.status == STATUS_READY) return
+        if (current?.sourceHash == hash && current.status == STATUS_READY) return current
         if (
             current?.sourceHash == hash && current.status == STATUS_FAILED &&
             now - current.updatedAt < FAILED_COOLDOWN_MILLIS
-        ) return
+        ) return current
 
+        val pending = if (current?.sourceHash == hash && current.status == STATUS_PENDING) {
+            current
+        } else {
+            TranslationBlob(hash, STATUS_PENDING, updatedAt = now)
+        }
         val key = "$id:$hash"
-        if (!inflight.add(key)) return
+        if (!inflight.add(key)) return current ?: pending
 
         try {
-            if (current?.sourceHash != hash || current.status != STATUS_PENDING) {
-                persist(TranslationBlob(hash, STATUS_PENDING, updatedAt = now))
-            }
             executor.execute {
                 try {
+                    if (current?.sourceHash != hash || current.status != STATUS_PENDING) {
+                        persist(pending)
+                    }
                     val translations = translator.translate(sourceFields, LOCALES)
                     val complete = LOCALES.associateWith { locale ->
                         sourceFields.keys.associateWith { field ->
@@ -83,6 +88,7 @@ class TranslationService(
             inflight.remove(key)
             throw error
         }
+        return pending
     }
 
     fun override(fields: Map<String, String>, locales: Map<String, Map<String, String>>): TranslationBlob =

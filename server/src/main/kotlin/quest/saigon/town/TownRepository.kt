@@ -108,6 +108,7 @@ interface TownRepository {
     fun updateActivity(activity: ActivityRecord): ActivityRecord?
     fun deleteActivity(id: String): ActivityRecord?
     fun activitiesByUser(userId: String, cursor: String?, limit: Int): ActivityPage
+    fun activitiesInterestedByUser(userId: String, cursor: String?, limit: Int): ActivityPage
     fun activitiesForLocation(
         locationName: String,
         placeId: String?,

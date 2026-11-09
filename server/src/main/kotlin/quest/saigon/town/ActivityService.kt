@@ -126,6 +126,11 @@ class ActivityService(
         return page.items.map { view(ensureTranslations(it), actor.id, includePeople = false) } to page.nextCursor
     }
 
+    fun interestedByUser(userId: String, viewerId: String?, cursor: String?, limit: Int): Pair<List<ActivityView>, String?> {
+        val page = repo.activitiesInterestedByUser(userId, cursor, limit.coerceIn(1, 50))
+        return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false) } to page.nextCursor
+    }
+
     fun interest(actor: UserRecord, id: String): ActivityView {
         ensureAvailable(actor)
         val activity = repo.findActivity(id) ?: throw TownException("not_found")
@@ -176,35 +181,40 @@ class ActivityService(
     private fun view(activity: ActivityRecord, viewerId: String?, includePeople: Boolean): ActivityView {
         val interested = viewerId != null && repo.isActivityInterested(activity.id, viewerId)
         val host = activity.hostUserId?.let(::attendeeFor)
+        val interestedPeople = repo.activityInterested(
+            activity.id,
+            null,
+            if (includePeople) 50 else Limits.ACTIVITY_CARD_INTERESTED_LIMIT,
+        ).items
         val people = if (includePeople) {
-            val interestedPeople = repo.activityInterested(activity.id, null, 50).items
             if (host != null && interestedPeople.none { it.id == host.id }) listOf(host) + interestedPeople else interestedPeople
         } else {
-            emptyList()
+            interestedPeople
         }
-        return ActivityView(activity, interested, host, people)
+        val photos = repo.userPhotosForActivity(activity.id, Limits.ACTIVITY_CARD_PHOTO_LIMIT).map { it.photoPath }
+        return ActivityView(activity, interested, host, people, photos)
     }
 
     private fun ensureTranslations(activity: ActivityRecord): ActivityRecord {
         val fields = translationFields(activity)
-        translations.ensure(
+        val blob = translations.ensure(
             id = "activity:${activity.id}",
             fields = fields,
             current = activity.translations,
-            persist = { blob ->
+            persist = { next ->
                 val live = repo.findActivity(activity.id) ?: return@ensure
-                if (TranslationService.sourceHash(translationFields(live)) != blob.sourceHash) return@ensure
-                if (live.translations?.let { it.sourceHash == blob.sourceHash && it.status == TranslationService.STATUS_READY } == true) {
+                if (TranslationService.sourceHash(translationFields(live)) != next.sourceHash) return@ensure
+                if (live.translations?.let { it.sourceHash == next.sourceHash && it.status == TranslationService.STATUS_READY } == true) {
                     return@ensure
                 }
-                repo.updateActivity(live.copy(translations = blob))
+                repo.updateActivity(live.copy(translations = next))
             },
             maxLengths = mapOf(
                 "name" to Limits.ACTIVITY_NAME_MAX,
                 "description" to Limits.ACTIVITY_DESCRIPTION_MAX,
             ),
         )
-        return repo.findActivity(activity.id) ?: activity
+        return if (blob == null || blob == activity.translations) activity else activity.copy(translations = blob)
     }
 
     private fun translationFields(activity: ActivityRecord): Map<String, String> =

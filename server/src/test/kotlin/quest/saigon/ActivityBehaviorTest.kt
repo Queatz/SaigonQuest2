@@ -20,6 +20,7 @@ import quest.saigon.town.ChatType
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
 import quest.saigon.town.TownServices
+import quest.saigon.town.UserPhotoRecord
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,6 +42,7 @@ class ActivityBehaviorTest {
         register(linh, "Linh", "0905550201")
         register(minh, "Minh", "0905550202")
         register(an, "An", "0905550203")
+        val linhId = mapper.readTree(linh.get("/api/me").bodyAsText()).path("id").asText()
         val minhId = mapper.readTree(minh.get("/api/me").bodyAsText()).path("id").asText()
         val anId = mapper.readTree(an.get("/api/me").bodyAsText()).path("id").asText()
 
@@ -77,12 +79,28 @@ class ActivityBehaviorTest {
         assertEquals(minhId, activity.path("hostUserId").asText())
         assertEquals(1, activity.path("schedule").size())
         assertEquals(540, activity.path("schedule").path(0).path("startMinutes").asInt())
+        services.repo.insertUserPhoto(
+            UserPhotoRecord(
+                id = "activity-preview-photo",
+                userId = linhId,
+                photoPath = "activities/preview.jpg",
+                createdAt = now,
+                activityId = activityId,
+            ),
+        )
 
         val listed = mapper.readTree(
             linh.get("/api/activities?name=The%20Workshop&placeId=ChIJCoffee").bodyAsText(),
         ).path("activities")
         assertEquals(1, listed.size())
         assertEquals(activityId, listed.path(0).path("id").asText())
+        assertEquals(1, listed.path(0).path("interestedPeople").size())
+        assertEquals("/media/activities/preview.jpg", listed.path(0).path("photoUrls").path(0).asText())
+
+        val linhActivities = mapper.readTree(linh.get("/api/users/$linhId/activities").bodyAsText()).path("activities")
+        assertEquals(1, linhActivities.size())
+        assertEquals(activityId, linhActivities.path(0).path("id").asText())
+        assertEquals(HttpStatusCode.NotFound, linh.get("/api/users/missing-user/activities").status)
 
         val invalidSchedule = linh.post("/api/activities") {
             contentType(ContentType.Application.Json)
@@ -110,9 +128,23 @@ class ActivityBehaviorTest {
 
         minh.post("/api/activities/$activityId/join")
         an.post("/api/activities/$activityId/join")
+        an.post("/api/activities/$laterId/join")
         val afterJoin = mapper.readTree(linh.get("/api/activities/$activityId").bodyAsText())
         assertEquals(3, afterJoin.path("interestedCount").asInt())
         assertEquals(3, afterJoin.path("interestedPeople").size())
+
+        val firstProfilePage = mapper.readTree(an.get("/api/users/$anId/activities?limit=1").bodyAsText())
+        assertEquals(1, firstProfilePage.path("activities").size())
+        assertTrue(firstProfilePage.path("nextCursor").asText().isNotBlank())
+        val secondProfilePage = mapper.readTree(
+            an.get("/api/users/$anId/activities?limit=1&cursor=${firstProfilePage.path("nextCursor").asText()}").bodyAsText(),
+        )
+        assertEquals(1, secondProfilePage.path("activities").size())
+        assertNotEquals(
+            firstProfilePage.path("activities").path(0).path("id").asText(),
+            secondProfilePage.path("activities").path(0).path("id").asText(),
+        )
+        assertTrue(secondProfilePage.path("nextCursor").isNull || secondProfilePage.path("nextCursor").asText().isBlank())
 
         val discover = mapper.readTree(linh.get("/api/activities").bodyAsText()).path("activities")
         assertEquals(activityId, discover.path(0).path("id").asText())

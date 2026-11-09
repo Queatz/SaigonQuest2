@@ -252,6 +252,20 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("activities" to items.map(::activityPayload), "nextCursor" to next))
     }
 
+    get("/users/{id}/activities") {
+        val id = call.parameters["id"].orEmpty()
+        if (services.repo.findUser(id) == null) return@get call.fail("not_found")
+        val viewer = call.user(services)
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val (items, next) = services.activities.interestedByUser(
+            id,
+            viewer?.id,
+            call.request.queryParameters["cursor"],
+            limit,
+        )
+        call.respondJson(mapOf("activities" to items.map(::activityPayload), "nextCursor" to next))
+    }
+
     get("/users/{id}/products") {
         val id = call.parameters["id"].orEmpty()
         val seller = services.repo.findUser(id) ?: return@get call.fail("not_found")
@@ -2216,6 +2230,7 @@ private fun activityPayload(view: ActivityView): Map<String, Any?> {
         "interestedPeople" to view.interestedPeople.map { person ->
             attendeePayload(person, includePhone = false) + mapOf("host" to (hostId != null && person.id == hostId))
         },
+        "photoUrls" to view.photoPaths.map { "/media/$it" },
         "createdAt" to activity.createdAt,
     )
     val translations = activity.translations ?: return payload
