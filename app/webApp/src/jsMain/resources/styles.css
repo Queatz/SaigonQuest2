@@ -2289,6 +2289,14 @@ button.busy .avatar-spinner {
     height: 36px;
 }
 
+.dialog-close {
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+    width: 36px;
+    height: 36px;
+}
+
 .comment-list {
     overflow: auto;
     min-height: 180px;
