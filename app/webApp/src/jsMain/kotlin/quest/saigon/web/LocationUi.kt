@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.Limits
 import quest.saigon.encodeLocationToken
 import web.html.HTMLElement
 import web.window.WindowTarget
@@ -48,6 +49,7 @@ internal fun openLocationSheet(
         if (galleryLocationId != null) put("locationId", galleryLocationId)
         else if (galleryPlaceId != null) put("placeId", galleryPlaceId)
     }
+    body.appendChild(locationDescriptionSection(host, place, galleryPlaceId, galleryLocationId))
     body.appendChild(
         userPhotosSection(
             host,
@@ -112,6 +114,102 @@ internal fun openLocationSheet(
         loadLocationActivities(activityList, host, router, place, placeId, customLocationId, lat, lng)
         load()
     }
+}
+
+private fun locationDescriptionSection(
+    host: HTMLElement,
+    locationName: String,
+    placeId: String?,
+    locationId: String?,
+): HTMLElement {
+    val section = el("section", "location-details")
+    val head = el("div", "section-head")
+    head.appendChild(el("h3", text = Town.t("details")))
+    val content = el("div", "location-description-about")
+    section.appendChild(head)
+    section.appendChild(content)
+    var description = ""
+    var editing = false
+    var loaded = false
+
+    fun paint() {
+        content.clear()
+        if (editing) {
+            val input = el("textarea", "location-description-input")
+            input.setAttribute("maxlength", Limits.LOCATION_DESCRIPTION_MAX.toString())
+            input.setAttribute("placeholder", Town.t("locationDescriptionHint"))
+            input.setAttribute("aria-label", Town.t("locationDescription"))
+            input.asDynamic().value = description
+            val actions = el("div", "location-description-actions")
+            val save = el("button", "primary", text = Town.t("save"))
+            save.setAttribute("type", "button")
+            val cancel = el("button", "text-button", text = Town.t("cancel"))
+            cancel.setAttribute("type", "button")
+            save.onClick {
+                val payload = js("({})")
+                payload.name = locationName
+                if (locationId != null) payload.locationId = locationId
+                else if (placeId != null) payload.placeId = placeId
+                payload.description = (input.asDynamic().value as? String).orEmpty()
+                save.setAttribute("disabled", "disabled")
+                http("PATCH", "/api/places/description", jsonStringify(payload)) { status, body ->
+                    save.removeAttribute("disabled")
+                    if (status != 200) {
+                        toast(host, errorText(body, status))
+                        return@http
+                    }
+                    description = (parseJson(body).description as? String).orEmpty()
+                    editing = false
+                    paint()
+                }
+            }
+            cancel.onClick {
+                editing = false
+                paint()
+            }
+            actions.appendChild(save)
+            actions.appendChild(cancel)
+            content.appendChild(input)
+            content.appendChild(actions)
+            window.asDynamic().setTimeout({ input.asDynamic().focus() }, 30)
+            return
+        }
+        if (description.isNotBlank()) {
+            content.appendChild(linkedParagraph(description, "location-description"))
+        }
+        if (loaded) {
+            val label = Town.t(if (description.isBlank()) "addDescription" else "edit")
+            val edit = el("button", "text-button", text = label)
+            edit.setAttribute("type", "button")
+            edit.onClick {
+                if (Town.me == null) {
+                    showAuthDialog(host, onSuccess = {
+                        editing = true
+                        paint()
+                    })
+                } else {
+                    editing = true
+                    paint()
+                }
+            }
+            content.appendChild(edit)
+        }
+    }
+
+    paint()
+    val query = buildString {
+        append("?name=${encodeQuery(locationName)}")
+        if (locationId != null) append("&locationId=${encodeQuery(locationId)}")
+        else if (placeId != null) append("&placeId=${encodeQuery(placeId)}")
+    }
+    http("GET", "/api/places/description$query") { status, body ->
+        loaded = true
+        if (status == 200 && !editing) {
+            description = (parseJson(body).description as? String).orEmpty()
+        }
+        paint()
+    }
+    return section
 }
 
 internal fun locationPostTile(

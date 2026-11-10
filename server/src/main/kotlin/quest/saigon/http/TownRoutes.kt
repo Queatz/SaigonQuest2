@@ -50,6 +50,7 @@ import quest.saigon.town.CommentItem
 import quest.saigon.town.CommentService
 import quest.saigon.town.FeatureSuggestionView
 import quest.saigon.town.FeedItem
+import quest.saigon.town.LocationDescriptionRecord
 import quest.saigon.town.MusicRecord
 import quest.saigon.town.MusicStatus
 import quest.saigon.town.OwnedPost
@@ -1276,6 +1277,47 @@ fun Route.townApi(services: TownServices) {
         val photo = services.places.photo(photoName) ?: return@get call.fail("not_found")
         call.response.headers.append(HttpHeaders.CacheControl, "private, max-age=86400")
         call.respondBytes(photo, ContentType.Image.JPEG)
+    }
+
+    get("/places/description") {
+        val name = call.request.queryParameters["name"]?.trim().orEmpty()
+        if (name.isEmpty() || name.length > Limits.LOCATION_MAX) return@get call.fail("invalid_location")
+        val rawPlaceId = call.request.queryParameters["placeId"].orEmpty()
+        val rawLocationId = call.request.queryParameters["locationId"].orEmpty()
+        val placeId = cleanPlaceId(rawPlaceId)
+        val locationId = cleanLocationId(rawLocationId)
+        if ((rawPlaceId.isNotBlank() && placeId == null) || (rawLocationId.isNotBlank() && locationId == null)) {
+            return@get call.fail("invalid_location")
+        }
+        val description = services.repo.locationDescriptionAtLocation(name, placeId, locationId)?.description.orEmpty()
+        call.respondJson(mapOf("description" to description))
+    }
+
+    patch("/places/description") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        if (user.paused) return@patch call.fail("account_paused")
+        val body = Jsons.parse(call.receiveText())
+        val name = Jsons.text(body, "name").trim()
+        if (name.isEmpty() || name.length > Limits.LOCATION_MAX) return@patch call.fail("invalid_location")
+        val rawPlaceId = Jsons.text(body, "placeId")
+        val rawLocationId = Jsons.text(body, "locationId")
+        val placeId = cleanPlaceId(rawPlaceId)
+        val locationId = cleanLocationId(rawLocationId)
+        if ((rawPlaceId.isNotBlank() && placeId == null) || (rawLocationId.isNotBlank() && locationId == null)) {
+            return@patch call.fail("invalid_location")
+        }
+        val description = cleanLocationDescription(Jsons.text(body, "description"))
+            ?: return@patch call.fail("invalid_description")
+        val updated = services.repo.upsertLocationDescription(
+            LocationDescriptionRecord(
+                id = "",
+                locationName = name,
+                description = description,
+                placeId = placeId,
+                locationId = locationId,
+            ),
+        )
+        call.respondJson(mapOf("description" to updated.description))
     }
 
     get("/places/photos") {
@@ -2666,6 +2708,8 @@ private fun cleanIntro(raw: String): String? = cleanMultiline(raw, Limits.INTRO_
 private fun cleanFeature(raw: String): String? = cleanMultiline(raw, Limits.FEATURE_MAX)
 
 private fun cleanDescription(raw: String): String? = cleanMultiline(raw, Limits.COMMUNITY_DESCRIPTION_MAX)
+
+private fun cleanLocationDescription(raw: String): String? = cleanMultiline(raw, Limits.LOCATION_DESCRIPTION_MAX)
 
 private fun cleanMultiline(raw: String, max: Int): String? {
     val text = raw.replace("\r\n", "\n").trim()

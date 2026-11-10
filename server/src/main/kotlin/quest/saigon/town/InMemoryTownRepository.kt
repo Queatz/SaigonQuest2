@@ -31,6 +31,7 @@ class InMemoryTownRepository : TownRepository {
     private val activities = ConcurrentHashMap<String, ActivityRecord>()
     private val activityInterests = ConcurrentHashMap<String, ActivityInterest>()
     private val userPhotos = ConcurrentHashMap<String, UserPhotoRecord>()
+    private val locationDescriptions = ConcurrentHashMap<String, LocationDescriptionRecord>()
     private val chats = ConcurrentHashMap<String, ChatRecord>()
     private val chatMembers = ConcurrentHashMap<String, ChatMemberRecord>()
     private val chatMessages = ConcurrentHashMap<String, ChatMessageRecord>()
@@ -1242,6 +1243,19 @@ class InMemoryTownRepository : TownRepository {
         userPhotos.values.filter { it.activityId == activityId }.mapNotNull { photo ->
             userPhotos.remove(photo.id)
         }
+
+    override fun locationDescriptionAtLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+    ): LocationDescriptionRecord? = locationDescriptions[locationIdentityKey(locationName, placeId, locationId)]
+
+    override fun upsertLocationDescription(description: LocationDescriptionRecord): LocationDescriptionRecord {
+        val key = locationIdentityKey(description.locationName, description.placeId, description.locationId)
+        return locationDescriptions.compute(key) { _, current ->
+            description.copy(id = current?.id ?: description.id.ifBlank { newId() })
+        } ?: error("Location description upsert returned no record")
+    }
 
     private fun afterActivityCursor(activity: ActivityRecord, cursor: ActivityCursor): Boolean =
         activity.interestedCount < cursor.interestedCount ||

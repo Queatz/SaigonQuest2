@@ -2967,6 +2967,58 @@ button.busy .avatar-spinner {
     width: auto;
 }
 
+.location-details {
+    display: grid;
+    gap: 8px;
+}
+
+.location-details .section-head { margin: 0; }
+
+.location-description-about {
+    display: grid;
+    gap: 8px;
+}
+
+.location-description {
+    margin: 0;
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.location-description a {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.location-description-about .text-button {
+    width: auto;
+    padding: 4px 0;
+    justify-self: start;
+}
+
+.location-description-input {
+    width: 100%;
+    min-height: 88px;
+    resize: vertical;
+}
+
+.location-description-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.location-description-actions .primary {
+    width: auto;
+    margin: 0;
+}
+
+.location-description-actions .text-button { width: auto; }
+
 .mini-communities {
     display: flex;
     flex-wrap: wrap;
@@ -4861,6 +4913,7 @@ span.event-face {
     justify-self: start;
     text-align: left;
     font-size: 14px;
+    font-weight: 900;
     color: var(--text);
 }
 .activity-location-section { display: grid; gap: 8px; }

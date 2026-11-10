@@ -18,7 +18,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
             NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
             POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
-            ACTIVITIES, ACTIVITY_INTERESTS, USER_PHOTOS, CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
+            ACTIVITIES, ACTIVITY_INTERESTS, USER_PHOTOS, LOCATION_DESCRIPTIONS,
+            CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
         ).forEach { name ->
             val collection = db.collection(name)
             if (!collection.exists()) collection.create()
@@ -56,6 +57,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("locationId", "createdAt"), PersistentIndexOptions())
         db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("placeId", "createdAt"), PersistentIndexOptions())
         db.collection(USER_PHOTOS).ensurePersistentIndex(listOf("locationName", "createdAt"), PersistentIndexOptions())
+        db.collection(LOCATION_DESCRIPTIONS).ensurePersistentIndex(listOf("identityKey"), PersistentIndexOptions().unique(true))
         db.collection(MUSIC).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(MUSIC).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(COMMENTS).ensurePersistentIndex(listOf("postKey", "createdAt"), PersistentIndexOptions())
@@ -2330,6 +2332,47 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         mapOf("activityKey" to activityId),
     ).map(::userPhotoFrom)
 
+    override fun locationDescriptionAtLocation(
+        locationName: String,
+        placeId: String?,
+        locationId: String?,
+    ): LocationDescriptionRecord? = first(
+        "FOR d IN $LOCATION_DESCRIPTIONS FILTER d.identityKey == @identityKey LIMIT 1 RETURN d",
+        mapOf("identityKey" to locationIdentityKey(locationName, placeId, locationId)),
+    )?.let(::locationDescriptionFrom)
+
+    override fun upsertLocationDescription(description: LocationDescriptionRecord): LocationDescriptionRecord {
+        val identityKey = locationIdentityKey(description.locationName, description.placeId, description.locationId)
+        val updated = first(
+            """
+            UPSERT { identityKey: @identityKey }
+            INSERT {
+              identityKey: @identityKey,
+              locationName: @locationName,
+              placeId: @placeId,
+              locationId: @locationId,
+              description: @description
+            }
+            UPDATE {
+              locationName: @locationName,
+              placeId: @placeId,
+              locationId: @locationId,
+              description: @description
+            }
+            IN $LOCATION_DESCRIPTIONS
+            RETURN NEW
+            """.trimIndent(),
+            mapOf(
+                "identityKey" to identityKey,
+                "locationName" to description.locationName,
+                "placeId" to description.placeId,
+                "locationId" to description.locationId,
+                "description" to description.description,
+            ),
+        ) ?: throw IllegalStateException("Location description upsert returned no record")
+        return locationDescriptionFrom(updated)
+    }
+
     private fun pageActivities(rows: List<BaseDocument>, limit: Int): ActivityPage {
         val page = rows.take(limit)
         val next = if (rows.size > limit) {
@@ -3505,6 +3548,14 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         locationId = optional(doc, "locationId"),
     )
 
+    private fun locationDescriptionFrom(doc: BaseDocument) = LocationDescriptionRecord(
+        id = doc.key,
+        locationName = string(doc, "locationName"),
+        description = string(doc, "description"),
+        placeId = optional(doc, "placeId"),
+        locationId = optional(doc, "locationId"),
+    )
+
     private fun translationBlobFrom(doc: BaseDocument): TranslationBlob? {
         val values = objectProperties(doc.getAttribute("translations")) ?: return null
         val sourceHash = values["sourceHash"] as? String ?: return null
@@ -4014,6 +4065,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val ACTIVITIES = "activities"
         private const val ACTIVITY_INTERESTS = "activityInterests"
         private const val USER_PHOTOS = "userPhotos"
+        private const val LOCATION_DESCRIPTIONS = "locationDescriptions"
         private const val CHATS = "chats"
         private const val CHAT_MEMBERS = "chatMembers"
         private const val CHAT_MESSAGES = "chatMessages"

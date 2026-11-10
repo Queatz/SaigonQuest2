@@ -666,7 +666,7 @@ class TownBehaviorTest {
         graphics.fillRect(0, 0, source.width, source.height)
         graphics.dispose()
         val prepared = images.read(images.preparePostPhoto(images.writeJpeg(source, 0.95f)))
-        assertEquals(800, Limits.PHOTO_MAX_EDGE)
+        assertEquals(1200, Limits.PHOTO_MAX_EDGE)
         assertEquals(0.85, Limits.JPEG_QUALITY)
         assertTrue(maxOf(prepared.width, prepared.height) <= Limits.PHOTO_MAX_EDGE)
     }

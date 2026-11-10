@@ -627,20 +627,32 @@ data class UserPhotoRecord(
     val locationId: String? = null,
 )
 
+data class LocationDescriptionRecord(
+    val id: String,
+    val locationName: String,
+    val description: String,
+    val placeId: String? = null,
+    val locationId: String? = null,
+)
+
+fun locationIdentityKey(locationName: String, placeId: String?, locationId: String?): String {
+    val customId = locationId?.takeIf { it.isNotBlank() }
+    val pid = placeId?.takeIf { it.isNotBlank() }
+    return when {
+        customId != null -> "location:$customId"
+        pid != null -> "place:$pid"
+        else -> "name:${locationName.trim().lowercase()}"
+    }
+}
+
 fun userPhotoMatchesLocation(
     photo: UserPhotoRecord,
     locationName: String,
     placeId: String?,
     locationId: String?,
 ): Boolean {
-    val customId = locationId?.takeIf { it.isNotBlank() }
-    val pid = placeId?.takeIf { it.isNotBlank() }
-    return when {
-        customId != null -> photo.locationId == customId
-        pid != null -> photo.locationId.isNullOrBlank() && photo.placeId == pid
-        else -> photo.locationId.isNullOrBlank() && photo.placeId.isNullOrBlank() &&
-            photo.locationName.equals(locationName.trim(), ignoreCase = true)
-    }
+    return locationIdentityKey(photo.locationName.orEmpty(), photo.placeId, photo.locationId) ==
+        locationIdentityKey(locationName, placeId, locationId)
 }
 
 data class ActivityView(

@@ -130,6 +130,8 @@ interface TownRepository {
     fun userPhotosForActivity(activityId: String, limit: Int): List<UserPhotoRecord>
     fun userPhotosAtLocation(locationName: String, placeId: String?, locationId: String?, limit: Int): List<UserPhotoRecord>
     fun deleteActivityPhotos(activityId: String): List<UserPhotoRecord>
+    fun locationDescriptionAtLocation(locationName: String, placeId: String?, locationId: String?): LocationDescriptionRecord?
+    fun upsertLocationDescription(description: LocationDescriptionRecord): LocationDescriptionRecord
     fun insertUserLocation(name: String, lat: Double, lng: Double, createdBy: String, createdAt: Long): UserLocationRecord
     fun searchUserLocations(query: String, limit: Int): List<UserLocationRecord>
     fun userLocations(): List<UserLocationRecord>
