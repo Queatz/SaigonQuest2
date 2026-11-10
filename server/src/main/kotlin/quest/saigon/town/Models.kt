@@ -711,6 +711,12 @@ data class CommunityRecord(
 data class CommunityView(
     val community: CommunityRecord,
     val joined: Boolean,
+    val latestPosts: List<CommunityPostPhoto> = emptyList(),
+)
+
+data class CommunityPostPhoto(
+    val id: String,
+    val photoPath: String,
 )
 
 data class CommunityMember(

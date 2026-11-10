@@ -1373,12 +1373,31 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               FILTER @hasQuery == false OR LOWER(c.name) LIKE @like OR LOWER(c.slug) LIKE @like
               SORT c.memberCount DESC, c.name ASC
               LIMIT @limit
-              RETURN c
+              RETURN MERGE(c, {
+                latestPosts: (
+                  FOR p IN $POSTS
+                    FILTER p.communityKey == c._key
+                    FILTER p.photoPath != null AND p.photoPath != ""
+                    FILTER ${communityVisibleFilter()}
+                    SORT p.createdAt DESC, p._key DESC
+                    LIMIT @photoLimit
+                    RETURN { id: p._key, photoPath: p.photoPath }
+                )
+              })
             """.trimIndent(),
-            mapOf("hasQuery" to needle.isNotEmpty(), "like" to like, "limit" to limit),
+            mapOf(
+                "hasQuery" to needle.isNotEmpty(),
+                "like" to like,
+                "limit" to limit,
+                "photoLimit" to Limits.COMMUNITY_CARD_PHOTO_LIMIT,
+                "viewerId" to userId.orEmpty(),
+            ),
         )
         val joined = joinedIds(userId)
-        return rows.map(::communityFrom).map { CommunityView(it, it.id in joined) }
+        return rows.map { row ->
+            val community = communityFrom(row)
+            CommunityView(community, community.id in joined, communityPostPhotoList(row, "latestPosts"))
+        }
     }
 
     override fun communitiesForUser(userId: String): List<CommunityRecord> = queryList(
@@ -3705,6 +3724,26 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             else -> return emptyList()
         }
         return rows.mapNotNull(::pollOptionFromAny)
+    }
+
+    private fun communityPostPhotoList(doc: BaseDocument, name: String): List<CommunityPostPhoto> {
+        val raw = doc.getAttribute(name) ?: return emptyList()
+        val rows = when (raw) {
+            is Collection<*> -> raw
+            is Array<*> -> raw.toList()
+            else -> return emptyList()
+        }
+        return rows.mapNotNull { row ->
+            fun read(field: String): Any? = when (row) {
+                is BaseDocument -> row.getAttribute(field)
+                is Map<*, *> -> row[field]
+                else -> null
+            }
+            val id = read("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" } ?: return@mapNotNull null
+            val photoPath = read("photoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+                ?: return@mapNotNull null
+            CommunityPostPhoto(id, photoPath)
+        }
     }
 
     private fun pollOptionFrom(doc: BaseDocument): PollOptionView? = pollOptionFromAny(doc)

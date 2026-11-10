@@ -1607,7 +1607,7 @@ fun Route.townApi(services: TownServices) {
         val user = call.user(services)
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 30
         val items = services.repo.searchCommunities(call.request.queryParameters["q"].orEmpty(), user?.id, limit)
-        call.respondJson(mapOf("communities" to items.map { communityPayload(it.community, it.joined) }))
+        call.respondJson(mapOf("communities" to items.map { communityPayload(it.community, it.joined, it.latestPosts) }))
     }
 
     post("/communities/suggest") {
@@ -2431,7 +2431,11 @@ private fun postPayload(item: FeedItem) = mapOf(
     "openChatJoined" to item.openChatJoined,
 )
 
-private fun communityPayload(community: quest.saigon.town.CommunityRecord, joined: Boolean) = mapOf(
+private fun communityPayload(
+    community: quest.saigon.town.CommunityRecord,
+    joined: Boolean,
+    latestPosts: List<quest.saigon.town.CommunityPostPhoto> = emptyList(),
+) = mapOf(
     "id" to community.id,
     "name" to community.name,
     "emoji" to community.emoji,
@@ -2439,6 +2443,7 @@ private fun communityPayload(community: quest.saigon.town.CommunityRecord, joine
     "memberCount" to community.memberCount,
     "joined" to joined,
     "createdAt" to community.createdAt,
+    "latestPosts" to latestPosts.map { mapOf("id" to it.id, "photoUrl" to "/media/${it.photoPath}") },
 )
 
 private fun memberPayload(member: quest.saigon.town.CommunityMember, includeLatestPost: Boolean = false) = mapOf(

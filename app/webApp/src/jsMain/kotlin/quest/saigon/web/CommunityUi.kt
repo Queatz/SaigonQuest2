@@ -4,6 +4,11 @@ import quest.saigon.Limits
 import web.html.HTMLElement
 import web.window.window
 
+internal data class CommunityPostPreview(
+    val id: String,
+    val photoUrl: String,
+)
+
 internal data class CommunityCard(
     val id: String,
     val name: String,
@@ -11,6 +16,7 @@ internal data class CommunityCard(
     val memberCount: Int = 0,
     val joined: Boolean = false,
     val description: String = "",
+    val latestPosts: List<CommunityPostPreview> = emptyList(),
 )
 
 internal class CommunityChoice {
@@ -18,14 +24,26 @@ internal class CommunityChoice {
     var exclusive: Boolean = false
 }
 
-internal fun communityFrom(node: dynamic): CommunityCard = CommunityCard(
-    id = (node.id as? String).orEmpty(),
-    name = (node.name as? String).orEmpty(),
-    emoji = (node.emoji as? String).orEmpty().ifBlank { "✨" },
-    memberCount = num(node.memberCount).toInt(),
-    joined = node.joined == true,
-    description = (node.description as? String).orEmpty(),
-)
+internal fun communityFrom(node: dynamic): CommunityCard {
+    val latestPosts = mutableListOf<CommunityPostPreview>()
+    val latestPostNodes: dynamic = node.latestPosts
+    val latestPostCount = latestPostNodes.length as? Int ?: 0
+    for (i in 0 until latestPostCount) {
+        val latestPost = latestPostNodes[i]
+        val id = (latestPost.id as? String).orEmpty()
+        val photoUrl = (latestPost.photoUrl as? String).orEmpty()
+        if (id.isNotBlank() && photoUrl.isNotBlank()) latestPosts += CommunityPostPreview(id, photoUrl)
+    }
+    return CommunityCard(
+        id = (node.id as? String).orEmpty(),
+        name = (node.name as? String).orEmpty(),
+        emoji = (node.emoji as? String).orEmpty().ifBlank { "✨" },
+        memberCount = num(node.memberCount).toInt(),
+        joined = node.joined == true,
+        description = (node.description as? String).orEmpty(),
+        latestPosts = latestPosts,
+    )
+}
 
 internal fun readCommunities(node: dynamic): List<CommunityCard> {
     val items = mutableListOf<CommunityCard>()
@@ -758,9 +776,17 @@ internal fun communityActionRow(
     onDone: () -> Unit,
 ): HTMLElement {
     val row = el("div", "community-row")
-    row.appendChild(
-        communityChooserRow(community) { router.navigate("/c/${community.id}") },
-    )
+    val header = el("div", "community-row-header")
+    val info = el("button", "community-row-info")
+    info.setAttribute("type", "button")
+    val copy = el("div", "chooser-copy")
+    copy.appendChild(el("span", text = communityLabel(community)))
+    info.appendChild(copy)
+    if (community.memberCount > 0) {
+        info.appendChild(el("small", text = community.memberCount.toString()))
+    }
+    info.onClick { router.navigate("/c/${community.id}") }
+    header.appendChild(info)
     val button = el(
         "button",
         if (leaving) "tiny danger community-action" else "tiny community-action",
@@ -779,6 +805,28 @@ internal fun communityActionRow(
             if (status == 200) onDone() else toast(host, errorText(body, status))
         }
     }
-    row.appendChild(button)
+    header.appendChild(button)
+    row.appendChild(header)
+    if (community.description.isNotBlank()) {
+        val description = linkedParagraph(community.description, "community-description")
+        description.onClick { router.navigate("/c/${community.id}") }
+        row.appendChild(description)
+    }
+    if (community.latestPosts.isNotEmpty()) {
+        val photos = el("div", "community-post-photos")
+        community.latestPosts.take(Limits.COMMUNITY_CARD_PHOTO_LIMIT).forEach { latestPost ->
+            val photo = el("button", "community-post-photo")
+            photo.setAttribute("type", "button")
+            photo.setAttribute("aria-label", "Open latest post in ${community.name}")
+            val image = el("img")
+            image.setAttribute("src", prefixServerOrigin(latestPost.photoUrl))
+            image.setAttribute("alt", "")
+            image.setAttribute("loading", "lazy")
+            photo.appendChild(image)
+            photo.onClick { router.navigate("/p/${latestPost.id}") }
+            photos.appendChild(photo)
+        }
+        row.appendChild(photos)
+    }
     return row
 }

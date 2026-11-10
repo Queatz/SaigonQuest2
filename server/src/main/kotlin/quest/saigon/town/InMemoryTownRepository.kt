@@ -671,7 +671,16 @@ class InMemoryTownRepository : TownRepository {
             .filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.slug.contains(needle) }
             .sortedWith(compareByDescending<CommunityRecord> { it.memberCount }.thenBy { it.name.lowercase() })
             .take(limit)
-            .map { CommunityView(it, userId != null && isMember(it.id, userId)) }
+            .map { community ->
+                val latestPosts = posts.values
+                    .asSequence()
+                    .filter { it.communityId == community.id && it.photoPath.isNotBlank() && placePostVisible(it, userId) }
+                    .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+                    .take(Limits.COMMUNITY_CARD_PHOTO_LIMIT)
+                    .map { CommunityPostPhoto(it.id, it.photoPath) }
+                    .toList()
+                CommunityView(community, userId != null && isMember(community.id, userId), latestPosts)
+            }
     }
 
     override fun communitiesForUser(userId: String): List<CommunityRecord> =

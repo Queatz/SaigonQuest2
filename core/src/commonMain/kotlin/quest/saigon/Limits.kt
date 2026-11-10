@@ -46,6 +46,7 @@ object Limits {
     const val MINI_PROFILE_ACTIVITIES = 8
     const val ACTIVITY_CARD_INTERESTED_LIMIT = 5
     const val ACTIVITY_CARD_PHOTO_LIMIT = 10
+    const val COMMUNITY_CARD_PHOTO_LIMIT = 3
     const val COMMENT_MAX = 280
     const val COMMENT_PAGE_SIZE = 50
     const val COMMENT_PREVIEW = 12

@@ -56,7 +56,8 @@ class CommunityBehaviorTest {
 
     @Test
     fun communitiesCanBeJoinedSearchedAndPostedExclusively() = testApplication {
-        val services = services()
+        var timestamp = 1_700_000_000_000L
+        val services = services { timestamp++ }
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
         val linh = createClient { install(HttpCookies) }
         val minh = createClient { install(HttpCookies) }
@@ -191,6 +192,45 @@ class CommunityBehaviorTest {
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Nowhere", null, exclusive = true).status)
         assertEquals(HttpStatusCode.BadRequest, post(linh, "Missing", "nope", exclusive = false).status)
         assertEquals(HttpStatusCode.NotFound, linh.get("/api/communities/missing").status)
+
+        val recentShared = post(linh, "Recent shared brunch", communityId, exclusive = false)
+        val recentSharedBody = mapper.readTree(recentShared.bodyAsText())
+        val recentExclusive = post(linh, "Recent members brunch", communityId, exclusive = true)
+        val recentExclusiveBody = mapper.readTree(recentExclusive.bodyAsText())
+        val latestShared = post(linh, "Latest shared brunch", communityId, exclusive = false)
+        val latestSharedBody = mapper.readTree(latestShared.bodyAsText())
+        assertEquals(HttpStatusCode.Created, recentShared.status)
+        assertEquals(HttpStatusCode.Created, recentExclusive.status)
+        assertEquals(HttpStatusCode.Created, latestShared.status)
+
+        val memberCommunity = mapper.readTree(minh.get("/api/communities?limit=50").bodyAsText())
+            .path("communities").first { it.path("id").asText() == communityId }
+        val memberLatestPosts = memberCommunity.path("latestPosts")
+        assertEquals(3, memberLatestPosts.size())
+        assertEquals(
+            listOf(latestSharedBody.path("id").asText(), recentExclusiveBody.path("id").asText(), recentSharedBody.path("id").asText()),
+            (0 until memberLatestPosts.size()).map { memberLatestPosts.path(it).path("id").asText() },
+        )
+        assertEquals(
+            listOf(latestSharedBody, recentExclusiveBody, recentSharedBody).map { it.path("photoUrl").asText() },
+            (0 until memberLatestPosts.size()).map { memberLatestPosts.path(it).path("photoUrl").asText() },
+        )
+
+        val visitorCommunity = mapper.readTree(visitor.get("/api/communities?limit=50").bodyAsText())
+            .path("communities").first { it.path("id").asText() == communityId }
+        val visitorLatestPosts = visitorCommunity.path("latestPosts")
+        assertEquals(
+            listOf(latestSharedBody.path("id").asText(), recentSharedBody.path("id").asText(), sharedBody.path("id").asText()),
+            (0 until visitorLatestPosts.size()).map { visitorLatestPosts.path(it).path("id").asText() },
+        )
+        val anonymousCommunity = mapper.readTree(createClient { }.get("/api/communities?limit=50").bodyAsText())
+            .path("communities").first { it.path("id").asText() == communityId }
+        assertEquals(
+            listOf(latestSharedBody.path("id").asText(), recentSharedBody.path("id").asText(), sharedBody.path("id").asText()),
+            (0 until anonymousCommunity.path("latestPosts").size()).map {
+                anonymousCommunity.path("latestPosts").path(it).path("id").asText()
+            },
+        )
     }
 
     @Test
@@ -308,8 +348,7 @@ class CommunityBehaviorTest {
         )
     }
 
-    private fun services(): TownServices {
-        val clock = { 1_700_000_000_000L }
+    private fun services(clock: () -> Long = { 1_700_000_000_000L }): TownServices {
         val repo = InMemoryTownRepository()
         val uploads = UploadStore(File.createTempFile("sq-community", "").apply {
             delete()
