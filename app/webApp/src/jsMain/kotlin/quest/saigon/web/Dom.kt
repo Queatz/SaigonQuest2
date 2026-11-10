@@ -298,6 +298,7 @@ internal fun openPhotoViewer(
     val viewer = el("div", "photo-viewer")
     val frame = el("div", "photo-viewer-frame")
     val stage = el("div", "photo-viewer-stage")
+    val photoZoom = PhotoViewerZoom(stage)
     val previous = el("button", "photo-viewer-arrow photo-viewer-previous")
     previous.asDynamic().innerHTML = """
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -319,6 +320,7 @@ internal fun openPhotoViewer(
     """.trimIndent()
     val thumbs = el("div", "photo-viewer-thumbs")
     val thumbButtons = mutableListOf<HTMLElement>()
+    var viewerImages = emptyList<HTMLElement>()
 
     fun updateControls() {
         previous.asDynamic().disabled = current <= 0
@@ -334,6 +336,7 @@ internal fun openPhotoViewer(
     fun scrollToPhoto(index: Int, smooth: Boolean = true) {
         if (photos.isEmpty()) return
         current = index.coerceIn(photos.indices)
+        photoZoom.setImage(viewerImages.getOrNull(current))
         if (settleTimeout != null && settleTimeout != undefined) {
             window.asDynamic().clearTimeout(settleTimeout)
             settleTimeout = null
@@ -359,6 +362,7 @@ internal fun openPhotoViewer(
     fun closeViewer(updateHistory: Boolean = true) {
         if (closed) return
         closed = true
+        photoZoom.reset()
         document.asDynamic().removeEventListener("keydown", keyHandler)
         backdrop.asDynamic().remove()
         openOverlayHistory.remove(historyEntry)
@@ -372,6 +376,7 @@ internal fun openPhotoViewer(
         stage.clear()
         thumbs.clear()
         thumbButtons.clear()
+        val images = mutableListOf<HTMLElement>()
         photos.forEachIndexed { index, photo ->
             val slide = el("div", "photo-viewer-slide")
             val image = el("img", "photo-viewer-image")
@@ -379,6 +384,7 @@ internal fun openPhotoViewer(
             image.setAttribute("alt", Town.t("photo"))
             slide.appendChild(image)
             stage.appendChild(slide)
+            images += image
 
             val thumb = el("button", "photo-viewer-thumb")
             thumb.setAttribute("type", "button")
@@ -391,6 +397,8 @@ internal fun openPhotoViewer(
             thumbButtons += thumb
             thumbs.appendChild(thumb)
         }
+        viewerImages = images
+        photoZoom.setImage(viewerImages.getOrNull(current))
         updateControls()
     }
 
@@ -423,8 +431,12 @@ internal fun openPhotoViewer(
     stage.asDynamic().addEventListener("scroll", {
         val width = num(stage.asDynamic().clientWidth)
         if (width > 0 && !dragging && !settling) {
-            current = (num(stage.asDynamic().scrollLeft) / width).roundToInt().coerceIn(0, photos.lastIndex)
-            updateControls()
+            val index = (num(stage.asDynamic().scrollLeft) / width).roundToInt().coerceIn(0, photos.lastIndex)
+            if (index != current) {
+                current = index
+                photoZoom.setImage(viewerImages.getOrNull(current))
+                updateControls()
+            }
         }
     })
     stage.asDynamic().addEventListener("scrollend", {
@@ -436,32 +448,60 @@ internal fun openPhotoViewer(
             settling = false
             val width = num(stage.asDynamic().clientWidth)
             if (width > 0) {
-                current = (num(stage.asDynamic().scrollLeft) / width).roundToInt().coerceIn(0, photos.lastIndex)
-                updateControls()
+                val index = (num(stage.asDynamic().scrollLeft) / width).roundToInt().coerceIn(0, photos.lastIndex)
+                if (index != current) {
+                    current = index
+                    photoZoom.setImage(viewerImages.getOrNull(current))
+                    updateControls()
+                }
             }
             stage.asDynamic().classList.remove("dragging")
         }
     })
     stage.asDynamic().addEventListener("pointerdown", { event: dynamic ->
         if (event.button != 0) return@addEventListener
+        val action = photoZoom.pointerDown(event)
+        if (action == PhotoViewerPointerAction.IGNORE) return@addEventListener
         if (settleTimeout != null && settleTimeout != undefined) {
             window.asDynamic().clearTimeout(settleTimeout)
             settleTimeout = null
         }
-        dragging = true
-        dragStartX = num(event.clientX)
-        dragStartScroll = num(stage.asDynamic().scrollLeft)
-        dragStartIndex = current
-        stage.asDynamic().classList.add("dragging")
-        if (stage.asDynamic().setPointerCapture != undefined) stage.asDynamic().setPointerCapture(event.pointerId)
+        settling = false
+        when (action) {
+            PhotoViewerPointerAction.SWIPE_START -> {
+                dragging = true
+                dragStartX = num(event.clientX)
+                dragStartScroll = num(stage.asDynamic().scrollLeft)
+                dragStartIndex = current
+                stage.asDynamic().classList.add("dragging")
+                if (event.pointerType == "mouse" && stage.asDynamic().setPointerCapture != undefined) {
+                    stage.asDynamic().setPointerCapture(event.pointerId)
+                }
+            }
+            PhotoViewerPointerAction.CANCEL_SWIPE -> {
+                if (dragging) {
+                    dragging = false
+                    stage.asDynamic().classList.remove("dragging")
+                    scrollToPhoto(dragStartIndex, smooth = false)
+                }
+            }
+            else -> Unit
+        }
     })
     stage.asDynamic().addEventListener("pointermove", { event: dynamic ->
-        if (!dragging) return@addEventListener
-        event.preventDefault()
-        stage.asDynamic().scrollLeft = dragStartScroll - (num(event.clientX) - dragStartX)
+        when (photoZoom.pointerMove(event)) {
+            PhotoViewerPointerAction.SWIPE_MOVE -> {
+                if (!dragging) return@addEventListener
+                event.preventDefault()
+                stage.asDynamic().scrollLeft = dragStartScroll - (num(event.clientX) - dragStartX)
+            }
+            PhotoViewerPointerAction.CONSUMED -> event.preventDefault()
+            else -> Unit
+        }
     })
     val endDrag: (dynamic) -> Unit = { event ->
-        if (dragging) {
+        val action = photoZoom.pointerUp(event)
+        if (action == PhotoViewerPointerAction.SWIPE_END && dragging) {
             dragging = false
             val width = num(stage.asDynamic().clientWidth)
             val dragDistance = dragStartX - num(event.clientX)
