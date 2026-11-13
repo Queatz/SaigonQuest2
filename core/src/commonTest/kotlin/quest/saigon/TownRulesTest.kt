@@ -60,6 +60,18 @@ class TownRulesTest {
     }
 
     @Test
+    fun checkInDurationsAreBoundedAndEndTimesRoundUpToQuarterHours() {
+        assertEquals(listOf(30, 60, 90, 120, 180, 240, 300, 360), CheckIns.durationOptionsMinutes)
+        assertEquals(1_700_001_900_000L, CheckIns.endAt(1_700_000_000_000L, 30))
+        assertEquals(1_700_003_700_000L, CheckIns.endAt(1_700_001_900_000L, 30))
+        assertNull(CheckIns.endAt(1_700_000_000_000L, 45))
+        assertEquals("Check in now", Copy.text(Language.EN, "checkInNow"))
+        assertEquals("Báo đang ở đây", Copy.text(Language.VI, "checkInNow"))
+        assertEquals("Until 2:15 PM", Copy.text(Language.EN, "checkInUntil", mapOf("time" to "2:15 PM")))
+        assertEquals("Đến 14:15", Copy.text(Language.VI, "checkInUntil", mapOf("time" to "14:15")))
+    }
+
+    @Test
     fun neighboringMessageBoxesFollowTheirOwnPost() {
         val height = 640.0
         val dragTowardPrevious = 200.0

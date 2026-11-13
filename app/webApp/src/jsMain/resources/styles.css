@@ -293,6 +293,75 @@ button { cursor: pointer; }
     -webkit-touch-callout: none;
 }
 
+.check-in-bubbles {
+    --check-in-top: calc(80px + env(safe-area-inset-top));
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    overflow: hidden;
+    pointer-events: none;
+    transition: opacity .25s ease, visibility .25s ease;
+}
+
+.check-in-bubbles.hidden { opacity: 0; visibility: hidden; }
+
+.check-in-bubble {
+    position: absolute;
+    top: calc(var(--check-in-top) + var(--check-in-row-offset, 0px));
+    left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: min(460px, calc(100% - 24px));
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    pointer-events: auto;
+    animation: check-in-drift 48s ease-in-out infinite alternate;
+}
+
+.check-in-avatar {
+    display: grid;
+    place-items: center;
+    flex: 0 0 58px;
+    width: 58px;
+    height: 58px;
+    overflow: hidden;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 22px;
+    font-weight: 900;
+    box-shadow: 0 5px 16px rgba(0, 0, 0, .28);
+}
+
+.check-in-avatar-image { width: 100%; height: 100%; object-fit: cover; }
+
+.check-in-bubble-text {
+    min-width: 0;
+    max-width: calc(100% - 67px);
+    padding: 11px 15px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, .96);
+    color: #28231f;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.3;
+    box-shadow: 0 5px 18px rgba(0, 0, 0, .24);
+}
+
+@keyframes check-in-drift {
+    from { transform: translateX(0); }
+    to { transform: translateX(12px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .check-in-bubble { animation: none; }
+}
+
 .swipe-hint {
     position: absolute;
     inset: 0;
@@ -1723,6 +1792,12 @@ button.busy .avatar-spinner {
 
 .chip:disabled { opacity: .4; }
 
+.check-in-composer { display: grid; gap: 4px; margin-top: 10px; }
+.check-in-composer[hidden] { display: none; }
+.check-in-label { font-size: 14px; }
+.check-in-duration-row { margin: 4px 0 0; }
+.check-in-until { margin: 0; font-weight: 700; }
+
 .check-row {
     display: flex;
     align-items: center;
@@ -3142,6 +3217,8 @@ button.busy .avatar-spinner {
 }
 
 @media (max-width: 720px) {
+    .check-in-bubbles { --check-in-top: calc(124px + env(safe-area-inset-top)); }
+
     .events-summary {
         position: static;
         left: auto;
@@ -4988,6 +5065,16 @@ span.event-face {
 .activity-location-map .event-map-bubble-title strong { font-size: 10px; }
 .activity-details-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .activity-section-title { margin: 0; }
+.check-in-dialog { max-height: calc(100dvh - 40px); overflow: auto; display: grid; gap: 10px; }
+.check-in-dialog-heading { display: flex; align-items: center; justify-content: center; position: relative; }
+.check-in-dialog-heading h2 { margin: 0; }
+.check-in-dialog-heading .icon-btn { position: absolute; right: -8px; top: -10px; }
+.check-in-dialog-identity { display: flex; align-items: center; gap: 12px; }
+.check-in-dialog-identity .check-in-avatar { flex-basis: 68px; width: 68px; height: 68px; }
+.check-in-dialog-summary { margin: 0; padding: 12px 14px; border-radius: 18px; background: var(--bg); font-weight: 800; line-height: 1.35; }
+.check-in-dialog .activity-location-section { margin: 0; }
+.check-in-message { min-height: 96px; margin-top: 4px; }
+.check-in-send { width: 100%; }
 .activity-people { max-height: none; overflow: visible; margin-top: 8px; }
 .attendee-profile {
     display: flex;

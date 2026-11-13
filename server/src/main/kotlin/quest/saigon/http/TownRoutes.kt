@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import com.fasterxml.jackson.databind.JsonNode
 import quest.saigon.AppConfig
 import quest.saigon.CallToAction
+import quest.saigon.CheckIns
 import quest.saigon.Limits
 import quest.saigon.MusicNames
 import quest.saigon.PhoneNumbers
@@ -46,6 +47,7 @@ import quest.saigon.town.AvatarStatus
 import quest.saigon.town.ChatMemberView
 import quest.saigon.town.ChatService
 import quest.saigon.town.ChatType
+import quest.saigon.town.CheckInView
 import quest.saigon.town.CommentItem
 import quest.saigon.town.CommentService
 import quest.saigon.town.FeatureSuggestionView
@@ -622,6 +624,13 @@ fun Route.townApi(services: TownServices) {
         )
     }
 
+    get("/checkins") {
+        val viewer = call.user(services)
+        call.respondJson(
+            mapOf("checkIns" to services.repo.activeCheckIns(services.clock(), viewer?.id).map(::checkInPayload)),
+        )
+    }
+
     post("/posts") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
         if (user.paused) return@post call.fail("account_paused")
@@ -663,6 +672,14 @@ fun Route.townApi(services: TownServices) {
         val lat = customLocation?.lat ?: parseLatitude(form.text("lat"))
         val lng = customLocation?.lng ?: parseLongitude(form.text("lng"))
         if ((lat == null) != (lng == null)) return@post call.fail("invalid_location")
+        val checkInRaw = form.text("checkInMinutes").trim()
+        val checkInMinutes = if (checkInRaw.isBlank()) {
+            null
+        } else {
+            checkInRaw.toIntOrNull()?.takeIf { it in CheckIns.durationOptionsMinutes }
+                ?: return@post call.fail("invalid_check_in")
+        }
+        if (checkInMinutes != null && (lat == null || lng == null)) return@post call.fail("invalid_check_in")
         val eventStartAt = parseEpoch(form.text("eventStartAt"))
         val eventEndAt = parseEpoch(form.text("eventEndAt"))
         val eventPrice = try {
@@ -770,6 +787,7 @@ fun Route.townApi(services: TownServices) {
             selectedOpenChat
         }
         val createdAt = services.clock()
+        val checkInUntilAt = checkInMinutes?.let { CheckIns.endAt(createdAt, it) }
         val post = services.repo.insertPost(
             PostRecord(
                 id = "",
@@ -801,6 +819,7 @@ fun Route.townApi(services: TownServices) {
                 openChatName = openChat?.name.orEmpty(),
                 openChatExpiresAt = openChatHours?.let { createdAt + it * 60L * 60 * 1000 },
                 openChatRemaining = openChatRemaining,
+                checkInUntilAt = checkInUntilAt,
             ),
         )
         if (eventStartAt != null) services.repo.joinEvent(post.id, user.id, services.clock())
@@ -2380,6 +2399,19 @@ private fun musicPayload(music: MusicRecord) = mapOf(
     "instrumental" to music.instrumental,
     "lyrics" to music.lyrics,
     "createdAt" to music.createdAt,
+)
+
+private fun checkInPayload(checkIn: CheckInView) = mapOf(
+    "postId" to checkIn.postId,
+    "authorId" to checkIn.authorId,
+    "authorName" to checkIn.authorName,
+    "authorPhotoUrl" to checkIn.authorPhotoPath?.let { "/api/users/${checkIn.authorId}/photo" },
+    "location" to checkIn.location,
+    "placeId" to checkIn.placeId,
+    "locationId" to checkIn.locationId,
+    "lat" to checkIn.lat,
+    "lng" to checkIn.lng,
+    "untilAt" to checkIn.untilAt,
 )
 
 private fun postPayload(item: FeedItem) = mapOf(

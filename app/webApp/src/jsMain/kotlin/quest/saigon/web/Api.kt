@@ -109,6 +109,7 @@ internal fun errorText(body: String, status: Int): String {
         "invalid_cta" -> "invalidCallToAction"
         "invalid_cta_url" -> "invalidCallToActionUrl"
         "invalid_open_chat" -> "invalidOpenChat"
+        "invalid_check_in" -> "invalidCheckIn"
         "open_chat_expired" -> "openChatExpired"
         "open_chat_full" -> "openChatFull"
         "invalid_chat_message" -> "invalidChatMessage"

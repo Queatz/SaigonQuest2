@@ -39,6 +39,7 @@ interface TownRepository {
     fun musicReferenced(id: String): Boolean
     fun insertPost(post: PostRecord): PostRecord
     fun feed(cursor: String?, limit: Int, viewerId: String? = null): FeedPage
+    fun activeCheckIns(now: Long, viewerId: String? = null): List<CheckInView>
     fun searchPosts(query: String, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
     fun findPost(id: String): PostRecord?
     fun feedItem(id: String, viewerId: String? = null): FeedItem?

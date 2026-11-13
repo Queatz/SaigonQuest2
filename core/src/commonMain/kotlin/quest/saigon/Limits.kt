@@ -56,6 +56,7 @@ object Limits {
     const val CHAT_REACTION_MAX = 8
     const val COMMENT_CYCLE_MILLIS = 2000
     const val QUICK_REPLY_COUNT = 5
+    const val CHECK_IN_END_QUANTUM_MILLIS = 15 * 60 * 1000L
     const val PHOTOS_MAX = 20
     const val PHOTO_PEEK_MILLIS = 750
     const val PHOTO_PEEK_TAP_MILLIS = 2000

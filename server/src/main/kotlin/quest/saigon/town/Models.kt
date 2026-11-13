@@ -132,6 +132,20 @@ data class PostRecord(
     val openChatName: String = "",
     val openChatExpiresAt: Long? = null,
     val openChatRemaining: Long? = null,
+    val checkInUntilAt: Long? = null,
+)
+
+data class CheckInView(
+    val postId: String,
+    val authorId: String,
+    val authorName: String,
+    val authorPhotoPath: String?,
+    val location: String,
+    val placeId: String?,
+    val locationId: String?,
+    val lat: Double,
+    val lng: Double,
+    val untilAt: Long,
 )
 
 data class FeedItem(

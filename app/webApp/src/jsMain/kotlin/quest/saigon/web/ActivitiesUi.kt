@@ -613,6 +613,38 @@ internal fun loadDiscoverActivities(list: HTMLElement, host: HTMLElement, router
     }
 }
 
+internal data class ActivityLocationBlock(val root: HTMLElement, val mapBox: HTMLElement?)
+
+internal fun activityLocationBlock(
+    host: HTMLElement,
+    router: HistoryRouter,
+    locationName: String,
+    locationId: String?,
+    placeId: String?,
+    lat: Double?,
+    lng: Double?,
+): ActivityLocationBlock {
+    val section = el("section", "activity-location-section")
+    section.appendChild(el("h3", "activity-section-title", text = Town.t("location")))
+    val row = el("div", "activity-location-row")
+    val mapBox = if (lat != null && lng != null) el("div", "activity-location-map") else null
+    if (mapBox != null) row.appendChild(mapBox)
+    val copy = el("div", "activity-location-copy")
+    val place = el("button", "text-button activity-location", text = locationName)
+    place.setAttribute("type", "button")
+    place.onClick {
+        openLocationSheet(host, router, locationName, placeId, lat, lng, customLocationId = locationId)
+    }
+    copy.appendChild(place)
+    val directions = el("button", "primary activity-location-directions", text = Town.t("directions"))
+    directions.setAttribute("type", "button")
+    directions.onClick { window.open(mapsUrl(locationName, placeId, lat, lng), WindowTarget._blank) }
+    copy.appendChild(directions)
+    row.appendChild(copy)
+    section.appendChild(row)
+    return ActivityLocationBlock(section, mapBox)
+}
+
 private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity: dynamic) {
     if (host.asDynamic().querySelector(".activity-sheet") != null) return
     val name = localizedActivityText(activity, "name")
@@ -625,10 +657,8 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
     val locationId = (activity.locationId as? String)?.takeIf { it.isNotBlank() }
     val lat = if (activity.lat == null || activity.lat == undefined) null else num(activity.lat)
     val lng = if (activity.lng == null || activity.lng == undefined) null else num(activity.lng)
-    val mapBox = if (locationName.isNotBlank() && lat != null && lng != null) {
-        el("div", "activity-location-map")
-    } else {
-        null
+    val locationBlock = locationName.takeIf { it.isNotBlank() }?.let {
+        activityLocationBlock(host, router, it, locationId, placeId, lat, lng)
     }
     val description = localizedActivityText(activity, "description")
     val detailsHeader = el("div", "activity-details-header")
@@ -646,34 +676,7 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
             emptyMap(),
         ) { photoId -> "/api/activities/$activityId/photos/${encodeQuery(photoId)}" },
     )
-    if (locationName.isNotBlank()) {
-        val section = el("section", "activity-location-section")
-        section.appendChild(el("h3", "activity-section-title", text = Town.t("location")))
-        val row = el("div", "activity-location-row")
-        if (mapBox != null) row.appendChild(mapBox)
-        val copy = el("div", "activity-location-copy")
-        val place = el("button", "text-button activity-location", text = locationName)
-        place.setAttribute("type", "button")
-        place.onClick {
-            openLocationSheet(
-                host,
-                router,
-                locationName,
-                placeId,
-                lat,
-                lng,
-                customLocationId = locationId,
-            )
-        }
-        copy.appendChild(place)
-        val directions = el("button", "primary activity-location-directions", text = Town.t("directions"))
-        directions.setAttribute("type", "button")
-        directions.onClick { window.open(mapsUrl(locationName, placeId, lat, lng), WindowTarget._blank) }
-        copy.appendChild(directions)
-        row.appendChild(copy)
-        section.appendChild(row)
-        body.appendChild(section)
-    }
+    locationBlock?.let { body.appendChild(it.root) }
     val scheduleSlots = readSchedule(activity.schedule)
     if (scheduleSlots.isNotEmpty()) {
         val schedule = el("section", "activity-schedule")
@@ -789,7 +792,7 @@ private fun showActivitySheet(host: HTMLElement, router: HistoryRouter, activity
     chrome.sheet.appendChild(body)
     chrome.sheet.appendChild(dock)
     chrome.open(host) {
-        if (mapBox != null) mountPlaceMap(mapBox, lat, lng, locationName, placeId, zoomControl = false)
+        locationBlock?.mapBox?.let { mountPlaceMap(it, lat, lng, locationName, placeId, zoomControl = false) }
     }
 }
 

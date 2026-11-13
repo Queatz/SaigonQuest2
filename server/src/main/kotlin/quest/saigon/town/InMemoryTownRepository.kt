@@ -185,6 +185,30 @@ class InMemoryTownRepository : TownRepository {
         viewerId,
     )
 
+    override fun activeCheckIns(now: Long, viewerId: String?): List<CheckInView> = posts.values
+        .asSequence()
+        .filter { post ->
+            (post.checkInUntilAt ?: 0L) > now && post.lat != null && post.lng != null && placePostVisible(post, viewerId)
+        }
+        .sortedWith(compareByDescending<PostRecord> { it.createdAt }.thenByDescending { it.id })
+        .distinctBy { it.userId }
+        .mapNotNull { post ->
+            val author = users[post.userId] ?: return@mapNotNull null
+            CheckInView(
+                postId = post.id,
+                authorId = author.id,
+                authorName = author.name,
+                authorPhotoPath = author.profilePhotoPath,
+                location = post.location,
+                placeId = post.placeId,
+                locationId = post.locationId,
+                lat = post.lat ?: return@mapNotNull null,
+                lng = post.lng ?: return@mapNotNull null,
+                untilAt = post.checkInUntilAt ?: return@mapNotNull null,
+            )
+        }
+        .toList()
+
     override fun searchPosts(query: String, cursor: String?, limit: Int, viewerId: String?): FeedPage {
         val needle = query.trim().lowercase()
         val matching = posts.values.filter { post ->

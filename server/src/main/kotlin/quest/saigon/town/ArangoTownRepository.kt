@@ -28,6 +28,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(USERS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(USERS).ensurePersistentIndex(listOf("lastActiveAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
+        db.collection(POSTS).ensurePersistentIndex(listOf("checkInUntilAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("eventStartAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("userKey", "createdAt"), PersistentIndexOptions())
         db.collection(POSTS).ensurePersistentIndex(listOf("communityKey", "createdAt"), PersistentIndexOptions())
@@ -323,6 +324,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("openChatName", post.openChatName)
         doc.addAttribute("openChatExpiresAt", post.openChatExpiresAt)
         doc.addAttribute("openChatRemaining", post.openChatRemaining)
+        doc.addAttribute("checkInUntilAt", post.checkInUntilAt)
         val key = db.collection(POSTS).insertDocument(doc).key
         return post.copy(id = key)
     }
@@ -332,6 +334,31 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         cursorBind(cursor, limit) + mapOf("viewerId" to viewerId.orEmpty()),
         limit,
     )
+
+    override fun activeCheckIns(now: Long, viewerId: String?): List<CheckInView> = queryList(
+        """
+        FOR p IN $POSTS
+          FILTER p.checkInUntilAt != null AND p.checkInUntilAt > @now
+          FILTER p.lat != null AND p.lng != null
+          FILTER ${communityVisibleFilter()}
+          SORT p.createdAt DESC, p._key DESC
+          LET author = DOCUMENT("$USERS", p.userKey)
+          FILTER author != null
+          RETURN {
+            postId: p._key,
+            authorId: author._key,
+            authorName: author.name,
+            authorPhotoPath: author.profilePhotoPath,
+            location: p.location,
+            placeId: p.placeId,
+            locationId: p.locationId,
+            lat: p.lat,
+            lng: p.lng,
+            untilAt: p.checkInUntilAt
+          }
+        """.trimIndent(),
+        mapOf("now" to now, "viewerId" to viewerId.orEmpty()),
+    ).map(::checkInViewFrom).distinctBy { it.authorId }
 
     override fun searchPosts(query: String, cursor: String?, limit: Int, viewerId: String?): FeedPage {
         val where = """
@@ -528,6 +555,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 openChatName = string(doc, "openChatName"),
                 openChatExpiresAt = longOrNull(doc, "openChatExpiresAt"),
                 openChatRemaining = longOrNull(doc, "openChatRemaining"),
+                checkInUntilAt = longOrNull(doc, "checkInUntilAt"),
             )
         }
 
@@ -3662,6 +3690,19 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         status = string(doc, "status"),
         error = doc.getAttribute("error")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
         createdAt = long(doc, "createdAt"),
+    )
+
+    private fun checkInViewFrom(row: BaseDocument) = CheckInView(
+        postId = string(row, "postId"),
+        authorId = string(row, "authorId"),
+        authorName = string(row, "authorName"),
+        authorPhotoPath = optional(row, "authorPhotoPath"),
+        location = string(row, "location"),
+        placeId = optional(row, "placeId"),
+        locationId = optional(row, "locationId"),
+        lat = doubleOrNull(row, "lat") ?: 0.0,
+        lng = doubleOrNull(row, "lng") ?: 0.0,
+        untilAt = long(row, "untilAt"),
     )
 
     private fun feedItemFrom(row: BaseDocument) = FeedItem(

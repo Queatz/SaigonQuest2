@@ -1,6 +1,7 @@
 package quest.saigon.web
 
 import quest.saigon.CallToAction
+import quest.saigon.CheckIns
 import quest.saigon.Limits
 import web.dom.document
 import web.html.HTMLElement
@@ -43,12 +44,69 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
     location.root.asDynamic().insertBefore(locationRow, location.input)
     locationRow.appendChild(location.input)
     locationRow.appendChild(mapBtn)
+    val checkInFields = el("div", "check-in-composer")
+    checkInFields.asDynamic().hidden = true
+    checkInFields.appendChild(el("strong", "check-in-label", text = Town.t("checkInNow")))
+    val checkInDurations = el("div", "chip-row check-in-duration-row")
+    val checkInUntil = el("p", "hint check-in-until")
+    checkInUntil.asDynamic().hidden = true
+    var selectedCheckInMinutes: Int? = null
+    val checkInDurationKeys = mapOf(
+        30 to "checkIn30Minutes",
+        60 to "checkIn1Hour",
+        90 to "checkIn1AndHalfHours",
+        120 to "checkIn2Hours",
+        180 to "checkIn3Hours",
+        240 to "checkIn4Hours",
+        300 to "checkIn5Hours",
+        360 to "checkIn6Hours",
+    )
+    lateinit var refreshCheckInFields: () -> Unit
+    val checkInButtons = CheckIns.durationOptionsMinutes.map { minutes ->
+        el("button", "chip", text = Town.t(checkInDurationKeys.getValue(minutes))).also { button ->
+            button.setAttribute("type", "button")
+            button.onClick {
+                selectedCheckInMinutes = if (selectedCheckInMinutes == minutes) null else minutes
+                refreshCheckInFields()
+            }
+            checkInDurations.appendChild(button)
+        }
+    }
+    refreshCheckInFields = {
+        val hasCoordinates = pickedPlace.lat != null && pickedPlace.lng != null && pickedPlace.name.isNotBlank()
+        checkInFields.asDynamic().hidden = !hasCoordinates
+        if (!hasCoordinates) selectedCheckInMinutes = null
+        checkInButtons.forEachIndexed { index, button ->
+            val selected = selectedCheckInMinutes == CheckIns.durationOptionsMinutes[index]
+            button.asDynamic().classList.toggle("selected", selected)
+            button.setAttribute("aria-pressed", selected.toString())
+        }
+        val minutes = selectedCheckInMinutes
+        if (!hasCoordinates || minutes == null) {
+            checkInUntil.asDynamic().hidden = true
+        } else {
+            val until = CheckIns.endAt(num(js("Date.now()")).toLong(), minutes)
+            checkInUntil.textContent = Town.t("checkInUntil", mapOf("time" to formatCheckInTime(until ?: 0L)))
+            checkInUntil.asDynamic().hidden = false
+        }
+    }
+    checkInFields.appendChild(checkInDurations)
+    checkInFields.appendChild(checkInUntil)
+    location.root.appendChild(checkInFields)
     val event = composerEventFields()
     val poll = composerPollFields()
     val question = composerQuestionFields()
     val cta = composerCtaFields(shell)
     val openChat = composerOpenChatFields(shell)
-    bindLocationMapPicker(shell, location.input, mapBtn, pickedPlace) { communities.second.communityId }
+    bindLocationMapPicker(
+        shell,
+        location.input,
+        mapBtn,
+        pickedPlace,
+        onChange = { refreshCheckInFields() },
+        communityId = { communities.second.communityId },
+    )
+    refreshCheckInFields()
 
     val avatarLabel = el("h3", text = "🙆 ${Town.t("selectAvatar")}")
     val avatarRow = el("div", "avatar-row")
@@ -166,6 +224,9 @@ internal fun composerScreen(router: HistoryRouter): HTMLElement {
                 if (lat != null && lng != null) {
                     form.append("lat", lat.toString())
                     form.append("lng", lng.toString())
+                }
+                selectedCheckInMinutes?.takeIf { lat != null && lng != null }?.let {
+                    form.append("checkInMinutes", it.toString())
                 }
                 if (event.enabled) {
                     val start = event.startAt

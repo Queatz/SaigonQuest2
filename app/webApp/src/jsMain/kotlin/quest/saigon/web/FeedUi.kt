@@ -18,6 +18,7 @@ private var resizeInstalled = false
 private var swipeHintTimer: dynamic = null
 private var swipeHintDone = false
 private var photoPeekTimer: dynamic = null
+private var feedCheckInBubbles: CheckInBubbles? = null
 
 internal fun clearFeedKeys() {
     feedKeyHandler = null
@@ -25,6 +26,8 @@ internal fun clearFeedKeys() {
     feedResumeHandler = null
     stopSwipeHint()
     stopPhotoPeekTimer()
+    feedCheckInBubbles?.close()
+    feedCheckInBubbles = null
     stopFeedAudio()
     clearChatTimers()
 }
@@ -109,6 +112,10 @@ internal fun feedScreen(
     }
     shell.appendChild(stage)
     shell.appendChild(top)
+    if (focusPostId == null && onBack == null && communityId == null && searchQuery.isNullOrBlank()) {
+        feedCheckInBubbles?.close()
+        feedCheckInBubbles = CheckInBubbles(shell, router)
+    }
     val feedPath = when {
         searchQuery != null -> "/api/posts/search?q=${encodeQuery(searchQuery)}"
         communityId.isNullOrBlank() -> "/api/posts"
@@ -281,9 +288,11 @@ private fun mountPager(
         if (!peeking) return
         peeking = false
         slides[index]?.asDynamic()?.classList?.remove("peeking")
+        feedCheckInBubbles?.hideUntilIdle()
     }
 
     fun beginPeek() {
+        feedCheckInBubbles?.hideUntilIdle()
         peeking = true
         dragging = false
         drag = 0.0
@@ -515,6 +524,7 @@ private fun mountPager(
             event.preventDefault()
             return@addEventListener
         }
+        feedCheckInBubbles?.hideUntilIdle()
         velocity = (y - lastY) / dt
         lastY = y
         lastTime = time
@@ -588,6 +598,7 @@ private fun mountPager(
             return@addEventListener
         }
         if (abs(dy) < 24) return@addEventListener
+        feedCheckInBubbles?.hideUntilIdle()
         wheelLock = true
         commit(if (dy > 0) 1 else -1)
         window.asDynamic().setTimeout({ wheelLock = false }, 520)
@@ -597,8 +608,14 @@ private fun mountPager(
     feedKeyHandler = { key ->
         if (!feedDialogOpen()) {
             when (key) {
-                "ArrowDown", "PageDown" -> commit(1)
-                "ArrowUp", "PageUp" -> commit(-1)
+                "ArrowDown", "PageDown" -> {
+                    feedCheckInBubbles?.hideUntilIdle()
+                    commit(1)
+                }
+                "ArrowUp", "PageUp" -> {
+                    feedCheckInBubbles?.hideUntilIdle()
+                    commit(-1)
+                }
                 "ArrowRight" -> currentPhotos()?.takeIf { it.size > 1 }?.go(1)
                 "ArrowLeft" -> currentPhotos()?.takeIf { it.size > 1 }?.go(-1)
             }
