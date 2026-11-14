@@ -6,6 +6,8 @@ import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.post
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
+import io.ktor.client.request.delete
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -102,6 +104,86 @@ class CheckInBehaviorTest {
         now = latestUntil
         val expired = mapper.readTree(client.get("/api/checkins").bodyAsText()).path("checkIns")
         assertEquals(0, expired.size())
+    }
+
+    @Test
+    fun ownersCanExtendAndCheckOutButOthersAndExpiredCheckInsCannotChangeThem() = testApplication {
+        var now = 1_700_000_000_000L
+        val repo = InMemoryTownRepository()
+        val services = services({ now }, repo)
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val owner = createClient { install(HttpCookies) }
+        owner.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905550303","password":"secretpass"}""")
+        }
+        val created = post(owner, 30, includeCoordinates = true)
+        val postId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        val extendedUntil = CheckIns.endAt(now, 90)!!
+
+        val extended = owner.patch("/api/posts/$postId/checkin") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"checkInMinutes":90}""")
+        }
+        assertEquals(HttpStatusCode.OK, extended.status)
+        assertEquals(extendedUntil, mapper.readTree(extended.bodyAsText()).path("untilAt").asLong())
+
+        val outsider = createClient { install(HttpCookies) }
+        outsider.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Minh","phone":"0905550304","password":"secretpass"}""")
+        }
+        assertEquals(
+            HttpStatusCode.NotFound,
+            outsider.patch("/api/posts/$postId/checkin") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"checkInMinutes":60}""")
+            }.status,
+        )
+        assertEquals(HttpStatusCode.NotFound, outsider.delete("/api/posts/$postId/checkin").status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.patch("/api/posts/$postId/checkin") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"checkInMinutes":45}""")
+            }.status,
+        )
+
+        val ownerId = mapper.readTree(owner.get("/api/me").bodyAsText()).path("id").asText()
+        val unmapped = repo.insertPost(
+            PostRecord(
+                id = "",
+                userId = ownerId,
+                photoPath = "unmapped.jpg",
+                message = "Unmapped check-in",
+                location = "Unmapped place",
+                createdAt = now,
+                checkInUntilAt = CheckIns.endAt(now, 30),
+            ),
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.patch("/api/posts/${unmapped.id}/checkin") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"checkInMinutes":60}""")
+            }.status,
+        )
+        assertEquals(HttpStatusCode.BadRequest, owner.delete("/api/posts/${unmapped.id}/checkin").status)
+
+        assertEquals(HttpStatusCode.OK, owner.delete("/api/posts/$postId/checkin").status)
+        assertEquals(0, mapper.readTree(owner.get("/api/checkins").bodyAsText()).path("checkIns").size())
+
+        val expiring = post(owner, 30, includeCoordinates = true)
+        val expiringPostId = mapper.readTree(expiring.bodyAsText()).path("id").asText()
+        now = CheckIns.endAt(now, 30)!!
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.patch("/api/posts/$expiringPostId/checkin") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"checkInMinutes":60}""")
+            }.status,
+        )
+        assertEquals(HttpStatusCode.BadRequest, owner.delete("/api/posts/$expiringPostId/checkin").status)
     }
 
     private suspend fun post(

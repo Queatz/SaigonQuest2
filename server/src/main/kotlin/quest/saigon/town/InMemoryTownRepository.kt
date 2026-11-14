@@ -320,6 +320,11 @@ class InMemoryTownRepository : TownRepository {
         posts[id] = post.copy(message = message)
     }
 
+    override fun updatePostCheckInUntil(id: String, untilAt: Long?) {
+        val post = posts[id] ?: return
+        posts[id] = post.copy(checkInUntilAt = untilAt)
+    }
+
     override fun updateQuickReplies(id: String, replies: List<String>) {
         val post = posts[id] ?: return
         posts[id] = post.copy(quickReplies = replies.take(Limits.QUICK_REPLY_COUNT))

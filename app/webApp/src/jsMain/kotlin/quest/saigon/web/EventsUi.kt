@@ -79,6 +79,36 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     var openSearch: () -> Unit = {}
     var closeSearch: () -> Unit = {}
     val body = el("div", "page-body events-body")
+    val checkInsRow = el("div", "check-in-events")
+    var checkInRefreshGeneration = 0
+    val checkInExpiryTimers = mutableListOf<dynamic>()
+    fun refreshCheckIns() {
+        val generation = ++checkInRefreshGeneration
+        checkInExpiryTimers.forEach { window.asDynamic().clearTimeout(it) }
+        checkInExpiryTimers.clear()
+        checkInsRow.textContent = ""
+        http("GET", "/api/checkins") { status, text ->
+            if (generation != checkInRefreshGeneration || status != 200) return@http
+            val items: dynamic = parseJson(text).checkIns
+            val count = if (items == null || items == undefined) 0 else num(items.length).toInt()
+            for (index in 0 until count) {
+                val item: dynamic = js("items[index]")
+                val checkIn = checkInCardFrom(item) ?: continue
+                if (checkIn.untilAt <= num(js("Date.now()")).toLong()) continue
+                val bubble = createCheckInBubble(
+                    shell,
+                    router,
+                    checkIn,
+                    onChanged = ::refreshCheckIns,
+                    cssClass = "check-in-bubble check-in-event-bubble",
+                )
+                bubble.asDynamic().style.setProperty("--check-in-row-offset", "${index % 3 * 64}px")
+                checkInsRow.appendChild(bubble)
+                val remaining = checkIn.untilAt - num(js("Date.now()")).toLong()
+                checkInExpiryTimers.add(window.asDynamic().setTimeout({ bubble.asDynamic().remove() }, remaining))
+            }
+        }
+    }
     val head = pageHead(
         router,
         Town.t("discover"),
@@ -159,9 +189,11 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     lists.appendChild(split)
     mapPane.appendChild(mapBox)
     listPane.appendChild(lists)
+    body.appendChild(checkInsRow)
     body.appendChild(mapPane)
     body.appendChild(listPane)
     shell.appendChild(body)
+    refreshCheckIns()
     var searchView: HTMLElement? = null
     var feedOverlay: HTMLElement? = null
     closeSearch = {

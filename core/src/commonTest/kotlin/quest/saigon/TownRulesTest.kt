@@ -69,6 +69,10 @@ class TownRulesTest {
         assertEquals("Báo đang ở đây", Copy.text(Language.VI, "checkInNow"))
         assertEquals("Until 2:15 PM", Copy.text(Language.EN, "checkInUntil", mapOf("time" to "2:15 PM")))
         assertEquals("Đến 14:15", Copy.text(Language.VI, "checkInUntil", mapOf("time" to "14:15")))
+        assertEquals("Update your check-in", Copy.text(Language.EN, "updateCheckIn"))
+        assertEquals("Cập nhật check-in", Copy.text(Language.VI, "updateCheckIn"))
+        assertEquals("Check out", Copy.text(Language.EN, "checkOut"))
+        assertEquals("Rời khỏi đây", Copy.text(Language.VI, "checkOut"))
     }
 
     @Test

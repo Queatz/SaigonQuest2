@@ -737,6 +737,18 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     }
 
+    override fun updatePostCheckInUntil(id: String, untilAt: Long?) {
+        exec(
+            """
+            FOR p IN $POSTS
+              FILTER p._key == @id
+              UPDATE p WITH { checkInUntilAt: @untilAt } IN $POSTS OPTIONS { keepNull: false }
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to id, "untilAt" to untilAt),
+        )
+    }
+
     override fun updateQuickReplies(id: String, replies: List<String>) {
         exec(
             """

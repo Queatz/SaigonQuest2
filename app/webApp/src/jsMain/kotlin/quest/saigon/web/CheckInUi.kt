@@ -1,5 +1,6 @@
 package quest.saigon.web
 
+import quest.saigon.CheckIns
 import quest.saigon.Language
 import quest.saigon.Limits
 import web.html.HTMLElement
@@ -25,18 +26,28 @@ internal class CheckInBubbles(
     private val root = el("div", "check-in-bubbles")
     private var restoreTimer: dynamic = null
     private var closed = false
+    private var refreshGeneration = 0
     private val expiryTimers = mutableListOf<dynamic>()
 
     init {
         root.setAttribute("aria-label", Town.t("checkInDialogTitle"))
         host.appendChild(root)
+        refresh()
+    }
+
+    fun refresh() {
+        if (closed) return
+        expiryTimers.forEach { window.asDynamic().clearTimeout(it) }
+        expiryTimers.clear()
+        root.textContent = ""
+        val generation = ++refreshGeneration
         http("GET", "/api/checkins") { status, body ->
-            if (closed || status != 200) return@http
+            if (closed || generation != refreshGeneration || status != 200) return@http
             val items: dynamic = parseJson(body).checkIns
             val count = if (items == null || items == undefined) 0 else num(items.length).toInt()
             for (index in 0 until count) {
                 val item: dynamic = js("items[index]")
-                val checkIn = checkInFrom(item) ?: continue
+                val checkIn = checkInCardFrom(item) ?: continue
                 if (checkIn.untilAt <= num(js("Date.now()")).toLong()) continue
                 root.appendChild(bubble(checkIn, index))
             }
@@ -63,15 +74,9 @@ internal class CheckInBubbles(
     }
 
     private fun bubble(checkIn: CheckInCard, index: Int): HTMLElement {
-        val button = el("button", "check-in-bubble")
-        button.setAttribute("type", "button")
-        button.setAttribute("aria-label", checkInSummary(checkIn))
+        val button = createCheckInBubble(buttonRootHost(), router, checkIn, onChanged = { refresh() })
         button.asDynamic().style.setProperty("--check-in-row-offset", "${index % 3 * 64}px")
         button.asDynamic().style.animationDelay = "-${index * 2}s"
-        val avatar = avatar(checkIn)
-        button.appendChild(avatar)
-        button.appendChild(el("span", "check-in-bubble-text", text = checkInSummary(checkIn)))
-        button.onClick { openCheckInDialog(buttonRootHost(), router, checkIn) }
         val remaining = checkIn.untilAt - num(js("Date.now()")).toLong()
         expiryTimers.add(window.asDynamic().setTimeout({ button.asDynamic().remove() }, remaining))
         return button
@@ -90,23 +95,50 @@ internal fun formatCheckInTime(at: Long): String {
     return "$hour12:$minutes ${if (hour < 12) "AM" else "PM"}"
 }
 
-internal fun openCheckInDialog(host: HTMLElement, router: HistoryRouter, checkIn: CheckInCard) {
+internal fun openCheckInDialog(
+    host: HTMLElement,
+    router: HistoryRouter,
+    checkIn: CheckInCard,
+    onChanged: () -> Unit = {},
+) {
     if (host.asDynamic().querySelector(".check-in-dialog-backdrop") != null) return
     val backdrop = el("div", "dialog-backdrop check-in-dialog-backdrop")
     val card = el("section", "dialog check-in-dialog")
     card.setAttribute("role", "dialog")
     card.setAttribute("aria-modal", "true")
+    var currentCheckIn = checkIn
     val heading = el("div", "check-in-dialog-heading")
     heading.appendChild(el("h2", text = Town.t("checkInDialogTitle")))
-    heading.appendChild(el("button", "icon-btn", text = "×") { close ->
+    heading.appendChild(el("button", "icon-btn dialog-close", text = "×") { close ->
         close.setAttribute("type", "button")
         close.setAttribute("aria-label", Town.t("close"))
         close.onClick { backdrop.asDynamic().remove() }
     })
     card.appendChild(heading)
     val identity = el("div", "check-in-dialog-identity")
-    identity.appendChild(avatar(checkIn))
-    identity.appendChild(el("p", "check-in-dialog-summary", text = checkInSummary(checkIn)))
+    val profileAvatar = avatar(checkIn)
+    profileAvatar.setAttribute("role", "button")
+    profileAvatar.setAttribute("tabindex", "0")
+    profileAvatar.setAttribute("aria-label", Town.t("openProfile"))
+    fun openAuthorProfile() {
+        backdrop.asDynamic().remove()
+        openMiniProfile(host, checkIn.authorName, checkIn.authorPhotoUrl, userId = checkIn.authorId, router = router)
+    }
+    profileAvatar.asDynamic().addEventListener("click", { event: dynamic ->
+        event.stopPropagation()
+        openAuthorProfile()
+    })
+    profileAvatar.asDynamic().addEventListener("keydown", { event: dynamic ->
+        val key = event.key as? String
+        if (key == "Enter" || key == " ") {
+            event.preventDefault()
+            event.stopPropagation()
+            openAuthorProfile()
+        }
+    })
+    identity.appendChild(profileAvatar)
+    val summary = el("p", "check-in-dialog-summary", text = checkInSummary(checkIn))
+    identity.appendChild(summary)
     card.appendChild(identity)
     val location = activityLocationBlock(
         host,
@@ -119,7 +151,83 @@ internal fun openCheckInDialog(host: HTMLElement, router: HistoryRouter, checkIn
     )
     card.appendChild(location.root)
     val self = checkIn.authorId == Town.me?.id
-    if (!self) {
+    if (self) {
+        val manage = el("section", "check-in-manage")
+        manage.appendChild(el("p", "check-in-manage-label", text = Town.t("updateCheckIn")))
+        val durations = el("div", "chip-row check-in-duration-options")
+        val durationButtons = mutableListOf<HTMLElement>()
+        var selectedCheckInMinutes: Int? = null
+        val until = el(
+            "p",
+            "check-in-until",
+            text = Town.t("checkInUntil", mapOf("time" to formatCheckInTime(checkIn.untilAt))),
+        )
+        val checkInAction = el("button", "secondary check-in-check-out", text = Town.t("checkOut"))
+        checkInAction.setAttribute("type", "button")
+        fun refreshManageControls() {
+            durationButtons.forEachIndexed { index, button ->
+                val selected = selectedCheckInMinutes == CheckIns.durationOptionsMinutes[index]
+                button.asDynamic().classList.toggle("selected", selected)
+                button.setAttribute("aria-pressed", selected.toString())
+            }
+            val untilAt = selectedCheckInMinutes?.let { minutes ->
+                CheckIns.endAt(num(js("Date.now()")).toLong(), minutes)
+            } ?: currentCheckIn.untilAt
+            until.textContent = Town.t(
+                "checkInUntil",
+                mapOf("time" to formatCheckInTime(untilAt)),
+            )
+            checkInAction.textContent = Town.t(if (selectedCheckInMinutes == null) "checkOut" else "updateCheckIn")
+        }
+        for (minutes in CheckIns.durationOptionsMinutes) {
+            val duration = el("button", "chip", text = Town.t(checkInDurationKey(minutes)))
+            duration.setAttribute("type", "button")
+            duration.setAttribute("aria-pressed", "false")
+            duration.onClick {
+                selectedCheckInMinutes = if (selectedCheckInMinutes == minutes) null else minutes
+                refreshManageControls()
+            }
+            durationButtons.add(duration)
+            durations.appendChild(duration)
+        }
+        manage.appendChild(durations)
+        manage.appendChild(until)
+        card.appendChild(manage)
+        checkInAction.onClick {
+            val minutes = selectedCheckInMinutes
+            checkInAction.setAttribute("disabled", "disabled")
+            durationButtons.forEach { it.setAttribute("disabled", "disabled") }
+            if (minutes != null) {
+                val payload = js("({})")
+                payload.checkInMinutes = minutes
+                http("PATCH", "/api/posts/${currentCheckIn.postId}/checkin", jsonStringify(payload)) { status, body ->
+                    if (status in 200..299) {
+                        currentCheckIn = currentCheckIn.copy(untilAt = num(parseJson(body).untilAt).toLong())
+                        summary.textContent = checkInSummary(currentCheckIn)
+                        selectedCheckInMinutes = null
+                        refreshManageControls()
+                        onChanged()
+                    } else {
+                        toast(host, errorText(body, status))
+                    }
+                    checkInAction.removeAttribute("disabled")
+                    durationButtons.forEach { it.removeAttribute("disabled") }
+                }
+            } else {
+                http("DELETE", "/api/posts/${currentCheckIn.postId}/checkin") { status, body ->
+                    if (status in 200..299) {
+                        backdrop.asDynamic().remove()
+                        onChanged()
+                    } else {
+                        checkInAction.removeAttribute("disabled")
+                        durationButtons.forEach { it.removeAttribute("disabled") }
+                        toast(host, errorText(body, status))
+                    }
+                }
+            }
+        }
+        card.appendChild(checkInAction)
+    } else {
         val message = el("textarea", "check-in-message")
         message.setAttribute("maxlength", Limits.CHAT_MESSAGE_MAX.toString())
         message.setAttribute("placeholder", Town.t("checkInMessagePlaceholder", mapOf("name" to checkIn.authorName)))
@@ -164,7 +272,23 @@ internal fun openCheckInDialog(host: HTMLElement, router: HistoryRouter, checkIn
     }
 }
 
-private fun checkInFrom(node: dynamic): CheckInCard? {
+internal fun createCheckInBubble(
+    host: HTMLElement,
+    router: HistoryRouter,
+    checkIn: CheckInCard,
+    onChanged: () -> Unit = {},
+    cssClass: String = "check-in-bubble",
+): HTMLElement {
+    val button = el("button", cssClass)
+    button.setAttribute("type", "button")
+    button.setAttribute("aria-label", checkInSummary(checkIn))
+    button.appendChild(avatar(checkIn))
+    button.appendChild(el("span", "check-in-bubble-text", text = checkInSummary(checkIn)))
+    button.onClick { openCheckInDialog(host, router, checkIn, onChanged) }
+    return button
+}
+
+internal fun checkInCardFrom(node: dynamic): CheckInCard? {
     val authorId = (node.authorId as? String)?.takeIf { it.isNotBlank() } ?: return null
     val authorName = (node.authorName as? String)?.takeIf { it.isNotBlank() } ?: return null
     val location = (node.location as? String)?.takeIf { it.isNotBlank() } ?: return null
@@ -193,6 +317,18 @@ private fun checkInSummary(checkIn: CheckInCard): String = Town.t(
         "time" to formatCheckInTime(checkIn.untilAt),
     ),
 )
+
+private fun checkInDurationKey(minutes: Int): String = when (minutes) {
+    30 -> "checkIn30Minutes"
+    60 -> "checkIn1Hour"
+    90 -> "checkIn1AndHalfHours"
+    120 -> "checkIn2Hours"
+    180 -> "checkIn3Hours"
+    240 -> "checkIn4Hours"
+    300 -> "checkIn5Hours"
+    360 -> "checkIn6Hours"
+    else -> "checkInNow"
+}
 
 private fun avatar(checkIn: CheckInCard): HTMLElement {
     val face = el("span", "check-in-avatar", text = checkIn.authorName.take(1).uppercase())

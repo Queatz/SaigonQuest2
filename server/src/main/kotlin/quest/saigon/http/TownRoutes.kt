@@ -631,6 +631,35 @@ fun Route.townApi(services: TownServices) {
         )
     }
 
+    patch("/posts/{id}/checkin") {
+        val user = call.user(services) ?: return@patch call.fail("unauthorized")
+        if (user.paused) return@patch call.fail("account_paused")
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@patch call.fail("not_found")
+        if (post.userId != user.id) return@patch call.fail("not_found")
+        val now = services.clock()
+        if ((post.checkInUntilAt ?: 0L) <= now || post.lat == null || post.lng == null) {
+            return@patch call.fail("invalid_check_in")
+        }
+        val body = Jsons.parse(call.receiveText())
+        val minutes = Jsons.text(body, "checkInMinutes").toIntOrNull()
+            ?.takeIf { it in CheckIns.durationOptionsMinutes }
+            ?: return@patch call.fail("invalid_check_in")
+        val untilAt = CheckIns.endAt(now, minutes) ?: return@patch call.fail("invalid_check_in")
+        services.repo.updatePostCheckInUntil(post.id, untilAt)
+        call.respondJson(mapOf("ok" to true, "untilAt" to untilAt))
+    }
+
+    delete("/posts/{id}/checkin") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@delete call.fail("not_found")
+        if (post.userId != user.id) return@delete call.fail("not_found")
+        if ((post.checkInUntilAt ?: 0L) <= services.clock() || post.lat == null || post.lng == null) {
+            return@delete call.fail("invalid_check_in")
+        }
+        services.repo.updatePostCheckInUntil(post.id, null)
+        call.respondJson(mapOf("ok" to true))
+    }
+
     post("/posts") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
         if (user.paused) return@post call.fail("account_paused")
