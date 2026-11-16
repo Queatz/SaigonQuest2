@@ -346,6 +346,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
           FILTER author != null
           RETURN {
             postId: p._key,
+            message: p.message,
             authorId: author._key,
             authorName: author.name,
             authorPhotoPath: author.profilePhotoPath,
@@ -3706,6 +3707,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
 
     private fun checkInViewFrom(row: BaseDocument) = CheckInView(
         postId = string(row, "postId"),
+        message = string(row, "message"),
         authorId = string(row, "authorId"),
         authorName = string(row, "authorName"),
         authorPhotoPath = optional(row, "authorPhotoPath"),

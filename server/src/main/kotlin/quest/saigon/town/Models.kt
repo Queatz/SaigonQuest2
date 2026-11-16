@@ -137,6 +137,7 @@ data class PostRecord(
 
 data class CheckInView(
     val postId: String,
+    val message: String,
     val authorId: String,
     val authorName: String,
     val authorPhotoPath: String?,

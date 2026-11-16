@@ -112,7 +112,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     val head = pageHead(
         router,
         Town.t("discover"),
-        showProfile = true,
+        showProfile = false,
         onBack = { if (searching) closeSearch() else back(router) },
         searchAction = { openSearch() },
         shopAction = { go(router, "/shop") },

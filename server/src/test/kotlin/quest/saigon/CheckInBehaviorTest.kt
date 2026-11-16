@@ -87,6 +87,7 @@ class CheckInBehaviorTest {
         assertEquals(latestPostId, checkIns[0].path("postId").asText())
         assertEquals(latestUntil, checkIns[0].path("untilAt").asLong())
         assertEquals("District 1", checkIns[0].path("location").asText())
+        assertEquals("Hello town", checkIns[0].path("message").asText())
         assertTrue(checkIns[0].path("authorName").asText().isNotBlank())
         assertTrue(firstPostId != latestPostId)
 

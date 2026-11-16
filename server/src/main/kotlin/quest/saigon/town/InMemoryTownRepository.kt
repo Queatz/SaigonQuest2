@@ -196,6 +196,7 @@ class InMemoryTownRepository : TownRepository {
             val author = users[post.userId] ?: return@mapNotNull null
             CheckInView(
                 postId = post.id,
+                message = post.message,
                 authorId = author.id,
                 authorName = author.name,
                 authorPhotoPath = author.profilePhotoPath,

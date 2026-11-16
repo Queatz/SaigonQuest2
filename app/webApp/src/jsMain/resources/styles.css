@@ -343,6 +343,7 @@ button { cursor: pointer; }
 .check-in-avatar-image { width: 100%; height: 100%; object-fit: cover; }
 
 .check-in-bubble-text {
+    display: block;
     min-width: 0;
     max-width: calc(100% - 67px);
     padding: 11px 15px;
@@ -354,6 +355,16 @@ button { cursor: pointer; }
     line-height: 1.3;
     overflow-wrap: anywhere;
     box-shadow: 0 5px 18px rgba(0, 0, 0, .24);
+}
+.check-in-bubble-summary { display: block; }
+.check-in-bubble-message {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 @keyframes check-in-drift {
@@ -5097,6 +5108,7 @@ span.event-face {
 .check-in-dialog-identity { display: flex; align-items: center; gap: 12px; }
 .check-in-dialog-identity .check-in-avatar { flex-basis: 68px; width: 68px; height: 68px; cursor: pointer; }
 .check-in-dialog-summary { margin: 0; padding: 12px 14px; border-radius: 18px; background: var(--bg); font-weight: 800; line-height: 1.35; }
+.check-in-dialog-post { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: inherit; font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .check-in-dialog .activity-location-section { margin: 0; }
 .check-in-dialog .activity-location-map { flex: 0 0 40%; width: 40%; max-width: 160px; height: auto; aspect-ratio: 1; }
 .check-in-manage { display: grid; gap: 8px; }

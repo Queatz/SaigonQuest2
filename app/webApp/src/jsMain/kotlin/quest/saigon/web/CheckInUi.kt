@@ -8,6 +8,7 @@ import web.window.window
 
 internal data class CheckInCard(
     val postId: String,
+    val message: String,
     val authorId: String,
     val authorName: String,
     val authorPhotoUrl: String?,
@@ -140,6 +141,15 @@ internal fun openCheckInDialog(
     val summary = el("p", "check-in-dialog-summary", text = checkInSummary(checkIn))
     identity.appendChild(summary)
     card.appendChild(identity)
+    if (checkIn.message.isNotBlank()) {
+        val postMessage = el("button", "check-in-dialog-post", text = checkIn.message)
+        postMessage.setAttribute("type", "button")
+        postMessage.onClick {
+            backdrop.asDynamic().remove()
+            router.navigate("/p/${checkIn.postId}")
+        }
+        card.appendChild(postMessage)
+    }
     val location = activityLocationBlock(
         host,
         router,
@@ -281,9 +291,14 @@ internal fun createCheckInBubble(
 ): HTMLElement {
     val button = el("button", cssClass)
     button.setAttribute("type", "button")
-    button.setAttribute("aria-label", checkInSummary(checkIn))
+    button.setAttribute("aria-label", listOf(checkInSummary(checkIn), checkIn.message).filter { it.isNotBlank() }.joinToString(". "))
     button.appendChild(avatar(checkIn))
-    button.appendChild(el("span", "check-in-bubble-text", text = checkInSummary(checkIn)))
+    val text = el("span", "check-in-bubble-text")
+    text.appendChild(el("span", "check-in-bubble-summary", text = checkInSummary(checkIn)))
+    if (checkIn.message.isNotBlank()) {
+        text.appendChild(el("span", "check-in-bubble-message", text = checkIn.message))
+    }
+    button.appendChild(text)
     button.onClick { openCheckInDialog(host, router, checkIn, onChanged) }
     return button
 }
@@ -297,6 +312,7 @@ internal fun checkInCardFrom(node: dynamic): CheckInCard? {
     if (untilAt <= 0) return null
     return CheckInCard(
         postId = (node.postId as? String).orEmpty(),
+        message = (node.message as? String).orEmpty(),
         authorId = authorId,
         authorName = authorName,
         authorPhotoUrl = (node.authorPhotoUrl as? String)?.let(::prefixServerOrigin),

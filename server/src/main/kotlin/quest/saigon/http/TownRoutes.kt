@@ -2432,6 +2432,7 @@ private fun musicPayload(music: MusicRecord) = mapOf(
 
 private fun checkInPayload(checkIn: CheckInView) = mapOf(
     "postId" to checkIn.postId,
+    "message" to checkIn.message,
     "authorId" to checkIn.authorId,
     "authorName" to checkIn.authorName,
     "authorPhotoUrl" to checkIn.authorPhotoPath?.let { "/api/users/${checkIn.authorId}/photo" },
