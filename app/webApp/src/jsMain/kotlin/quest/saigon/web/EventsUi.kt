@@ -156,6 +156,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     eventsMapPlaceSearch(
         mapPane,
         shell,
+        router,
         findOnMap = { place ->
             mapLocations.firstOrNull { samePlace(it, place) }
                 ?: sessionLocations.firstOrNull { samePlace(it, place) }
@@ -744,6 +745,7 @@ internal fun openLocationPicker(
 private fun eventsMapPlaceSearch(
     mapPane: HTMLElement,
     overlayHost: HTMLElement,
+    router: HistoryRouter,
     findOnMap: (PlacePick) -> PlacePick?,
     navigate: (PlacePick) -> Unit,
     onCreated: (PlacePick) -> Unit,
@@ -752,7 +754,7 @@ private fun eventsMapPlaceSearch(
     val desktopPanel = el("div", "events-map-search-panel")
     desktopSearch.appendChild(desktopPanel)
     mapPane.appendChild(desktopSearch)
-    eventsMapSearchPanel(desktopPanel, overlayHost, false, {}, findOnMap, navigate, onCreated)
+    eventsMapSearchPanel(desktopPanel, overlayHost, router, false, {}, findOnMap, navigate, onCreated)
 
     val mobileButton = el("button", "icon-btn events-map-search-toggle")
     mobileButton.setAttribute("type", "button")
@@ -781,7 +783,7 @@ private fun eventsMapPlaceSearch(
         close.onClick { closeDialog() }
         backdrop.closeOnOutsideClick { closeDialog() }
         overlayHost.appendChild(backdrop)
-        eventsMapSearchPanel(panel, overlayHost, true, ::closeDialog, findOnMap, navigate, onCreated)
+        eventsMapSearchPanel(panel, overlayHost, router, true, ::closeDialog, findOnMap, navigate, onCreated)
     }
     mapPane.appendChild(mobileButton)
 }
@@ -789,6 +791,7 @@ private fun eventsMapPlaceSearch(
 private fun eventsMapSearchPanel(
     host: HTMLElement,
     overlayHost: HTMLElement,
+    router: HistoryRouter,
     closeOnExisting: Boolean,
     close: () -> Unit,
     findOnMap: (PlacePick) -> PlacePick?,
@@ -865,6 +868,15 @@ private fun eventsMapSearchPanel(
                 onCreated(added)
                 navigate(added)
                 close()
+                openLocationSheet(
+                    overlayHost,
+                    router,
+                    added.name,
+                    added.placeId,
+                    added.lat,
+                    added.lng,
+                    customLocationId = added.id,
+                )
             }
         }
     }
