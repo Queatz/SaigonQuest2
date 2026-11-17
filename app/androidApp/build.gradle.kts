@@ -12,9 +12,17 @@ val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.isFile) file.inputStream().use(::load)
 }
-val mapsApiKey: String = localProps.getProperty("MAPS_API_KEY")
-    ?: System.getenv("ANDROID_MAPS_API_KEY")
-    ?: ""
+val envFileProps = Properties().apply {
+    val file = rootProject.file(".env")
+    if (file.isFile) file.inputStream().use(::load)
+}
+val mapsApiKey: String = listOf(
+    localProps.getProperty("MAPS_API_KEY"),
+    System.getenv("ANDROID_MAPS_API_KEY"),
+    envFileProps.getProperty("ANDROID_MAPS_API_KEY"),
+    System.getenv("GOOGLE_MAPS_API_KEY"),
+    envFileProps.getProperty("GOOGLE_MAPS_API_KEY"),
+).firstOrNull { !it.isNullOrBlank() }?.trim().orEmpty()
 val serverOrigin: String = localProps.getProperty("SAIGON_SERVER_ORIGIN")
     ?: System.getenv("SAIGON_SERVER_ORIGIN")
     ?: "https://saigon.town"

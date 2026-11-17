@@ -47,11 +47,13 @@ import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.ActivityCard
+import quest.saigon.android.ui.components.ActivityEditorDialog
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.PostGridRows
 import quest.saigon.android.ui.components.SaigonCard
+import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonMapEventPin
@@ -72,10 +74,9 @@ import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.encodeLocationToken
 import quest.saigon.shared.TownSharedClient
-import quest.saigon.shared.model.ActivityScheduleSlotDto
-import quest.saigon.shared.model.CreateActivityRequest
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
+import quest.saigon.shared.model.UserPhotoDto
 import quest.saigon.shared.network.ApiResult
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.ActivityStore
@@ -960,7 +961,10 @@ fun LocationDetailScreen(
     var descInput by remember { mutableStateOf("") }
     var quickActivityDraft by remember { mutableStateOf("") }
     var showCreateActivity by remember { mutableStateOf(false) }
-    var zoomPhoto by remember { mutableStateOf<String?>(null) }
+    var viewerPhotos by remember { mutableStateOf<List<UserPhotoDto>>(emptyList()) }
+    var viewerInitialIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingDeletePhoto by remember { mutableStateOf<UserPhotoDto?>(null) }
+    var deletingPhoto by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
@@ -1002,14 +1006,14 @@ fun LocationDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                // 1. Map (.location-sheet-map)
+                // 1. Map (.location-sheet-map) with vertical margin
                 if (lat != null && lng != null) {
                     item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 160.dp, max = 210.dp)
-                                .aspectRatio(16f / 10f)
+                                .padding(vertical = 6.dp)
+                                .height(200.dp)
                                 .clip(RoundedCornerShape(18.dp))
                                 .background(tokens.surface)
                                 .border(1.dp, tokens.line, RoundedCornerShape(18.dp)),
@@ -1109,17 +1113,20 @@ fun LocationDetailScreen(
                             ) {
                                 Icon(Icons.Default.AddPhotoAlternate, contentDescription = Copy.text(lang, "addPhoto"), tint = tokens.muted, modifier = Modifier.size(28.dp))
                             }
-                            detail.photos.forEach { photo ->
+                            detail.photos.forEachIndexed { idx, photo ->
                                 Box(modifier = Modifier.size(82.dp)) {
                                     AsyncImage(
                                         model = photo.url,
-                                        contentDescription = null,
+                                        contentDescription = Copy.text(lang, "photo"),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .clip(RoundedCornerShape(14.dp))
                                             .border(1.dp, tokens.line, RoundedCornerShape(14.dp))
-                                            .clickable { zoomPhoto = photo.url },
+                                            .clickable {
+                                                viewerPhotos = detail.photos
+                                                viewerInitialIndex = idx
+                                            },
                                     )
                                     if (photo.canDelete) {
                                         Box(
@@ -1130,9 +1137,9 @@ fun LocationDetailScreen(
                                                 .size(26.dp)
                                                 .clip(CircleShape)
                                                 .background(Color.Black.copy(alpha = 0.68f))
-                                                .clickable { scope.launch { shared.discover.deleteLocationPhoto(photo.id) } },
+                                                .clickable { pendingDeletePhoto = photo },
                                         ) {
-                                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "deletePhotoAsk"), tint = Color.White, modifier = Modifier.size(14.dp))
                                         }
                                     }
                                 }
@@ -1164,7 +1171,10 @@ fun LocationDetailScreen(
                                 }
                             }
                         },
-                        onOpenPhoto = { url -> zoomPhoto = url },
+                        onOpenPhoto = { url ->
+                            viewerPhotos = act.photoUrls.mapIndexed { i, u -> UserPhotoDto(id = "${act.id}_$i", url = u, canDelete = false) }
+                            viewerInitialIndex = act.photoUrls.indexOf(url).coerceAtLeast(0)
+                        },
                     )
                 }
                 item {
@@ -1246,133 +1256,63 @@ fun LocationDetailScreen(
     }
 
     if (showCreateActivity && detail != null) {
-        var name by remember { mutableStateOf(quickActivityDraft.trim()) }
-        var emoji by remember { mutableStateOf("✨") }
-        var description by remember { mutableStateOf("") }
-        var scheduled by remember { mutableStateOf(false) }
-        var selectedDays by remember { mutableStateOf(setOf(6)) }
-        var startHour by remember { mutableIntStateOf(9) }
-        var endHour by remember { mutableIntStateOf(11) }
-
-        LaunchedEffect(name) {
-            if (name.trim().length >= 2) {
-                shared.activity.suggestEmoji(name.trim())?.let { emoji = it }
-            }
-        }
-
-        SaigonDialog(onDismiss = { showCreateActivity = false }) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            ) {
-                Text(Copy.text(lang, "createActivity"), color = tokens.text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 36.dp))
-                SaigonTextField(value = emoji, onValueChange = { emoji = it.take(4) }, label = Copy.text(lang, "activityEmoji"))
-                SaigonTextField(
-                    value = name,
-                    onValueChange = { if (it.length <= Limits.ACTIVITY_NAME_MAX) name = it },
-                    label = Copy.text(lang, "activityName"),
-                )
-                SaigonTextField(
-                    value = description,
-                    onValueChange = { if (it.length <= Limits.ACTIVITY_DESCRIPTION_MAX) description = it },
-                    label = Copy.text(lang, "activityDescription"),
-                    singleLine = false,
-                    minLines = 2,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SaigonPillChip(
-                        label = Copy.text(lang, "alwaysAvailable"),
-                        selected = !scheduled,
-                        onClick = { scheduled = false },
-                    )
-                    SaigonPillChip(
-                        label = Copy.text(lang, "scheduled"),
-                        selected = scheduled,
-                        onClick = { scheduled = true },
-                    )
-                }
-                if (scheduled) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    ) {
-                        listOf(1, 2, 3, 4, 5, 6, 7).forEach { day ->
-                            val dayKey = when (day) {
-                                1 -> "weekdayMon"
-                                2 -> "weekdayTue"
-                                3 -> "weekdayWed"
-                                4 -> "weekdayThu"
-                                5 -> "weekdayFri"
-                                6 -> "weekdaySat"
-                                else -> "weekdaySun"
-                            }
-                            SaigonPillChip(
-                                label = Copy.text(lang, dayKey),
-                                selected = day in selectedDays,
-                                onClick = {
-                                    selectedDays = if (day in selectedDays) selectedDays - day else selectedDays + day
-                                },
-                            )
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        SaigonOutlinedPillButton(
-                            text = "${startHour.toString().padStart(2, '0')}:00",
-                            onClick = { startHour = (startHour + 1) % 24 },
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("–", color = tokens.muted)
-                        SaigonOutlinedPillButton(
-                            text = "${endHour.toString().padStart(2, '0')}:00",
-                            onClick = { endHour = (endHour + 1) % 24 },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-                SaigonPrimaryButton(
-                    text = Copy.text(lang, "save"),
-                    enabled = name.isNotBlank() && (!scheduled || (selectedDays.isNotEmpty() && endHour > startHour)),
-                    onClick = {
-                        scope.launch {
-                            val slots = if (scheduled) {
-                                selectedDays.sorted().map { day ->
-                                    ActivityScheduleSlotDto(
-                                        dayOfWeek = day,
-                                        startMinutes = startHour * 60,
-                                        endMinutes = endHour * 60,
-                                    )
-                                }
-                            } else {
-                                emptyList()
-                            }
-                            val created = shared.activity.createActivity(
-                                CreateActivityRequest(
-                                    emoji = emoji.trim(),
-                                    name = name.trim(),
-                                    description = description.trim(),
-                                    locationName = detail.name,
-                                    locationId = detail.locationId,
-                                    placeId = detail.placeId,
-                                    lat = detail.place?.lat,
-                                    lng = detail.place?.lng,
-                                    schedule = slots,
-                                ),
-                            )
-                            if (created != null) {
-                                quickActivityDraft = ""
-                                showCreateActivity = false
-                                shared.discover.openLocation(detail.name, detail.placeId, detail.locationId, detail.place)
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { showCreateActivity = false }, modifier = Modifier.fillMaxWidth())
-            }
-        }
+        ActivityEditorDialog(
+            existing = null,
+            locationName = detail.name,
+            initialName = quickActivityDraft.trim(),
+            locationId = detail.locationId,
+            placeId = detail.placeId,
+            lat = detail.place?.lat,
+            lng = detail.place?.lng,
+            shared = shared,
+            language = lang,
+            onSaved = {
+                quickActivityDraft = ""
+                showCreateActivity = false
+                shared.discover.openLocation(detail.name, detail.placeId, detail.locationId, detail.place)
+            },
+            onDismiss = { showCreateActivity = false },
+        )
     }
 
-    zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
+    pendingDeletePhoto?.let { photo ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deletePhotoAsk"),
+            hint = Copy.text(lang, "deletePhotoHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = deletingPhoto,
+            onConfirm = {
+                scope.launch {
+                    deletingPhoto = true
+                    shared.discover.deleteLocationPhoto(photo.id)
+                    deletingPhoto = false
+                    pendingDeletePhoto = null
+                }
+            },
+            onDismiss = { pendingDeletePhoto = null },
+        )
+    }
+
+    viewerInitialIndex?.let { idx ->
+        val activePhotos = detail?.photos?.takeIf { viewerPhotos.isNotEmpty() && viewerPhotos.firstOrNull()?.canDelete == true } ?: viewerPhotos
+        if (activePhotos.isNotEmpty()) {
+            PhotoViewerDialog(
+                photos = activePhotos,
+                initialIndex = idx,
+                language = lang,
+                onDeletePhoto = if (activePhotos.any { it.canDelete }) {
+                    { photo -> shared.discover.deleteLocationPhoto(photo.id) }
+                } else {
+                    null
+                },
+                onDismiss = {
+                    viewerInitialIndex = null
+                    viewerPhotos = emptyList()
+                },
+            )
+        }
+    }
 }
 
 private val discoverTimeZone: TimeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")

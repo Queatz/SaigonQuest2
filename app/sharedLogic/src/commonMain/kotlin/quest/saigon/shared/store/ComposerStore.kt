@@ -23,6 +23,10 @@ data class ComposerUiState(
     val communitySuggestion: CommunitySuggestResponse? = null,
     val recentPlaces: List<PlaceSuggestionDto> = emptyList(),
     val placeResults: List<PlaceSuggestionDto> = emptyList(),
+    val myProducts: List<ProductDto> = emptyList(),
+    val isLoadingProducts: Boolean = false,
+    val myGroupChats: List<ChatDto> = emptyList(),
+    val isLoadingGroupChats: Boolean = false,
     val isLoadingAvatars: Boolean = false,
     val isLoadingMusic: Boolean = false,
     val isSubmittingPost: Boolean = false,
@@ -43,6 +47,7 @@ class ComposerStore(
     private var musicPollJob: Job? = null
 
     fun loadInitial() {
+        _state.update { it.copy(selectedAvatarId = null, selectedMusic = null, error = null) }
         loadAvatars()
         loadMyMusic()
         loadCommunities()
@@ -57,7 +62,6 @@ class ComposerStore(
                     val list = res.value.avatars
                     _state.update { prev ->
                         val selected = prev.selectedAvatarId?.takeIf { id -> list.any { it.id == id } }
-                            ?: list.firstOrNull { it.status == "ready" }?.id
                         prev.copy(avatars = list, selectedAvatarId = selected, isLoadingAvatars = false)
                     }
                     list.firstOrNull { it.status == "generating" }?.let { startAvatarPolling(it.id) }
@@ -251,6 +255,53 @@ class ComposerStore(
         }
     }
 
+    fun loadMyProducts() {
+        scope.launch {
+            _state.update { it.copy(isLoadingProducts = true) }
+            val all = mutableListOf<ProductDto>()
+            var cursor: String? = null
+            do {
+                when (val res = api.getMyProducts(cursor = cursor, limit = 50)) {
+                    is ApiResult.Success -> {
+                        all += res.value.products
+                        cursor = res.value.nextCursor
+                    }
+                    is ApiResult.Failure -> {
+                        cursor = null
+                    }
+                }
+            } while (!cursor.isNullOrBlank())
+            _state.update { it.copy(myProducts = all.distinctBy { p -> p.id }, isLoadingProducts = false) }
+        }
+    }
+
+    fun loadGroupChats() {
+        scope.launch {
+            _state.update { it.copy(isLoadingGroupChats = true) }
+            val all = mutableListOf<ChatDto>()
+            var cursor: String? = null
+            do {
+                when (val res = api.getChats(cursor = cursor, limit = 50, type = "group")) {
+                    is ApiResult.Success -> {
+                        all += res.value.chats
+                        cursor = res.value.nextCursor
+                    }
+                    is ApiResult.Failure -> {
+                        cursor = null
+                    }
+                }
+            } while (!cursor.isNullOrBlank())
+            _state.update { it.copy(myGroupChats = all.distinctBy { c -> c.id }, isLoadingGroupChats = false) }
+        }
+    }
+
+    suspend fun resolvePlaceDetails(placeId: String): PlaceSuggestionDto? {
+        return when (val res = api.getPlaceDetails(placeId)) {
+            is ApiResult.Success -> res.value
+            is ApiResult.Failure -> null
+        }
+    }
+
     fun searchPlaces(query: String, communityId: String? = null) {
         scope.launch {
             when (val res = api.searchPlaces(query, communityId)) {
@@ -341,9 +392,11 @@ class ComposerStore(
 
     private fun upsertAvatar(avatar: AvatarDto) {
         _state.update { prev ->
-            val exists = prev.avatars.any { it.id == avatar.id }
+            val previous = prev.avatars.firstOrNull { it.id == avatar.id }
+            val wasGenerating = previous?.status == "generating"
+            val exists = previous != null
             val list = if (exists) prev.avatars.map { if (it.id == avatar.id) avatar else it } else listOf(avatar) + prev.avatars
-            val selected = if (avatar.status == "ready" && prev.selectedAvatarId == null) avatar.id else prev.selectedAvatarId
+            val selected = if (wasGenerating && avatar.status == "ready" && prev.selectedAvatarId == null) avatar.id else prev.selectedAvatarId
             prev.copy(avatars = list, selectedAvatarId = selected)
         }
     }

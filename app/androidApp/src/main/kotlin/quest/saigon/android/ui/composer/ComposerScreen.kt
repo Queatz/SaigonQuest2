@@ -23,17 +23,23 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import quest.saigon.CallToAction
 import quest.saigon.CheckIns
@@ -59,6 +66,9 @@ import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.ui.components.SaigonBottomSheet
 import quest.saigon.android.ui.components.SaigonCard
+import quest.saigon.android.ui.components.SaigonDialog
+import quest.saigon.android.ui.components.SaigonMapPlacePin
+import quest.saigon.android.ui.components.SaigonMapView
 import quest.saigon.android.ui.components.SaigonOutlinedPillButton
 import quest.saigon.android.ui.components.SaigonPageShell
 import quest.saigon.android.ui.components.SaigonPillChip
@@ -67,20 +77,39 @@ import quest.saigon.android.ui.components.SaigonSpinner
 import quest.saigon.android.ui.components.SaigonSwitch
 import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
+import quest.saigon.android.ui.components.SaigonTinyPill
+import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.dashedBorder
+import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.AvatarDto
+import quest.saigon.shared.model.ChatDto
 import quest.saigon.shared.model.CommunityDto
 import quest.saigon.shared.model.MusicDto
 import quest.saigon.shared.model.PlaceSuggestionDto
+import quest.saigon.shared.model.ProductDto
 import quest.saigon.shared.platform.currentTimeMillis
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
+private enum class EventDateTimeTarget {
+    START_DATE,
+    START_TIME,
+    END_DATE,
+    END_TIME,
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComposerScreen(
     shared: TownSharedClient,
     audioPlayer: AudioPreviewPlayer,
     onDone: () -> Unit,
     onBack: () -> Unit,
+    onOpenProfile: () -> Unit = {},
 ) {
     val sessionState by shared.session.state.collectAsState()
     val composerState by shared.composer.state.collectAsState()
@@ -93,19 +122,40 @@ fun ComposerScreen(
     var preparedPhotos by remember { mutableStateOf<List<ByteArray>>(emptyList()) }
     var activePhotoIdx by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf("") }
+    var firstComment by remember { mutableStateOf("") }
     var locationText by remember { mutableStateOf(sessionState.me?.location.orEmpty()) }
-    var selectedPlace by remember { mutableStateOf<PlaceSuggestionDto?>(null) }
+    var selectedPlace by remember(sessionState.me?.id) {
+        val me = sessionState.me
+        mutableStateOf(
+            if (me != null && me.location.isNotBlank() && me.lat != null && me.lng != null) {
+                PlaceSuggestionDto(
+                    id = me.locationId,
+                    name = me.location,
+                    placeId = me.placeId,
+                    lat = me.lat,
+                    lng = me.lng,
+                    custom = me.locationId != null,
+                )
+            } else {
+                null
+            },
+        )
+    }
     var selectedCommunity by remember { mutableStateOf<CommunityDto?>(null) }
     var communityOnly by remember { mutableStateOf(false) }
 
-    var showLocationSheet by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
     var showCommunitySheet by remember { mutableStateOf(false) }
     var showAvatarSheet by remember { mutableStateOf(false) }
     var showMusicSheet by remember { mutableStateOf(false) }
+    var showProductPicker by remember { mutableStateOf(false) }
+    var showGroupPicker by remember { mutableStateOf(false) }
 
     var enableEvent by remember { mutableStateOf(false) }
-    var eventHoursFromNow by remember { mutableIntStateOf(4) }
+    var eventStartAt by remember { mutableStateOf<Long?>(null) }
+    var eventEndAt by remember { mutableStateOf<Long?>(null) }
     var eventPriceText by remember { mutableStateOf("") }
+    var eventDateTimeTarget by remember { mutableStateOf<EventDateTimeTarget?>(null) }
 
     var enablePoll by remember { mutableStateOf(false) }
     var pollOptions by remember { mutableStateOf(listOf("", "")) }
@@ -118,9 +168,14 @@ fun ComposerScreen(
     var ctaTitle by remember { mutableStateOf("") }
     var ctaText by remember { mutableStateOf("") }
     var ctaUrl by remember { mutableStateOf("") }
+    var ctaSelectedProduct by remember { mutableStateOf<ProductDto?>(null) }
 
     var enableOpenChat by remember { mutableStateOf(false) }
+    var openChatCreateNew by remember { mutableStateOf(false) }
+    var selectedOpenChatGroup by remember { mutableStateOf<ChatDto?>(null) }
     var openChatName by remember { mutableStateOf("") }
+    var openChatHours by remember { mutableIntStateOf(Limits.OPEN_CHAT_HOURS_DEFAULT) }
+    var openChatRemaining by remember { mutableStateOf<Int?>(null) }
 
     var checkInMinutes by remember { mutableStateOf<Int?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
@@ -128,6 +183,13 @@ fun ComposerScreen(
 
     LaunchedEffect(Unit) {
         shared.composer.loadInitial()
+    }
+
+    val hasCoordinates = selectedPlace?.lat != null &&
+        selectedPlace?.lng != null &&
+        (selectedPlace?.name ?: locationText).isNotBlank()
+    LaunchedEffect(hasCoordinates) {
+        if (!hasCoordinates) checkInMinutes = null
     }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -147,87 +209,163 @@ fun ComposerScreen(
         }
     }
 
+    fun submitCurrentPost() {
+        localError = null
+        if (preparedPhotos.isEmpty()) {
+            localError = Copy.text(lang, "photoRequired")
+            return
+        }
+        if (message.isBlank()) {
+            localError = Copy.text(lang, "invalidMessage")
+            return
+        }
+        val locName = (selectedPlace?.name ?: locationText).trim()
+        if (locName.isBlank()) {
+            localError = Copy.text(lang, "invalidLocation")
+            return
+        }
+        if (enableEvent) {
+            val start = eventStartAt
+            if (start == null) {
+                localError = Copy.text(lang, "invalidEvent")
+                return
+            }
+            val end = eventEndAt
+            if (end != null && end < start) {
+                localError = Copy.text(lang, "invalidEventEnd")
+                return
+            }
+        }
+        val cleanPollOptions = pollOptions.map { it.trim() }.filter { it.isNotBlank() }
+        if (enablePoll && cleanPollOptions.size < 2) {
+            localError = Copy.text(lang, "invalidPoll")
+            return
+        }
+        if (enableCta) {
+            if (ctaText.isBlank()) {
+                localError = Copy.text(lang, "invalidCallToAction")
+                return
+            }
+            if (ctaDestination == CallToAction.WEBSITE && ctaUrl.isBlank()) {
+                localError = Copy.text(lang, "invalidCallToActionUrl")
+                return
+            }
+            if (ctaDestination == CallToAction.PRODUCT && ctaSelectedProduct == null) {
+                localError = Copy.text(lang, "invalidCallToAction")
+                return
+            }
+        }
+        if (enableOpenChat && !openChatCreateNew && selectedOpenChatGroup == null) {
+            localError = Copy.text(lang, "invalidOpenChat")
+            return
+        }
+
+        val fields = buildMap {
+            put("message", message.trim())
+            put("location", locName)
+            if (firstComment.isNotBlank()) put("firstComment", firstComment.trim())
+            selectedPlace?.placeId?.let { put("placeId", it) }
+            selectedPlace?.id?.takeIf { selectedPlace?.custom == true }?.let { put("locationId", it) }
+            selectedPlace?.lat?.let { put("lat", it.toString()) }
+            selectedPlace?.lng?.let { put("lng", it.toString()) }
+            composerState.selectedAvatarId?.let { put("avatarId", it) }
+            composerState.selectedMusic?.id?.let { put("musicId", it) }
+            selectedCommunity?.id?.let {
+                put("communityId", it)
+                if (communityOnly) put("communityOnly", "true")
+            }
+            if (hasCoordinates) {
+                checkInMinutes?.let { put("checkInMinutes", it.toString()) }
+            }
+            if (enableEvent) {
+                eventStartAt?.let { put("eventStartAt", it.toString()) }
+                eventEndAt?.let { put("eventEndAt", it.toString()) }
+                eventPriceText.trim().toLongOrNull()?.takeIf { it > 0L }?.let {
+                    put("eventPrice", it.toString())
+                }
+            }
+            if (enablePoll) {
+                cleanPollOptions.take(Limits.POLL_OPTIONS_MAX).forEachIndexed { idx, opt ->
+                    put("pollOption$idx", opt)
+                }
+            }
+            if (enableQuestion) {
+                put("askQuestion", "true")
+                if (questionTitle.isNotBlank()) put("questionTitle", questionTitle.trim())
+            }
+            if (enableCta) {
+                put("addCta", "true")
+                put("ctaDestination", ctaDestination)
+                if (ctaTitle.isNotBlank()) put("ctaTitle", ctaTitle.trim())
+                put("ctaText", ctaText.trim())
+                when (ctaDestination) {
+                    CallToAction.WEBSITE -> put("ctaUrl", ctaUrl.trim())
+                    CallToAction.PRODUCT -> ctaSelectedProduct?.id?.let { put("ctaUrl", it) }
+                    else -> Unit
+                }
+            }
+            if (enableOpenChat) {
+                put("addOpenChat", "true")
+                put("openChatNew", if (openChatCreateNew) "true" else "false")
+                if (openChatCreateNew) {
+                    if (openChatName.isNotBlank()) put("openChatName", openChatName.trim())
+                } else {
+                    selectedOpenChatGroup?.id?.let { put("openChatId", it) }
+                }
+                put("openChatHours", openChatHours.toString())
+                openChatRemaining?.let { put("openChatRemaining", it.toString()) }
+            }
+        }
+        scope.launch {
+            val created = shared.composer.submitPost(fields, preparedPhotos)
+            if (created != null) {
+                shared.composer.clearCreatedPost()
+                onDone()
+            }
+        }
+    }
+
+    val err = localError ?: composerState.error
+
     SaigonPageShell(
         title = Copy.text(lang, "newPost"),
         onBack = onBack,
         backContentDescription = Copy.text(lang, "back"),
         topActions = {
-            SaigonPrimaryButton(
-                text = Copy.text(lang, "postNow"),
-                enabled = !composerState.isSubmittingPost && !preparingPhotos,
-                loading = composerState.isSubmittingPost,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                onClick = {
-                    localError = null
-                    if (preparedPhotos.isEmpty()) {
-                        localError = Copy.text(lang, "photoRequired")
-                        return@SaigonPrimaryButton
-                    }
-                    if (message.isBlank()) {
-                        localError = Copy.text(lang, "invalidMessage")
-                        return@SaigonPrimaryButton
-                    }
-                    val locName = selectedPlace?.name ?: locationText.trim()
-                    if (locName.isBlank()) {
-                        localError = Copy.text(lang, "invalidLocation")
-                        return@SaigonPrimaryButton
-                    }
-                    val fields = buildMap {
-                        put("message", message.trim())
-                        put("location", locName)
-                        selectedPlace?.placeId?.let { put("placeId", it) }
-                        selectedPlace?.id?.takeIf { selectedPlace?.custom == true }?.let { put("locationId", it) }
-                        selectedPlace?.lat?.let { put("lat", it.toString()) }
-                        selectedPlace?.lng?.let { put("lng", it.toString()) }
-                        composerState.selectedAvatarId?.let { put("avatarId", it) }
-                        composerState.selectedMusic?.id?.let { put("musicId", it) }
-                        selectedCommunity?.id?.let {
-                            put("communityId", it)
-                            if (communityOnly) put("communityOnly", "true")
-                        }
-                        if (enableEvent) {
-                            val startAt = currentTimeMillis() + eventHoursFromNow * 3_600_000L
-                            put("eventStartAt", startAt.toString())
-                            eventPriceText.trim().toLongOrNull()?.takeIf { it > 0 }?.let {
-                                put("eventPrice", it.toString())
-                            }
-                        }
-                        if (enablePoll) {
-                            val cleanOptions = pollOptions.map { it.trim() }.filter { it.isNotBlank() }
-                            if (cleanOptions.size >= 2) {
-                                put(
-                                    "pollOptions",
-                                    shared.api.json.encodeToString(
-                                        kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()),
-                                        cleanOptions,
-                                    ),
-                                )
-                            }
-                        }
-                        if (enableQuestion && questionTitle.isNotBlank()) {
-                            put("questionTitle", questionTitle.trim())
-                        }
-                        if (enableCta && ctaText.isNotBlank()) {
-                            put("ctaDestination", ctaDestination)
-                            put("ctaTitle", ctaTitle.trim().ifBlank { ctaText.trim() })
-                            put("ctaText", ctaText.trim())
-                            if (ctaUrl.isNotBlank()) put("ctaUrl", ctaUrl.trim())
-                        }
-                        if (enableOpenChat) {
-                            put("openChat", "true")
-                            if (openChatName.isNotBlank()) put("openChatName", openChatName.trim())
-                        }
-                        checkInMinutes?.let { put("checkInMinutes", it.toString()) }
-                    }
-                    scope.launch {
-                        val created = shared.composer.submitPost(fields, preparedPhotos)
-                        if (created != null) {
-                            shared.composer.clearCreatedPost()
-                            onDone()
-                        }
-                    }
-                },
+            ViewerButton(
+                me = sessionState.me,
+                language = lang,
+                toComposer = false,
+                overlay = false,
+                showSignedOutBubble = false,
+                onClick = onOpenProfile,
             )
+        },
+        bottomBar = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(tokens.bg)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                if (!err.isNullOrBlank()) {
+                    Text(
+                        err,
+                        color = tokens.danger,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                    )
+                }
+                SaigonPrimaryButton(
+                    text = Copy.text(lang, "postNow"),
+                    enabled = !composerState.isSubmittingPost && !preparingPhotos,
+                    loading = composerState.isSubmittingPost,
+                    onClick = { submitCurrentPost() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         },
     ) {
         Column(
@@ -235,7 +373,6 @@ fun ComposerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         ) {
             // .composer-photo-stage (220.dp wide, 9:16, 18.dp radius, 2.dp dashed line) + .photo-thumbs
@@ -361,7 +498,7 @@ fun ComposerScreen(
 
             SaigonTextField(
                 value = message,
-                onValueChange = { if (it.length <= Limits.MESSAGE_MAX) message = it },
+                onValueChange = { if (it.length <= Limits.MESSAGE_MAX) { message = it; localError = null } },
                 label = Copy.text(lang, "message"),
                 singleLine = false,
                 minLines = 3,
@@ -369,7 +506,17 @@ fun ComposerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // Location selector (.community-open style)
+            SaigonTextField(
+                value = firstComment,
+                onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
+                label = "💭 ${Copy.text(lang, "firstComment")}",
+                singleLine = false,
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // Location input + map picker button (.location-input-row)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     Copy.text(lang, "location"),
@@ -379,26 +526,38 @@ fun ComposerScreen(
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(tokens.surface)
-                        .border(2.dp, tokens.line, RoundedCornerShape(14.dp))
-                        .clickable { showLocationSheet = true }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = tokens.accent, modifier = Modifier.size(20.dp))
-                    Text(
-                        (selectedPlace?.name ?: locationText).ifBlank { Copy.text(lang, "location") },
-                        color = if ((selectedPlace?.name ?: locationText).isBlank()) tokens.muted else tokens.text,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    SaigonTextField(
+                        value = locationText,
+                        onValueChange = { typed ->
+                            locationText = typed
+                            if (selectedPlace != null && !typed.trim().equals(selectedPlace?.name?.trim(), ignoreCase = false)) {
+                                selectedPlace = null
+                            }
+                            localError = null
+                        },
+                        placeholder = Copy.text(lang, "locationHint"),
+                        singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = tokens.muted)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (hasCoordinates) tokens.accent else tokens.surface)
+                            .border(2.dp, if (hasCoordinates) tokens.accent else tokens.line, RoundedCornerShape(14.dp))
+                            .clickable { showLocationDialog = true },
+                    ) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = Copy.text(lang, "pickLocation"),
+                            tint = if (hasCoordinates) Color.White else tokens.text,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
 
@@ -445,29 +604,44 @@ fun ComposerScreen(
                 }
             }
 
-            // Check-in duration selector (.chip-row)
-            Text(
-                Copy.text(lang, "checkInDialogTitle"),
-                color = tokens.text,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 15.sp,
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            ) {
-                SaigonPillChip(
-                    selected = checkInMinutes == null,
-                    onClick = { checkInMinutes = null },
-                    label = Copy.text(lang, "noAvatar"),
-                )
-                CheckIns.durationOptionsMinutes.forEach { mins ->
-                    val label = if (mins < 60) "${mins}m" else "${mins / 60}h"
-                    SaigonPillChip(
-                        selected = checkInMinutes == mins,
-                        onClick = { checkInMinutes = mins },
-                        label = label,
-                    )
+            // Check-in duration selector: revealed ONLY when selected location has lat/lng (same as web)
+            if (hasCoordinates) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            Copy.text(lang, "checkInDialogTitle"),
+                            color = tokens.text,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                        )
+                        checkInMinutes?.let { mins ->
+                            val untilClock = formatSaigonClock(currentTimeMillis() + mins * 60_000L)
+                            Text(
+                                Copy.text(lang, "checkInUntil", mapOf("time" to untilClock)),
+                                color = tokens.accent,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
+                        CheckIns.durationOptionsMinutes.forEach { mins ->
+                            val label = if (mins < 60) "${mins}m" else "${mins / 60}h"
+                            val selected = checkInMinutes == mins
+                            SaigonPillChip(
+                                selected = selected,
+                                onClick = { checkInMinutes = if (selected) null else mins },
+                                label = label,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -477,33 +651,96 @@ fun ComposerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
             ) {
-                SaigonPillChip(selected = enableEvent, onClick = { enableEvent = !enableEvent }, label = Copy.text(lang, "events"))
-                SaigonPillChip(selected = enablePoll, onClick = { enablePoll = !enablePoll }, label = Copy.text(lang, "poll"))
+                SaigonPillChip(
+                    selected = enableEvent,
+                    onClick = {
+                        enableEvent = !enableEvent
+                        if (enableEvent && eventStartAt == null) {
+                            eventStartAt = defaultEventStartMillis()
+                        }
+                    },
+                    label = Copy.text(lang, "addEvent"),
+                )
+                SaigonPillChip(selected = enablePoll, onClick = { enablePoll = !enablePoll }, label = Copy.text(lang, "addPoll"))
                 SaigonPillChip(selected = enableQuestion, onClick = { enableQuestion = !enableQuestion }, label = Copy.text(lang, "askQuestion"))
-                SaigonPillChip(selected = enableCta, onClick = { enableCta = !enableCta }, label = Copy.text(lang, "callToActionText"))
-                SaigonPillChip(selected = enableOpenChat, onClick = { enableOpenChat = !enableOpenChat }, label = Copy.text(lang, "openChat"))
+                SaigonPillChip(selected = enableCta, onClick = { enableCta = !enableCta }, label = Copy.text(lang, "addCallToAction"))
+                SaigonPillChip(selected = enableOpenChat, onClick = { enableOpenChat = !enableOpenChat }, label = Copy.text(lang, "addOpenChat"))
             }
 
             if (enableEvent) {
+                val startMs = eventStartAt ?: defaultEventStartMillis()
                 SaigonCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(Copy.text(lang, "events"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        ) {
-                            listOf(1, 2, 4, 24, 48).forEach { hrs ->
-                                SaigonPillChip(
-                                    selected = eventHoursFromNow == hrs,
-                                    onClick = { eventHoursFromNow = hrs },
-                                    label = "+${hrs}h",
+                        Text(Copy.text(lang, "addEvent"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+
+                        // Start date & time
+                        Text(Copy.text(lang, "eventStart"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            DateTimeChipButton(
+                                text = formatSaigonDate(startMs, lang),
+                                onClick = { eventDateTimeTarget = EventDateTimeTarget.START_DATE },
+                                modifier = Modifier.weight(1f),
+                            )
+                            DateTimeChipButton(
+                                text = formatSaigonClock(startMs),
+                                onClick = { eventDateTimeTarget = EventDateTimeTarget.START_TIME },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+
+                        // End date & time (optional, with clear button)
+                        Text(Copy.text(lang, "eventEnd"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        val endMs = eventEndAt
+                        if (endMs == null) {
+                            SaigonOutlinedPillButton(
+                                text = "+ ${Copy.text(lang, "eventEnd")}",
+                                onClick = { eventEndAt = startMs + 2 * 3_600_000L },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                DateTimeChipButton(
+                                    text = formatSaigonDate(endMs, lang),
+                                    onClick = { eventDateTimeTarget = EventDateTimeTarget.END_DATE },
+                                    modifier = Modifier.weight(1f),
                                 )
+                                DateTimeChipButton(
+                                    text = formatSaigonClock(endMs),
+                                    onClick = { eventDateTimeTarget = EventDateTimeTarget.END_TIME },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(tokens.surface)
+                                        .border(1.dp, tokens.line, RoundedCornerShape(14.dp))
+                                        .clickable { eventEndAt = null },
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = Copy.text(lang, "removeEventEnd"),
+                                        tint = tokens.text,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             }
                         }
+
                         SaigonTextField(
                             value = eventPriceText,
-                            onValueChange = { eventPriceText = it.filter(Char::isDigit) },
+                            onValueChange = { next ->
+                                val digits = next.filter(Char::isDigit)
+                                val clamped = digits.toLongOrNull()?.coerceAtMost(Limits.EVENT_PRICE_MAX.toLong())?.toString().orEmpty()
+                                eventPriceText = if (digits.isEmpty()) "" else clamped
+                            },
                             label = Copy.text(lang, "eventPrice"),
+                            placeholder = Copy.text(lang, "eventPriceHint"),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -516,17 +753,38 @@ fun ComposerScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(Copy.text(lang, "poll"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
                         pollOptions.forEachIndexed { idx, opt ->
-                            SaigonTextField(
-                                value = opt,
-                                onValueChange = { next ->
-                                    if (next.length <= Limits.POLL_OPTION_MAX) {
-                                        pollOptions = pollOptions.mapIndexed { i, v -> if (i == idx) next else v }
-                                    }
-                                },
-                                placeholder = Copy.text(lang, "pollOption", mapOf("n" to (idx + 1).toString())),
-                                singleLine = true,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.fillMaxWidth(),
-                            )
+                            ) {
+                                SaigonTextField(
+                                    value = opt,
+                                    onValueChange = { next ->
+                                        if (next.length <= Limits.POLL_OPTION_MAX) {
+                                            pollOptions = pollOptions.mapIndexed { i, v -> if (i == idx) next else v }
+                                        }
+                                    },
+                                    placeholder = Copy.text(lang, "pollOption", mapOf("n" to (idx + 1).toString())),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (pollOptions.size > 2) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(tokens.surface)
+                                            .border(1.dp, tokens.line, RoundedCornerShape(14.dp))
+                                            .clickable {
+                                                pollOptions = pollOptions.filterIndexed { i, _ -> i != idx }
+                                            },
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = Copy.text(lang, "remove"), tint = tokens.text, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
                         }
                         if (pollOptions.size < Limits.POLL_OPTIONS_MAX) {
                             SaigonTextButton(
@@ -544,6 +802,7 @@ fun ComposerScreen(
                     value = questionTitle,
                     onValueChange = { if (it.length <= Limits.QUESTION_TITLE_MAX) questionTitle = it },
                     label = Copy.text(lang, "questionTitle"),
+                    placeholder = Copy.text(lang, "questionTitleHint"),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -552,7 +811,24 @@ fun ComposerScreen(
             if (enableCta) {
                 SaigonCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(Copy.text(lang, "callToActionText"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        Text(Copy.text(lang, "addCallToAction"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        SaigonTextField(
+                            value = ctaTitle,
+                            onValueChange = { if (it.length <= Limits.CTA_TITLE_MAX) ctaTitle = it },
+                            label = Copy.text(lang, "callToActionTitle"),
+                            placeholder = Copy.text(lang, "callToActionTitleHint"),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        SaigonTextField(
+                            value = ctaText,
+                            onValueChange = { if (it.length <= Limits.CTA_TEXT_MAX) ctaText = it },
+                            label = Copy.text(lang, "callToActionText"),
+                            placeholder = Copy.text(lang, "callToActionTextHint"),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(Copy.text(lang, "callToActionDestination"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -561,72 +837,238 @@ fun ComposerScreen(
                                 SaigonPillChip(
                                     selected = ctaDestination == dest,
                                     onClick = { ctaDestination = dest },
-                                    label = dest,
+                                    label = ctaDestinationLabel(dest, lang),
                                 )
                             }
                         }
-                        SaigonTextField(
-                            value = ctaTitle,
-                            onValueChange = { if (it.length <= Limits.CTA_TITLE_MAX) ctaTitle = it },
-                            label = Copy.text(lang, "callToActionTitle"),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        SaigonTextField(
-                            value = ctaText,
-                            onValueChange = { if (it.length <= Limits.CTA_TEXT_MAX) ctaText = it },
-                            label = Copy.text(lang, "callToActionText"),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (ctaDestination == CallToAction.WEBSITE || ctaDestination == CallToAction.PRODUCT) {
-                            SaigonTextField(
-                                value = ctaUrl,
-                                onValueChange = { if (it.length <= Limits.CTA_URL_MAX) ctaUrl = it },
-                                label = "URL / ID",
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                        ctaDestinationHint(ctaDestination, lang)?.let { hint ->
+                            Text(hint, color = tokens.muted, fontSize = 13.sp)
+                        }
+                        when (ctaDestination) {
+                            CallToAction.WEBSITE -> {
+                                SaigonTextField(
+                                    value = ctaUrl,
+                                    onValueChange = { if (it.length <= Limits.CTA_URL_MAX) ctaUrl = it },
+                                    label = "URL",
+                                    placeholder = Copy.text(lang, "callToActionUrlHint"),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            CallToAction.PRODUCT -> {
+                                SelectorRowButton(
+                                    label = ctaSelectedProduct?.name ?: Copy.text(lang, "chooseProduct"),
+                                    isPlaceholder = ctaSelectedProduct == null,
+                                    onClick = {
+                                        shared.composer.loadMyProducts()
+                                        showProductPicker = true
+                                    },
+                                )
+                            }
+                            else -> Unit
                         }
                     }
                 }
             }
 
             if (enableOpenChat) {
-                SaigonTextField(
-                    value = openChatName,
-                    onValueChange = { openChatName = it },
-                    label = Copy.text(lang, "groupName"),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+                SaigonCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(Copy.text(lang, "addOpenChat"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        if (!openChatCreateNew) {
+                            Text(Copy.text(lang, "groupChat"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            SelectorRowButton(
+                                label = selectedOpenChatGroup?.name?.ifBlank { Copy.text(lang, "unnamedGroupChat") }
+                                    ?: Copy.text(lang, "selectGroupChat"),
+                                isPlaceholder = selectedOpenChatGroup == null,
+                                onClick = {
+                                    shared.composer.loadGroupChats()
+                                    showGroupPicker = true
+                                },
+                            )
+                        }
+                        SaigonSwitch(
+                            checked = openChatCreateNew,
+                            onCheckedChange = { openChatCreateNew = it },
+                            label = Copy.text(lang, "createGroupChat"),
+                        )
+                        if (openChatCreateNew) {
+                            SaigonTextField(
+                                value = openChatName,
+                                onValueChange = { if (it.length <= Limits.CHAT_NAME_MAX) openChatName = it },
+                                label = Copy.text(lang, "groupName"),
+                                placeholder = Copy.text(lang, "groupNameHint"),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
 
-            val err = localError ?: composerState.error
-            if (!err.isNullOrBlank()) {
-                Text(err, color = tokens.danger, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        // Available for (hours stepper)
+                        Text(Copy.text(lang, "openChatExpiration"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            StepperButton("−", enabled = openChatHours > Limits.OPEN_CHAT_HOURS_MIN) {
+                                openChatHours = (openChatHours - 1).coerceAtLeast(Limits.OPEN_CHAT_HOURS_MIN)
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(tokens.surface)
+                                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                            ) {
+                                Text("$openChatHours ${Copy.text(lang, "hoursUnit")}", color = tokens.text, fontWeight = FontWeight.Bold)
+                            }
+                            StepperButton("+", enabled = openChatHours < Limits.OPEN_CHAT_HOURS_MAX) {
+                                openChatHours = (openChatHours + 1).coerceAtMost(Limits.OPEN_CHAT_HOURS_MAX)
+                            }
+                        }
+
+                        // Total join slots (optional stepper)
+                        Text(Copy.text(lang, "openChatRemaining"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            StepperButton("−", enabled = openChatRemaining != null) {
+                                val cur = openChatRemaining ?: return@StepperButton
+                                openChatRemaining = if (cur <= Limits.OPEN_CHAT_REMAINING_MIN) null else cur - 1
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(tokens.surface)
+                                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    openChatRemaining?.toString() ?: Copy.text(lang, "unlimitedOpenChatJoins"),
+                                    color = if (openChatRemaining == null) tokens.muted else tokens.text,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            StepperButton("+", enabled = (openChatRemaining ?: 0) < Limits.OPEN_CHAT_REMAINING_MAX) {
+                                val next = (openChatRemaining ?: 0) + 1
+                                openChatRemaining = next.coerceIn(Limits.OPEN_CHAT_REMAINING_MIN, Limits.OPEN_CHAT_REMAINING_MAX)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
-    if (showLocationSheet) {
-        LocationPickerSheet(
+    // Event Date/Time Pickers
+    eventDateTimeTarget?.let { target ->
+        val baseMillis = when (target) {
+            EventDateTimeTarget.START_DATE, EventDateTimeTarget.START_TIME -> eventStartAt ?: defaultEventStartMillis()
+            EventDateTimeTarget.END_DATE, EventDateTimeTarget.END_TIME -> eventEndAt ?: (eventStartAt ?: defaultEventStartMillis()) + 2 * 3_600_000L
+        }
+        when (target) {
+            EventDateTimeTarget.START_DATE, EventDateTimeTarget.END_DATE -> {
+                val cal = Calendar.getInstance(saigonTimeZone).apply { timeInMillis = baseMillis }
+                val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                    clear()
+                    set(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
+                }
+                val dateState = rememberDatePickerState(initialSelectedDateMillis = utcCal.timeInMillis)
+                DatePickerDialog(
+                    onDismissRequest = { eventDateTimeTarget = null },
+                    confirmButton = {
+                        SaigonTextButton(
+                            text = Copy.text(lang, "okay"),
+                            accent = true,
+                            onClick = {
+                                val pickedUtc = dateState.selectedDateMillis
+                                if (pickedUtc != null) {
+                                    val chosen = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = pickedUtc }
+                                    val updated = Calendar.getInstance(saigonTimeZone).apply {
+                                        timeInMillis = baseMillis
+                                        set(Calendar.YEAR, chosen.get(Calendar.YEAR))
+                                        set(Calendar.MONTH, chosen.get(Calendar.MONTH))
+                                        set(Calendar.DAY_OF_MONTH, chosen.get(Calendar.DAY_OF_MONTH))
+                                    }.timeInMillis
+                                    if (target == EventDateTimeTarget.START_DATE) eventStartAt = updated else eventEndAt = updated
+                                }
+                                eventDateTimeTarget = null
+                            },
+                        )
+                    },
+                    dismissButton = {
+                        SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { eventDateTimeTarget = null })
+                    },
+                ) {
+                    DatePicker(state = dateState)
+                }
+            }
+            EventDateTimeTarget.START_TIME, EventDateTimeTarget.END_TIME -> {
+                val cal = Calendar.getInstance(saigonTimeZone).apply { timeInMillis = baseMillis }
+                val timeState = rememberTimePickerState(
+                    initialHour = cal.get(Calendar.HOUR_OF_DAY),
+                    initialMinute = cal.get(Calendar.MINUTE),
+                    is24Hour = true,
+                )
+                SaigonDialog(onDismiss = { eventDateTimeTarget = null }) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            Copy.text(lang, if (target == EventDateTimeTarget.START_TIME) "eventStart" else "eventEnd"),
+                            color = tokens.text,
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.fillMaxWidth().padding(end = 36.dp),
+                        )
+                        TimePicker(state = timeState)
+                        SaigonPrimaryButton(
+                            text = Copy.text(lang, "okay"),
+                            onClick = {
+                                val updated = Calendar.getInstance(saigonTimeZone).apply {
+                                    timeInMillis = baseMillis
+                                    set(Calendar.HOUR_OF_DAY, timeState.hour)
+                                    set(Calendar.MINUTE, timeState.minute)
+                                    set(Calendar.SECOND, 0)
+                                    set(Calendar.MILLISECOND, 0)
+                                }.timeInMillis
+                                if (target == EventDateTimeTarget.START_TIME) eventStartAt = updated else eventEndAt = updated
+                                eventDateTimeTarget = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { eventDateTimeTarget = null }, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        }
+    }
+
+    if (showLocationDialog) {
+        LocationPickerDialog(
             initialQuery = locationText,
+            currentPlace = selectedPlace,
             recent = composerState.recentPlaces,
             results = composerState.placeResults,
+            mapsApiKey = sessionState.mapsKey,
             language = lang,
             onSearch = { q -> shared.composer.searchPlaces(q, selectedCommunity?.id) },
+            onResolvePlaceDetails = { placeId -> shared.composer.resolvePlaceDetails(placeId) },
+            onCreateCustomPlace = { name, lat, lng -> shared.composer.createCustomPlace(name, lat, lng) },
             onSelectPlace = { place ->
                 selectedPlace = place
                 locationText = place.name
-                showLocationSheet = false
+                showLocationDialog = false
             },
-            onSelectCustomText = { text ->
-                selectedPlace = null
-                locationText = text
-                showLocationSheet = false
-            },
-            onDismiss = { showLocationSheet = false },
+            onDismiss = { showLocationDialog = false },
         )
     }
 
@@ -635,6 +1077,7 @@ fun ComposerScreen(
             communities = composerState.communities,
             selected = selectedCommunity,
             language = lang,
+            onSearch = { q -> shared.composer.loadCommunities(q) },
             onCreate = { name, emoji ->
                 scope.launch {
                     shared.composer.createCommunity(name, emoji)?.let { created ->
@@ -648,6 +1091,34 @@ fun ComposerScreen(
                 showCommunitySheet = false
             },
             onDismiss = { showCommunitySheet = false },
+        )
+    }
+
+    if (showProductPicker) {
+        ProductChooserDialog(
+            products = composerState.myProducts,
+            isLoading = composerState.isLoadingProducts,
+            selectedId = ctaSelectedProduct?.id,
+            language = lang,
+            onSelect = { product ->
+                ctaSelectedProduct = product
+                showProductPicker = false
+            },
+            onDismiss = { showProductPicker = false },
+        )
+    }
+
+    if (showGroupPicker) {
+        GroupChatChooserDialog(
+            groups = composerState.myGroupChats,
+            isLoading = composerState.isLoadingGroupChats,
+            selectedId = selectedOpenChatGroup?.id,
+            language = lang,
+            onSelect = { group ->
+                selectedOpenChatGroup = group
+                showGroupPicker = false
+            },
+            onDismiss = { showGroupPicker = false },
         )
     }
 
@@ -689,70 +1160,563 @@ fun ComposerScreen(
 }
 
 @Composable
-private fun LocationPickerSheet(
+private fun SelectorRowButton(
+    label: String,
+    isPlaceholder: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(tokens.surface)
+            .border(2.dp, tokens.line, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = label,
+            color = if (isPlaceholder) tokens.muted else tokens.text,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = tokens.muted)
+    }
+}
+
+@Composable
+private fun StepperButton(
+    symbol: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(tokens.surface)
+            .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Text(
+            symbol,
+            color = if (enabled) tokens.text else tokens.muted.copy(alpha = 0.45f),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun DateTimeChipButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    Box(
+        contentAlignment = Alignment.CenterStart,
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(tokens.surface)
+            .border(2.dp, tokens.line, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        Text(text, color = tokens.text, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private fun ctaDestinationLabel(destination: String, language: Language): String = when (destination) {
+    CallToAction.MESSAGE -> Copy.text(language, "ctaSendMessage")
+    CallToAction.ZALO -> Copy.text(language, "ctaZaloMessage")
+    CallToAction.WEBSITE -> Copy.text(language, "ctaOpenWebsite")
+    CallToAction.PROFILE -> Copy.text(language, "ctaShowProfile")
+    CallToAction.PRODUCT -> Copy.text(language, "ctaShowProduct")
+    else -> destination.replaceFirstChar { it.uppercase() }
+}
+
+private fun ctaDestinationHint(destination: String, language: Language): String? = when (destination) {
+    CallToAction.MESSAGE -> Copy.text(language, "ctaSendMessageHint")
+    CallToAction.ZALO -> Copy.text(language, "ctaZaloMessageHint")
+    CallToAction.PROFILE -> Copy.text(language, "ctaShowProfileHint")
+    CallToAction.PRODUCT -> Copy.text(language, "ctaShowProductHint")
+    else -> null
+}
+
+private val saigonTimeZone: TimeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+
+private fun defaultEventStartMillis(): Long {
+    val cal = Calendar.getInstance(saigonTimeZone).apply {
+        timeInMillis = currentTimeMillis() + 4 * 3_600_000L
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    return cal.timeInMillis
+}
+
+private fun formatSaigonDate(epochMs: Long, language: Language): String {
+    val locale = if (language == Language.VI) Locale.forLanguageTag("vi-VN") else Locale.ENGLISH
+    return SimpleDateFormat("EEE, MMM d", locale).apply { timeZone = saigonTimeZone }.format(Date(epochMs))
+}
+
+private fun formatSaigonClock(epochMs: Long): String {
+    return SimpleDateFormat("HH:mm", Locale.ENGLISH).apply { timeZone = saigonTimeZone }.format(Date(epochMs))
+}
+
+@Composable
+private fun LocationPickerDialog(
     initialQuery: String,
+    currentPlace: PlaceSuggestionDto?,
     recent: List<PlaceSuggestionDto>,
     results: List<PlaceSuggestionDto>,
+    mapsApiKey: String?,
     language: Language,
     onSearch: (String) -> Unit,
+    onResolvePlaceDetails: suspend (String) -> PlaceSuggestionDto?,
+    onCreateCustomPlace: suspend (name: String, lat: Double, lng: Double) -> PlaceSuggestionDto?,
     onSelectPlace: (PlaceSuggestionDto) -> Unit,
-    onSelectCustomText: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf(initialQuery) }
-    SaigonBottomSheet(
-        title = Copy.text(language, "location"),
-        onDismiss = onDismiss,
-    ) {
+    var pendingPlace by remember { mutableStateOf(currentPlace) }
+    var placingLocation by remember { mutableStateOf(false) }
+    var resolving by remember { mutableStateOf(false) }
+    var creating by remember { mutableStateOf(false) }
+    var hintText by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(query) {
+        delay(200)
+        onSearch(query)
+    }
+
+    SaigonDialog(onDismiss = onDismiss) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                SaigonTextField(
-                    value = query,
-                    onValueChange = {
-                        query = it
-                        onSearch(it)
-                    },
-                    placeholder = Copy.text(language, "searchPlaces"),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                if (query.isNotBlank()) {
-                    SaigonPrimaryButton(
-                        text = Copy.text(language, "usePlace"),
-                        onClick = { onSelectCustomText(query.trim()) },
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            Text(
+                Copy.text(language, "pickLocation"),
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+            SaigonTextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    placingLocation = false
+                    hintText = null
+                },
+                placeholder = Copy.text(language, "searchPlaces"),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 170.dp),
+            ) {
+                if (query.isBlank() && recent.isNotEmpty()) {
+                    item {
+                        Text(Copy.text(language, "recentPlaces"), color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    items(recent) { place ->
+                        PlacePickerRow(
+                            place = place,
+                            selected = !placingLocation && samePickerPlace(pendingPlace, place),
+                            onClick = {
+                                placingLocation = false
+                                hintText = null
+                                val pid = place.placeId
+                                if (!pid.isNullOrBlank() && (place.lat == null || place.lng == null)) {
+                                    scope.launch {
+                                        resolving = true
+                                        pendingPlace = onResolvePlaceDetails(pid) ?: place
+                                        resolving = false
+                                    }
+                                } else {
+                                    pendingPlace = place
+                                }
+                            },
+                        )
+                    }
+                }
+                items(results) { place ->
+                    PlacePickerRow(
+                        place = place,
+                        selected = !placingLocation && samePickerPlace(pendingPlace, place),
+                        onClick = {
+                            placingLocation = false
+                            hintText = null
+                            val pid = place.placeId
+                            if (!pid.isNullOrBlank() && (place.lat == null || place.lng == null)) {
+                                scope.launch {
+                                    resolving = true
+                                    pendingPlace = onResolvePlaceDetails(pid) ?: place
+                                    resolving = false
+                                }
+                            } else {
+                                pendingPlace = place
+                            }
+                        },
                     )
                 }
-            }
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.heightIn(max = 360.dp),
-            ) {
-                items(recent + results) { place ->
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(tokens.bg)
-                            .border(2.dp, tokens.line, RoundedCornerShape(14.dp))
-                            .clickable { onSelectPlace(place) }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                    ) {
-                        Text(place.name, color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                        if (place.address.isNotBlank()) {
-                            Text(place.address, color = tokens.muted, fontSize = 12.sp)
+                if (query.isNotBlank()) {
+                    item {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (placingLocation) tokens.accent.copy(alpha = 0.12f) else tokens.surface,
+                                )
+                                .dashedBorder(
+                                    color = if (placingLocation) tokens.accent else tokens.accent.copy(alpha = 0.48f),
+                                    strokeWidth = 1.5.dp,
+                                    cornerRadius = 14.dp,
+                                )
+                                .clickable {
+                                    placingLocation = true
+                                    pendingPlace = null
+                                    hintText = Copy.text(language, "tapMapToPlace")
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Text(
+                                "+ ${Copy.text(language, "addThisLocation")}",
+                                color = tokens.accent,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                            )
+                            Text(
+                                Copy.text(language, "addLocationHint"),
+                                color = tokens.muted,
+                                fontSize = 12.sp,
+                            )
                         }
                     }
                 }
             }
+
+            // Interactive map preview & custom marker placement
+            val pins = remember(pendingPlace) {
+                val p = pendingPlace
+                if (p?.lat != null && p.lng != null) {
+                    listOf(
+                        SaigonMapPlacePin(
+                            key = p.id ?: p.placeId ?: p.name,
+                            name = p.name,
+                            lat = p.lat!!,
+                            lng = p.lng!!,
+                        ),
+                    )
+                } else {
+                    emptyList()
+                }
+            }
+            SaigonMapView(
+                places = pins,
+                mapsApiKey = mapsApiKey,
+                centerLat = pendingPlace?.lat,
+                centerLng = pendingPlace?.lng,
+                initialZoom = if (pendingPlace?.lat != null) 16f else 12f,
+                onMapClick = { lat, lng ->
+                    if (placingLocation) {
+                        val cleanName = query.trim()
+                        if (cleanName.isNotEmpty()) {
+                            pendingPlace = PlaceSuggestionDto(name = cleanName, lat = lat, lng = lng, custom = true)
+                            hintText = Copy.text(language, "locationPlaced")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(190.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(1.dp, tokens.line, RoundedCornerShape(16.dp)),
+            )
+
+            hintText?.let {
+                Text(it, color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            val canConfirm = !resolving && !creating && pendingPlace != null &&
+                (!placingLocation || (pendingPlace?.lat != null && pendingPlace?.lng != null))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                SaigonTextButton(
+                    text = Copy.text(language, "close"),
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                )
+                SaigonPrimaryButton(
+                    text = Copy.text(language, if (placingLocation) "createLocation" else "usePlace"),
+                    enabled = canConfirm,
+                    loading = creating || resolving,
+                    onClick = {
+                        val place = pendingPlace ?: return@SaigonPrimaryButton
+                        if (placingLocation) {
+                            val lat = place.lat ?: return@SaigonPrimaryButton
+                            val lng = place.lng ?: return@SaigonPrimaryButton
+                            scope.launch {
+                                creating = true
+                                val created = onCreateCustomPlace(place.name, lat, lng)
+                                creating = false
+                                if (created != null) onSelectPlace(created)
+                            }
+                        } else {
+                            onSelectPlace(place)
+                        }
+                    },
+                    modifier = Modifier.weight(1.4f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlacePickerRow(
+    place: PlaceSuggestionDto,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(tokens.bg)
+            .border(2.dp, if (selected) tokens.accent else tokens.line, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        val thumb = place.photoUrl ?: place.googlePhotoUrl
+        if (!thumb.isNullOrBlank()) {
+            AsyncImage(
+                model = thumb,
+                contentDescription = place.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)),
+            )
+        } else {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(tokens.surface),
+            ) {
+                Text("📍", fontSize = 20.sp)
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+            Text(
+                place.name,
+                color = if (selected) tokens.accent else tokens.text,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (place.address.isNotBlank()) {
+                Text(place.address, color = tokens.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+private fun samePickerPlace(first: PlaceSuggestionDto?, second: PlaceSuggestionDto?): Boolean {
+    if (first == null || second == null) return false
+    val fId = first.id?.takeIf { it.isNotBlank() }
+    val sId = second.id?.takeIf { it.isNotBlank() }
+    if (fId != null && sId != null && fId == sId) return true
+    val fPid = first.placeId?.takeIf { it.isNotBlank() }
+    val sPid = second.placeId?.takeIf { it.isNotBlank() }
+    return fPid != null && sPid != null && fPid == sPid
+}
+
+@Composable
+private fun ProductChooserDialog(
+    products: List<ProductDto>,
+    isLoading: Boolean,
+    selectedId: String?,
+    language: Language,
+    onSelect: (ProductDto) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(products, query) {
+        if (query.isBlank()) products else products.filter { it.name.contains(query, ignoreCase = true) }
+    }
+    SaigonDialog(onDismiss = onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                Copy.text(language, "chooseProduct"),
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+            SaigonTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = Copy.text(language, "searchProducts"),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            when {
+                isLoading && products.isEmpty() -> {
+                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        SaigonSpinner(size = 24.dp)
+                    }
+                }
+                filtered.isEmpty() -> {
+                    Text(
+                        Copy.text(language, if (products.isEmpty()) "noProducts" else "noProductMatches"),
+                        color = tokens.muted,
+                        fontSize = 13.sp,
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 300.dp),
+                    ) {
+                        items(filtered, key = { it.id }) { product ->
+                            val isSel = product.id == selectedId
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(tokens.bg)
+                                    .border(2.dp, if (isSel) tokens.accent else tokens.line, RoundedCornerShape(14.dp))
+                                    .clickable { onSelect(product) }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    product.name,
+                                    color = if (isSel) tokens.accent else tokens.text,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
+                                )
+                                Text(formatVnd(product.price), color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+            SaigonTextButton(text = Copy.text(language, "cancel"), onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun GroupChatChooserDialog(
+    groups: List<ChatDto>,
+    isLoading: Boolean,
+    selectedId: String?,
+    language: Language,
+    onSelect: (ChatDto) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(groups, query) {
+        if (query.isBlank()) {
+            groups
+        } else {
+            groups.filter {
+                val label = it.name.ifBlank { Copy.text(language, "unnamedGroupChat") }
+                label.contains(query, ignoreCase = true)
+            }
+        }
+    }
+    SaigonDialog(onDismiss = onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                Copy.text(language, "selectGroupChat"),
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+            SaigonTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = Copy.text(language, "searchGroups"),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            when {
+                isLoading && groups.isEmpty() -> {
+                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        SaigonSpinner(size = 24.dp)
+                    }
+                }
+                filtered.isEmpty() -> {
+                    Text(
+                        Copy.text(language, if (groups.isEmpty()) "noGroups" else "noGroupMatches"),
+                        color = tokens.muted,
+                        fontSize = 13.sp,
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 300.dp),
+                    ) {
+                        items(filtered, key = { it.id }) { group ->
+                            val isSel = group.id == selectedId
+                            val label = group.name.ifBlank { Copy.text(language, "unnamedGroupChat") }
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(tokens.bg)
+                                    .border(2.dp, if (isSel) tokens.accent else tokens.line, RoundedCornerShape(14.dp))
+                                    .clickable { onSelect(group) }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    label,
+                                    color = if (isSel) tokens.accent else tokens.text,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
+                                )
+                                if (group.memberCount > 0) {
+                                    Text(
+                                        Copy.text(language, "memberCount", mapOf("count" to group.memberCount.toString())),
+                                        color = tokens.muted,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            SaigonTextButton(text = Copy.text(language, "cancel"), onClick = onDismiss, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -762,13 +1726,25 @@ private fun CommunityPickerSheet(
     communities: List<CommunityDto>,
     selected: CommunityDto?,
     language: Language,
+    onSearch: (String) -> Unit,
     onCreate: (String, String) -> Unit,
     onSelect: (CommunityDto?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
+    var query by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
     var newEmoji by remember { mutableStateOf("✨") }
+
+    LaunchedEffect(query) {
+        delay(200)
+        onSearch(query)
+    }
+
+    val filtered = remember(communities, query) {
+        if (query.isBlank()) communities else communities.filter { it.name.contains(query, ignoreCase = true) }
+    }
+
     SaigonBottomSheet(
         title = Copy.text(language, "community"),
         onDismiss = onDismiss,
@@ -780,6 +1756,13 @@ private fun CommunityPickerSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
+            SaigonTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = Copy.text(language, "searchCommunities"),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 SaigonTextField(
                     value = newEmoji,
@@ -801,7 +1784,7 @@ private fun CommunityPickerSheet(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
-            if (selected != null) {
+            if (selected != null && query.isBlank()) {
                 SaigonTextButton(
                     text = Copy.text(language, "noCommunity"),
                     accent = true,
@@ -812,26 +1795,41 @@ private fun CommunityPickerSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.heightIn(max = 320.dp),
             ) {
-                items(communities, key = { it.id }) { comm ->
+                items(filtered, key = { it.id }) { comm ->
                     val isSelected = comm.id == selected?.id
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(tokens.bg)
                             .border(2.dp, if (isSelected) tokens.accent else tokens.line, RoundedCornerShape(14.dp))
                             .clickable { onSelect(comm) }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
-                        Text(
-                            "${comm.emoji} ${comm.name}",
-                            color = if (isSelected) tokens.accent else tokens.text,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp,
-                        )
-                        Text("${comm.memberCount}", color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "${comm.emoji} ${comm.name}",
+                                color = if (isSelected) tokens.accent else tokens.text,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 15.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text("${comm.memberCount}", color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (comm.description.isNotBlank()) {
+                            Text(
+                                comm.description,
+                                color = tokens.muted,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

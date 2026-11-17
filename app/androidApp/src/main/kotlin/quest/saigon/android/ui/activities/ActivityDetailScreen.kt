@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -42,11 +43,12 @@ import quest.saigon.Copy
 import quest.saigon.Limits
 import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
+import quest.saigon.android.ui.components.ActivityEditorDialog
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.SaigonCard
-import quest.saigon.android.ui.components.SaigonDialog
+import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonMapPlacePin
 import quest.saigon.android.ui.components.SaigonMapView
@@ -54,14 +56,14 @@ import quest.saigon.android.ui.components.SaigonPageShell
 import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSecondaryButton
 import quest.saigon.android.ui.components.SaigonSpinner
-import quest.saigon.android.ui.components.SaigonTextButton
-import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.dashedBorder
+import quest.saigon.android.ui.components.formatScheduleMinutes
 import quest.saigon.android.ui.components.openLocationDestination
+import quest.saigon.android.ui.components.weekdayCopyKey
 import quest.saigon.shared.TownSharedClient
-import quest.saigon.shared.model.UpdateActivityRequest
+import quest.saigon.shared.model.UserPhotoDto
 import quest.saigon.shared.store.ActivityStore
 
 @Composable
@@ -80,8 +82,10 @@ fun ActivityDetailScreen(
     val scope = rememberCoroutineScope()
 
     var showEdit by remember { mutableStateOf(false) }
-    var zoomUrl by remember { mutableStateOf<String?>(null) }
-    var selectedChatIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDeleteActivity by remember { mutableStateOf(false) }
+    var pendingDeletePhoto by remember { mutableStateOf<UserPhotoDto?>(null) }
+    var viewerInitialIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedChatIds by remember(activityId) { mutableStateOf<Set<String>>(emptySet()) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
@@ -99,6 +103,16 @@ fun ActivityDetailScreen(
 
     val act = activityState.selectedActivity?.takeIf { it.id == activityId }
     val isCreator = act != null && sessionState.me?.id == act.createdBy
+
+    // Pre-select host if present and not self (matches web ActivitiesUi.kt)
+    LaunchedEffect(act?.id, act?.hostUserId, sessionState.me?.id) {
+        val a = act ?: return@LaunchedEffect
+        val viewer = sessionState.me?.id
+        val hostId = a.hostUserId
+        if (!hostId.isNullOrBlank() && hostId != viewer && a.interestedPeople.any { it.id == hostId }) {
+            selectedChatIds = selectedChatIds + hostId
+        }
+    }
 
     SaigonPageShell(
         title = act?.let { "${it.emoji} ${ActivityStore.localizedName(it, lang)}" } ?: Copy.text(lang, "activityAttachment"),
@@ -121,16 +135,50 @@ fun ActivityDetailScreen(
                     Icon(Icons.Default.Edit, contentDescription = Copy.text(lang, "edit"), modifier = Modifier.size(18.dp))
                 }
                 SaigonIconButton(
-                    onClick = {
-                        scope.launch {
-                            if (shared.activity.deleteActivity(act.id)) onBack()
-                        }
-                    },
+                    onClick = { confirmDeleteActivity = true },
                     overlay = false,
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "delete"), tint = tokens.danger, modifier = Modifier.size(18.dp))
                 }
             }
+        },
+        bottomBar = if (act != null && act.interestedPeople.any { it.id != sessionState.me?.id }) {
+            {
+                val chatCount = selectedChatIds.size
+                val chatLabel = if (chatCount <= 1) {
+                    Copy.text(lang, "openChat")
+                } else {
+                    Copy.text(lang, "startGroupChat")
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(tokens.surface)
+                        .border(1.dp, tokens.line)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    SaigonPrimaryButton(
+                        text = chatLabel,
+                        enabled = selectedChatIds.isNotEmpty() && !activityState.isMutating,
+                        loading = activityState.isMutating,
+                        onClick = {
+                            if (sessionState.me == null) {
+                                onRequireAuth()
+                            } else {
+                                scope.launch {
+                                    shared.activity.startActivityChat(act.id, selectedChatIds.toList())?.let { chat ->
+                                        onNavigate(AppRoute.Chat(chat.id))
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        } else {
+            null
         },
     ) {
         if (act == null) {
@@ -141,80 +189,183 @@ fun ActivityDetailScreen(
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+                modifier = Modifier.fillMaxSize(),
             ) {
+                // Header + Description
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("${act.emoji} ${ActivityStore.localizedName(act, lang)}", color = tokens.text, style = MaterialTheme.typography.headlineSmall)
                         Text(
-                            text = "📍 ${act.locationName}",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
+                            "${act.emoji} ${ActivityStore.localizedName(act, lang)}",
                             color = tokens.text,
-                            modifier = Modifier.clickable {
-                                val token = openLocationDestination(
-                                    shared = shared,
-                                    name = act.locationName,
-                                    placeId = act.placeId,
-                                    locationId = act.locationId,
-                                    lat = act.lat,
-                                    lng = act.lng,
-                                )
-                                onNavigate(AppRoute.Location(token))
-                            },
+                            style = MaterialTheme.typography.headlineSmall,
                         )
-                        val lat = act.lat
-                        val lng = act.lng
-                        if (lat != null && lng != null) {
-                            Box(
-                                modifier = Modifier
-                                    .size(160.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .border(1.dp, tokens.line, RoundedCornerShape(14.dp)),
-                            ) {
-                                SaigonMapView(
-                                    places = listOf(
-                                        SaigonMapPlacePin(
-                                            key = act.locationId ?: act.placeId ?: act.locationName,
-                                            name = act.locationName,
-                                            lat = lat,
-                                            lng = lng,
-                                            activityEmojis = listOf(act.emoji),
-                                            hasActivities = true,
-                                        ),
-                                    ),
-                                    mapsApiKey = sessionState.mapsKey,
-                                    centerLat = lat,
-                                    centerLng = lng,
-                                    initialZoom = 15.5f,
-                                    onPlaceClick = {
-                                        val token = openLocationDestination(
-                                            shared = shared,
-                                            name = act.locationName,
-                                            placeId = act.placeId,
-                                            locationId = act.locationId,
-                                            lat = lat,
-                                            lng = lng,
-                                        )
-                                        onNavigate(AppRoute.Location(token))
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                        }
                         val desc = ActivityStore.localizedDescription(act, lang)
                         if (desc.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
                             LinkifiedText(text = desc, color = tokens.muted, style = MaterialTheme.typography.bodyLarge)
                         }
                     }
                 }
 
+                // Photos gallery (.user-photos-row)
                 item {
-                    val label = "${Copy.text(lang, "imInterested")} (${act.interestedCount})"
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(Copy.text(lang, "photos"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(82.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .dashedBorder(tokens.line, strokeWidth = 2.dp, cornerRadius = 14.dp)
+                                    .clickable {
+                                        if (sessionState.me == null) onRequireAuth()
+                                        else photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    },
+                            ) {
+                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = Copy.text(lang, "addPhoto"), tint = tokens.muted, modifier = Modifier.size(28.dp))
+                            }
+                            activityState.photos.forEachIndexed { idx, photo ->
+                                Box(modifier = Modifier.size(82.dp)) {
+                                    AsyncImage(
+                                        model = photo.url,
+                                        contentDescription = Copy.text(lang, "photo"),
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .border(1.dp, tokens.line, RoundedCornerShape(14.dp))
+                                            .clickable { viewerInitialIndex = idx },
+                                    )
+                                    if (photo.canDelete) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Black.copy(alpha = 0.68f))
+                                                .clickable { pendingDeletePhoto = photo },
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "deletePhotoAsk"), tint = Color.White, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Location + Map + Directions (.activity-location-section)
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(Copy.text(lang, "location"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                        val lat = act.lat
+                        val lng = act.lng
+                        fun openLocation() {
+                            val token = openLocationDestination(
+                                shared = shared,
+                                name = act.locationName,
+                                placeId = act.placeId,
+                                locationId = act.locationId,
+                                lat = lat,
+                                lng = lng,
+                            )
+                            onNavigate(AppRoute.Location(token))
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (lat != null && lng != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(160.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(tokens.surface)
+                                        .border(1.dp, tokens.line, RoundedCornerShape(14.dp)),
+                                ) {
+                                    SaigonMapView(
+                                        places = listOf(
+                                            SaigonMapPlacePin(
+                                                key = act.locationId ?: act.placeId ?: act.locationName,
+                                                name = act.locationName,
+                                                lat = lat,
+                                                lng = lng,
+                                                activityEmojis = listOf(act.emoji),
+                                                hasActivities = true,
+                                            ),
+                                        ),
+                                        mapsApiKey = sessionState.mapsKey,
+                                        centerLat = lat,
+                                        centerLng = lng,
+                                        initialZoom = 15.5f,
+                                        onPlaceClick = { openLocation() },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    text = "📍 ${act.locationName}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = tokens.text,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable(onClick = ::openLocation)
+                                        .padding(vertical = 2.dp),
+                                )
+                                SaigonPrimaryButton(
+                                    text = Copy.text(lang, "directions"),
+                                    onClick = { AndroidIntents.openDirections(context, act.locationName, lat, lng) },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Schedule (.activity-schedule-table)
+                item {
+                    SaigonCard(borderWidth = 1.dp, cornerRadius = 14.dp, modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(Copy.text(lang, "activitySchedule"), color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                            if (act.schedule.isEmpty()) {
+                                Text(Copy.text(lang, "alwaysAvailable"), color = tokens.muted, fontSize = 14.sp)
+                            } else {
+                                act.schedule.forEachIndexed { idx, slot ->
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    ) {
+                                        Text(Copy.text(lang, weekdayCopyKey(slot.dayOfWeek)), color = tokens.text, fontWeight = FontWeight.Bold)
+                                        Text("${formatScheduleMinutes(slot.startMinutes)} – ${formatScheduleMinutes(slot.endMinutes)}", color = tokens.muted)
+                                    }
+                                    if (idx < act.schedule.lastIndex) {
+                                        HorizontalDivider(color = tokens.line, thickness = 1.dp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Interested CTA
+                item {
+                    val label = Copy.text(lang, "interestedCount", mapOf("count" to act.interestedCount.toString()))
                     val onInterestClick = {
-                        if (sessionState.me == null) onRequireAuth()
-                        else {
+                        if (sessionState.me == null) {
+                            onRequireAuth()
+                        } else {
                             scope.launch { shared.activity.toggleInterest(act.id, act.interested) }
                             Unit
                         }
@@ -237,147 +388,69 @@ fun ActivityDetailScreen(
                     }
                 }
 
-                // .activity-schedule-table
+                // Interested People (.activity-people)
                 item {
-                    SaigonCard(borderWidth = 1.dp, cornerRadius = 14.dp, modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(Copy.text(lang, "activitySchedule"), color = tokens.muted, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-                            if (act.schedule.isEmpty()) {
-                                Text(Copy.text(lang, "alwaysAvailable"), color = tokens.muted, fontSize = 14.sp)
-                            } else {
-                                act.schedule.forEachIndexed { idx, slot ->
-                                    val dayKey = when (slot.dayOfWeek) {
-                                        1 -> "weekdayMon"
-                                        2 -> "weekdayTue"
-                                        3 -> "weekdayWed"
-                                        4 -> "weekdayThu"
-                                        5 -> "weekdayFri"
-                                        6 -> "weekdaySat"
-                                        else -> "weekdaySun"
-                                    }
-                                    Row(
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                    ) {
-                                        Text(Copy.text(lang, dayKey), color = tokens.text, fontWeight = FontWeight.Bold)
-                                        Text("${formatMinutes(slot.startMinutes)} - ${formatMinutes(slot.endMinutes)}", color = tokens.muted)
-                                    }
-                                    if (idx < act.schedule.lastIndex) {
-                                        HorizontalDivider(color = tokens.line, thickness = 1.dp)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    Text(Copy.text(lang, "peopleInterested"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
                 }
 
-                // .user-photos-row
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(Copy.text(lang, "photos"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                if (act.interestedPeople.isEmpty()) {
+                    item {
+                        Text(Copy.text(lang, "noPeople"), color = tokens.muted, fontSize = 14.sp)
+                    }
+                } else {
+                    items(act.interestedPeople, key = { it.id }) { person ->
+                        val isSelf = person.id == sessionState.me?.id
+                        val checked = person.id in selectedChatIds
+                        val canSelect = sessionState.me != null && !isSelf
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (checked) tokens.accent.copy(alpha = 0.14f) else Color.Transparent)
+                                .then(
+                                    if (checked) Modifier.border(2.dp, tokens.accent.copy(alpha = 0.24f), RoundedCornerShape(999.dp))
+                                    else Modifier,
+                                )
+                                .clickable {
+                                    if (canSelect) {
+                                        selectedChatIds = if (checked) selectedChatIds - person.id else selectedChatIds + person.id
+                                    } else {
+                                        onNavigate(AppRoute.User(person.id))
+                                    }
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
                         ) {
+                            if (canSelect) {
+                                Checkbox(
+                                    checked = checked,
+                                    colors = CheckboxDefaults.colors(checkedColor = tokens.accent),
+                                    onCheckedChange = {
+                                        selectedChatIds = if (it) selectedChatIds + person.id else selectedChatIds - person.id
+                                    },
+                                    modifier = Modifier.size(30.dp),
+                                )
+                            }
+                            UserAvatar(photoUrl = person.photoUrl, name = person.name, size = 40.dp, borderWidth = 0.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(person.name, color = tokens.text, fontWeight = FontWeight.Bold)
+                                if (person.host) SaigonTinyPill(label = Copy.text(lang, "host"), selected = true)
+                            }
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .size(82.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .dashedBorder(tokens.line, strokeWidth = 2.dp, cornerRadius = 14.dp)
-                                    .clickable {
-                                        if (sessionState.me == null) onRequireAuth()
-                                        else photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    },
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(tokens.bg)
+                                    .clickable { onNavigate(AppRoute.User(person.id)) },
                             ) {
-                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = Copy.text(lang, "addPhoto"), tint = tokens.muted, modifier = Modifier.size(28.dp))
+                                Icon(Icons.Default.Person, contentDescription = Copy.text(lang, "profile"), tint = tokens.muted, modifier = Modifier.size(18.dp))
                             }
-                            activityState.photos.forEach { photo ->
-                                Box(modifier = Modifier.size(82.dp)) {
-                                    AsyncImage(
-                                        model = photo.url,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .border(1.dp, tokens.line, RoundedCornerShape(14.dp))
-                                            .clickable { zoomUrl = photo.url },
-                                    )
-                                    if (photo.canDelete) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(4.dp)
-                                                .size(26.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.Black.copy(alpha = 0.68f))
-                                                .clickable { scope.launch { shared.activity.deletePhoto(act.id, photo.id) } },
-                                        ) {
-                                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text(Copy.text(lang, "peopleInterested"), color = tokens.text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        if (selectedChatIds.isNotEmpty()) {
-                            SaigonPrimaryButton(
-                                text = Copy.text(lang, "startGroupChat"),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                onClick = {
-                                    if (sessionState.me == null) onRequireAuth()
-                                    else scope.launch {
-                                        shared.activity.startActivityChat(act.id, selectedChatIds.toList())?.let { chat ->
-                                            onNavigate(AppRoute.Chat(chat.id))
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-
-                // .activity-people .attendee-row
-                items(act.interestedPeople, key = { it.id }) { person ->
-                    val checked = person.id in selectedChatIds
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (checked) tokens.accent.copy(alpha = 0.14f) else Color.Transparent)
-                            .then(
-                                if (checked) Modifier.border(2.dp, tokens.accent.copy(alpha = 0.24f), RoundedCornerShape(999.dp))
-                                else Modifier,
-                            )
-                            .clickable { onNavigate(AppRoute.User(person.id)) }
-                            .padding(8.dp),
-                    ) {
-                        UserAvatar(photoUrl = person.photoUrl, name = person.name, size = 40.dp, borderWidth = 0.dp)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(person.name, color = tokens.text, fontWeight = FontWeight.Bold)
-                            if (person.host) SaigonTinyPill(label = Copy.text(lang, "host"), selected = true)
-                        }
-                        if (sessionState.me != null && person.id != sessionState.me?.id) {
-                            Checkbox(
-                                checked = checked,
-                                colors = CheckboxDefaults.colors(checkedColor = tokens.accent),
-                                onCheckedChange = {
-                                    selectedChatIds = if (it) selectedChatIds + person.id else selectedChatIds - person.id
-                                },
-                            )
                         }
                     }
                 }
@@ -386,55 +459,67 @@ fun ActivityDetailScreen(
     }
 
     if (showEdit && act != null) {
-        var name by remember { mutableStateOf(act.name) }
-        var emoji by remember { mutableStateOf(act.emoji) }
-        var description by remember { mutableStateOf(act.description) }
-        SaigonDialog(onDismiss = { showEdit = false }) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(Copy.text(lang, "editActivity"), color = tokens.text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 36.dp))
-                SaigonTextField(value = emoji, onValueChange = { emoji = it.take(4) }, label = Copy.text(lang, "activityEmoji"))
-                SaigonTextField(
-                    value = name,
-                    onValueChange = { if (it.length <= Limits.ACTIVITY_NAME_MAX) name = it },
-                    label = Copy.text(lang, "activityName"),
-                )
-                SaigonTextField(
-                    value = description,
-                    onValueChange = { if (it.length <= Limits.ACTIVITY_DESCRIPTION_MAX) description = it },
-                    label = Copy.text(lang, "activityDescription"),
-                    singleLine = false,
-                    minLines = 2,
-                )
-                SaigonPrimaryButton(
-                    text = Copy.text(lang, "save"),
-                    enabled = name.isNotBlank(),
-                    onClick = {
-                        scope.launch {
-                            val updated = shared.activity.updateActivity(
-                                act.id,
-                                UpdateActivityRequest(
-                                    emoji = emoji.trim(),
-                                    name = name.trim(),
-                                    description = description.trim(),
-                                    hostUserId = act.hostUserId,
-                                    schedule = act.schedule,
-                                ),
-                            )
-                            if (updated != null) showEdit = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { showEdit = false }, modifier = Modifier.fillMaxWidth())
-            }
+        ActivityEditorDialog(
+            existing = act,
+            locationName = act.locationName,
+            locationId = act.locationId,
+            placeId = act.placeId,
+            lat = act.lat,
+            lng = act.lng,
+            shared = shared,
+            language = lang,
+            onSaved = { showEdit = false },
+            onDismiss = { showEdit = false },
+        )
+    }
+
+    if (confirmDeleteActivity && act != null) {
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deleteActivityAsk"),
+            hint = Copy.text(lang, "deleteActivityHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = activityState.isMutating,
+            onConfirm = {
+                scope.launch {
+                    if (shared.activity.deleteActivity(act.id)) {
+                        confirmDeleteActivity = false
+                        onBack()
+                    }
+                }
+            },
+            onDismiss = { confirmDeleteActivity = false },
+        )
+    }
+
+    pendingDeletePhoto?.let { photo ->
+        if (act != null) {
+            SaigonConfirmDialog(
+                title = Copy.text(lang, "deletePhotoAsk"),
+                hint = Copy.text(lang, "deletePhotoHint"),
+                confirmLabel = Copy.text(lang, "delete"),
+                cancelLabel = Copy.text(lang, "cancel"),
+                loading = activityState.isMutating,
+                onConfirm = {
+                    scope.launch {
+                        shared.activity.deletePhoto(act.id, photo.id)
+                        pendingDeletePhoto = null
+                    }
+                },
+                onDismiss = { pendingDeletePhoto = null },
+            )
         }
     }
 
-    zoomUrl?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomUrl = null }) }
-}
-
-private fun formatMinutes(minutes: Int): String {
-    val h = (minutes / 60).toString().padStart(2, '0')
-    val m = (minutes % 60).toString().padStart(2, '0')
-    return "$h:$m"
+    viewerInitialIndex?.let { idx ->
+        if (act != null && activityState.photos.isNotEmpty()) {
+            PhotoViewerDialog(
+                photos = activityState.photos,
+                initialIndex = idx,
+                language = lang,
+                onDeletePhoto = { photo -> shared.activity.deletePhoto(act.id, photo.id) },
+                onDismiss = { viewerInitialIndex = null },
+            )
+        }
+    }
 }

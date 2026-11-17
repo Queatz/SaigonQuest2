@@ -626,6 +626,7 @@ private fun ChatMessageBubble(
             border = if (isMine) null else BorderStroke(1.dp, tokens.line),
             modifier = Modifier
                 .widthIn(max = 300.dp)
+                .clip(bubbleShape)
                 .clickable(onClick = onLongPress),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(10.dp)) {
@@ -635,7 +636,9 @@ private fun ChatMessageBubble(
                             color = tokens.surface,
                             shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(1.dp, tokens.line),
-                            modifier = Modifier.clickable { onOpenProduct(att.productId!!) },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onOpenProduct(att.productId!!) },
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text(att.productName.orEmpty(), color = tokens.text, fontWeight = FontWeight.ExtraBold)
@@ -647,7 +650,9 @@ private fun ChatMessageBubble(
                             color = tokens.surface,
                             shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(1.dp, tokens.line),
-                            modifier = Modifier.clickable { onOpenActivity(att.activityId!!) },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onOpenActivity(att.activityId!!) },
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text("${att.activityEmoji.orEmpty()} ${att.activityName.orEmpty()}".trim(), color = tokens.text, fontWeight = FontWeight.ExtraBold)
@@ -680,7 +685,9 @@ private fun ChatMessageBubble(
                                 color = tokens.bg,
                                 shape = RoundedCornerShape(999.dp),
                                 border = BorderStroke(1.dp, if (r.mine) tokens.accent else tokens.line),
-                                modifier = Modifier.clickable { onToggleReaction(r.emoji, r.mine) },
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .clickable { onToggleReaction(r.emoji, r.mine) },
                             ) {
                                 Text(
                                     "${r.emoji} ${r.count}",
@@ -772,8 +779,9 @@ private fun ChatMembersSheet(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(999.dp))
                             .clickable { onOpenUser(member.id) }
-                            .padding(vertical = 4.dp),
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
                     ) {
                         UserAvatar(photoUrl = member.photoUrl, name = member.name, size = 36.dp, borderWidth = 0.dp)
                         Column(modifier = Modifier.weight(1f)) {

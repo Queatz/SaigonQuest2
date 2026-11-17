@@ -9,8 +9,12 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -318,5 +322,64 @@ class CoreStoresTest {
         discover.ensureLocationOpen("loc1")
         advanceUntilIdle()
         assertEquals(1, placeGetCalls)
+    }
+
+    @Test
+    fun composerStoreDoesNotAutoSelectAvatarAndSubmitsPhotoField() = runTest {
+        val storage = InMemoryTokenStorage(initialToken = "tok")
+        var sawPhotoField = false
+        var sawPluralPhotosField = false
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { request ->
+                val path = request.url.encodedPath
+                when {
+                    path == "/api/avatars" -> respond(
+                        """{"avatars":[{"id":"av1","prompt":"cat","status":"ready","imageUrl":"/media/av1.png","createdAt":1}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/posts" && request.method == HttpMethod.Post -> {
+                        val bodyBytes = when (val body = request.body) {
+                            is io.ktor.http.content.OutgoingContent.ByteArrayContent -> body.bytes().decodeToString()
+                            is io.ktor.http.content.OutgoingContent.WriteChannelContent -> coroutineScope {
+                                val ch = io.ktor.utils.io.ByteChannel(autoFlush = true)
+                                launch {
+                                    body.writeTo(ch)
+                                    ch.close()
+                                }
+                                ch.readRemaining().readText()
+                            }
+                            else -> body.toString()
+                        }
+                        sawPhotoField = bodyBytes.contains("name=\"photo\"") || bodyBytes.contains("name=photo")
+                        sawPluralPhotosField = bodyBytes.contains("name=\"photos\"") || bodyBytes.contains("name=photos")
+                        respond(
+                            """{"id":"p_new","authorId":"u1","authorName":"An","message":"Hello","location":"Cafe","photoUrl":"/media/p.jpg","createdAt":10}""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                    }
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = storage, serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val feed = FeedStore(api, storeScope)
+        val composer = quest.saigon.shared.store.ComposerStore(api, feed, storeScope)
+
+        composer.loadAvatars()
+        advanceUntilIdle()
+        assertEquals(1, composer.state.value.avatars.size)
+        assertEquals(null, composer.state.value.selectedAvatarId)
+
+        val created = composer.submitPost(
+            mapOf("message" to "Hello", "location" to "Cafe"),
+            listOf(byteArrayOf(1, 2, 3)),
+        )
+        assertEquals("p_new", created?.id)
+        assertTrue(sawPhotoField, "Expected multipart part named 'photo'")
+        assertFalse(sawPluralPhotosField, "Should not send multipart part named 'photos'")
     }
 }

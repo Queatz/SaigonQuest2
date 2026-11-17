@@ -121,6 +121,7 @@ fun SaigonApp(
                 ComposerScreen(
                     shared = shared,
                     audioPlayer = audioPlayer,
+                    onOpenProfile = { navigateTo(AppRoute.Profile) },
                     onDone = {
                         navController.navigate("/") {
                             popUpTo("/") { inclusive = true }

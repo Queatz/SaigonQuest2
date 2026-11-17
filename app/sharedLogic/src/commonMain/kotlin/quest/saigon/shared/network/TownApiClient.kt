@@ -221,7 +221,7 @@ class TownApiClient(
         PostCardDto.serializer(),
         fields = fields,
         parts = photos.mapIndexed { index, bytes ->
-            UploadPart("photos", "photo_$index.jpg", "image/jpeg", bytes)
+            UploadPart("photo", "photo_$index.jpg", "image/jpeg", bytes)
         },
     ).map(::normalizePostUrls)
 

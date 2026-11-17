@@ -86,7 +86,9 @@ fun ActivityCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = if (onOpenLocation != null) {
-                                Modifier.clickable(onClick = onOpenLocation)
+                                Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onOpenLocation)
                             } else {
                                 Modifier
                             },

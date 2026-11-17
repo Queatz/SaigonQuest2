@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -20,7 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,9 +46,13 @@ import quest.saigon.android.ui.components.SaigonSpinner
 import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CommentCardDto
+import quest.saigon.shared.model.CommunityDto
+import quest.saigon.shared.model.CommunityMemberDto
 import quest.saigon.shared.model.EventPersonDto
 import quest.saigon.shared.model.PostCardDto
+import quest.saigon.shared.network.ApiResult
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.PostDetailStore
 
@@ -55,6 +63,8 @@ fun CommentsSheet(
     viewerId: String?,
     isAdmin: Boolean = false,
     language: Language,
+    initialDraft: String = "",
+    focusInput: Boolean = false,
     onRequireAuth: () -> Unit,
     onSelectPerson: (id: String, name: String, photoUrl: String?, location: String, intro: String) -> Unit,
     onDismiss: () -> Unit,
@@ -62,9 +72,19 @@ fun CommentsSheet(
     val state by detailStore.state.collectAsState()
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
-    var inputText by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var inputText by remember(post.id, initialDraft) { mutableStateOf(initialDraft) }
     var replyTarget by remember { mutableStateOf<CommentCardDto?>(null) }
     var pendingDeleteComment by remember { mutableStateOf<CommentCardDto?>(null) }
+
+    LaunchedEffect(post.id, focusInput) {
+        if (focusInput) {
+            delay(180)
+            runCatching { focusRequester.requestFocus() }
+            keyboardController?.show()
+        }
+    }
 
     val replies = remember(post.id, post.quickReplies, language) {
         post.quickReplies.ifEmpty { Copy.quickReplies(language) }
@@ -208,7 +228,11 @@ fun CommentsSheet(
                                         .clip(RoundedCornerShape(999.dp))
                                         .background(tokens.surface)
                                         .border(1.dp, tokens.line, RoundedCornerShape(999.dp))
-                                        .clickable { inputText = reply }
+                                        .clickable {
+                                            inputText = reply
+                                            runCatching { focusRequester.requestFocus() }
+                                            keyboardController?.show()
+                                        }
                                         .padding(horizontal = 10.dp, vertical = 6.dp),
                                 ) {
                                     Text(
@@ -236,7 +260,9 @@ fun CommentsSheet(
                         borderWidth = 1.dp,
                         cornerRadius = 12.dp,
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester),
                     )
                     val sendEnabled = inputText.isNotBlank() && !state.isPostingComment
                     Box(
@@ -336,7 +362,9 @@ private fun CommentRow(
             name = comment.authorName,
             size = 36.dp,
             borderWidth = 0.dp,
-            modifier = Modifier.clickable(onClick = onAuthorClick),
+            modifier = Modifier
+                .clip(CircleShape)
+                .clickable(onClick = onAuthorClick),
         )
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -345,7 +373,10 @@ private fun CommentRow(
                     color = tokens.text,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
-                    modifier = Modifier.clickable(onClick = onAuthorClick),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable(onClick = onAuthorClick)
+                        .padding(horizontal = 2.dp),
                 )
                 val age = PostAge.relative(comment.createdAt, currentTimeMillis(), language)
                 if (!age.isNullOrBlank()) {
@@ -388,8 +419,9 @@ private fun CommentRow(
                     fontWeight = FontWeight.ExtraBold,
                     color = tokens.accent,
                     modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
                         .clickable(onClick = onReply)
-                        .padding(vertical = 4.dp),
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                 )
                 if (canDelete) {
                     Text(
@@ -398,8 +430,9 @@ private fun CommentRow(
                         fontWeight = FontWeight.ExtraBold,
                         color = tokens.danger,
                         modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
                             .clickable(onClick = onDelete)
-                            .padding(vertical = 4.dp),
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
                     )
                 }
             }
@@ -521,8 +554,9 @@ fun PollVotersSheet(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .clip(RoundedCornerShape(999.dp))
                                         .clickable { onSelectPerson(voter) }
-                                        .padding(vertical = 4.dp),
+                                        .padding(horizontal = 6.dp, vertical = 4.dp),
                                 ) {
                                     UserAvatar(photoUrl = voter.photoUrl, name = voter.name, size = 32.dp, borderWidth = 0.dp)
                                     Text(voter.name, color = tokens.text, style = MaterialTheme.typography.bodyMedium)
@@ -540,91 +574,268 @@ fun PollVotersSheet(
 fun QuestionAnswersSheet(
     post: PostCardDto,
     detailStore: PostDetailStore,
-    viewerId: String?,
     language: Language,
-    onRequireAuth: () -> Unit,
     onSelectPerson: (id: String, name: String, photoUrl: String?, location: String, intro: String) -> Unit,
+    onMessageUser: (userId: String, name: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val state by detailStore.state.collectAsState()
     val tokens = LocalSaigonTokens.current
-    val scope = rememberCoroutineScope()
-    var answerText by remember { mutableStateOf("") }
 
     LaunchedEffect(post.id) {
         detailStore.loadQuestionAnswers(post.id)
     }
 
     SaigonBottomSheet(
-        title = post.questionTitle.ifBlank { Copy.text(language, "askQuestion") },
+        title = Copy.text(language, "questionAnswers"),
         onDismiss = onDismiss,
     ) {
         Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 20.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                SaigonTextField(
-                    value = answerText,
-                    onValueChange = { if (it.length <= Limits.QUESTION_ANSWER_MAX) answerText = it },
-                    placeholder = Copy.text(language, "questionAnswerHint"),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                SaigonPrimaryButton(
-                    text = Copy.text(language, "send"),
-                    enabled = answerText.isNotBlank() && !state.isMutating,
-                    onClick = {
-                        if (viewerId == null) {
-                            onRequireAuth()
-                            return@SaigonPrimaryButton
-                        }
-                        scope.launch {
-                            val updated = detailStore.answerQuestion(post.id, answerText.trim())
-                            if (updated != null) {
-                                answerText = ""
-                                detailStore.loadQuestionAnswers(post.id)
+            Text(
+                Copy.text(language, "questionPrivateHint"),
+                color = tokens.muted,
+                fontSize = 13.sp,
+            )
+            when {
+                state.isLoadingAnswers && state.questionAnswers.isEmpty() -> {
+                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        SaigonSpinner()
+                    }
+                }
+                state.questionAnswers.isEmpty() -> {
+                    Text(
+                        Copy.text(language, "noAnswers"),
+                        color = tokens.muted,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 360.dp),
+                    ) {
+                        items(state.questionAnswers, key = { it.id }) { item ->
+                            Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 10.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                if (item.userId.isNotBlank()) {
+                                                    onSelectPerson(item.userId, item.name, item.photoUrl, item.location, item.intro)
+                                                }
+                                            }
+                                            .padding(4.dp),
+                                    ) {
+                                        UserAvatar(photoUrl = item.photoUrl, name = item.name, size = 38.dp, borderWidth = 0.dp)
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                                            Text(item.name, color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                                            LinkifiedText(text = item.text, color = tokens.text, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                    if (item.userId.isNotBlank()) {
+                                        SaigonPrimaryButton(
+                                            text = Copy.text(language, "message"),
+                                            onClick = { onMessageUser(item.userId, item.name) },
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                        )
+                                    }
+                                }
+                                HorizontalDivider(color = tokens.line, thickness = 1.dp)
                             }
                         }
-                    },
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                )
+                    }
+                }
             }
-            Spacer(Modifier.height(12.dp))
-            if (state.isLoadingAnswers && state.questionAnswers.isEmpty()) {
-                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    SaigonSpinner()
+        }
+    }
+}
+
+@Composable
+fun CommunityMembersSheet(
+    community: CommunityDto,
+    shared: TownSharedClient,
+    language: Language,
+    onCommunityUpdated: (CommunityDto) -> Unit,
+    onSelectMember: (CommunityMemberDto) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val scope = rememberCoroutineScope()
+    var current by remember(community.id, community.description, community.joined) { mutableStateOf(community) }
+    var editingDesc by remember { mutableStateOf(false) }
+    var descInput by remember(community.id, community.description) { mutableStateOf(community.description) }
+    var savingDesc by remember { mutableStateOf(false) }
+    var descError by remember { mutableStateOf<String?>(null) }
+
+    var members by remember(community.id) { mutableStateOf<List<CommunityMemberDto>>(emptyList()) }
+    var nextCursor by remember(community.id) { mutableStateOf<String?>(null) }
+    var loadingMembers by remember(community.id) { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
+
+    LaunchedEffect(community.id) {
+        loadingMembers = true
+        when (val res = shared.api.getCommunityMembers(community.id, cursor = null, limit = 30)) {
+            is ApiResult.Success -> {
+                members = res.value.members
+                nextCursor = res.value.nextCursor
+            }
+            is ApiResult.Failure -> Unit
+        }
+        loadingMembers = false
+    }
+
+    SaigonBottomSheet(
+        title = "${current.emoji} ${current.name}".trim(),
+        onDismiss = onDismiss,
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 20.dp),
+        ) {
+            if (!editingDesc) {
+                if (current.description.isNotBlank()) {
+                    LinkifiedText(
+                        text = current.description,
+                        color = tokens.muted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                if (current.joined) {
+                    Row {
+                        quest.saigon.android.ui.components.SaigonTinyPill(
+                            label = Copy.text(language, if (current.description.isBlank()) "addDescription" else "edit"),
+                            onClick = {
+                                descInput = current.description
+                                descError = null
+                                editingDesc = true
+                            },
+                        )
+                    }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 320.dp),
-                ) {
-                    items(state.questionAnswers, key = { it.id }) { item ->
-                        Column {
+                SaigonTextField(
+                    value = descInput,
+                    onValueChange = { if (it.length <= Limits.COMMUNITY_DESCRIPTION_MAX) descInput = it },
+                    placeholder = Copy.text(language, "descriptionHint"),
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                descError?.let {
+                    Text(it, color = tokens.danger, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SaigonPrimaryButton(
+                        text = Copy.text(language, "save"),
+                        loading = savingDesc,
+                        enabled = !savingDesc,
+                        onClick = {
+                            scope.launch {
+                                savingDesc = true
+                                descError = null
+                                when (val res = shared.api.updateCommunityDescription(current.id, descInput.trim())) {
+                                    is ApiResult.Success -> {
+                                        current = res.value
+                                        onCommunityUpdated(res.value)
+                                        editingDesc = false
+                                    }
+                                    is ApiResult.Failure -> descError = res.message
+                                }
+                                savingDesc = false
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                    SaigonTextButton(
+                        text = Copy.text(language, "cancel"),
+                        onClick = { editingDesc = false },
+                    )
+                }
+            }
+
+            Text(
+                Copy.text(language, "communityMembers"),
+                color = tokens.text,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp,
+            )
+
+            when {
+                loadingMembers && members.isEmpty() -> {
+                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        SaigonSpinner()
+                    }
+                }
+                members.isEmpty() -> {
+                    Text(Copy.text(language, "noMembers"), color = tokens.muted, fontSize = 14.sp)
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.heightIn(max = 360.dp),
+                    ) {
+                        items(members, key = { it.id }) { member ->
                             Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        if (item.userId.isNotBlank()) {
-                                            onSelectPerson(item.userId, item.name, item.photoUrl, item.location, item.intro)
-                                        }
-                                    }
-                                    .padding(vertical = 10.dp),
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { onSelectMember(member) }
+                                    .padding(horizontal = 6.dp, vertical = 6.dp),
                             ) {
-                                UserAvatar(photoUrl = item.photoUrl, name = item.name, size = 36.dp, borderWidth = 0.dp)
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(item.name, color = tokens.text, fontWeight = FontWeight.Bold)
-                                    LinkifiedText(text = item.text, color = tokens.text, style = MaterialTheme.typography.bodyMedium)
+                                UserAvatar(photoUrl = member.photoUrl, name = member.name, size = 44.dp, borderWidth = 0.dp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(member.name, color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                                    if (member.location.isNotBlank()) {
+                                        Text(member.location, color = tokens.muted, fontSize = 12.sp)
+                                    }
                                 }
                             }
-                            HorizontalDivider(color = tokens.line, thickness = 1.dp)
+                        }
+                        if (nextCursor != null) {
+                            item {
+                                SaigonTextButton(
+                                    text = Copy.text(language, "loadMore"),
+                                    enabled = !loadingMore,
+                                    onClick = {
+                                        val c = nextCursor ?: return@SaigonTextButton
+                                        scope.launch {
+                                            loadingMore = true
+                                            when (val res = shared.api.getCommunityMembers(community.id, cursor = c, limit = 30)) {
+                                                is ApiResult.Success -> {
+                                                    val seen = members.mapTo(HashSet()) { it.id }
+                                                    members = members + res.value.members.filter { seen.add(it.id) }
+                                                    nextCursor = res.value.nextCursor
+                                                }
+                                                is ApiResult.Failure -> Unit
+                                            }
+                                            loadingMore = false
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
                 }

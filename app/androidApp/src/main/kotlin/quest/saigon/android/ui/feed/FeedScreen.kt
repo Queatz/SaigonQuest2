@@ -75,6 +75,7 @@ import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonBrushes
 import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.AndroidIntents
+import quest.saigon.android.ui.components.FirstPostBubble
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.MiniProfileDialog
 import quest.saigon.android.ui.components.NotificationBellButton
@@ -84,6 +85,7 @@ import quest.saigon.android.ui.components.SaigonBottomSheet
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSpinner
+import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.formatVnd
@@ -108,6 +110,12 @@ private data class SelectedPersonModal(
     val photoUrl: String?,
     val location: String,
     val intro: String,
+)
+
+private data class CommentsSheetRequest(
+    val post: PostCardDto,
+    val initialDraft: String = "",
+    val focusInput: Boolean = false,
 )
 
 private val OverlayShadow = Shadow(
@@ -139,12 +147,12 @@ fun FeedScreen(
     val scope = rememberCoroutineScope()
 
     var showNotifications by remember { mutableStateOf(false) }
-    var commentsPost by remember { mutableStateOf<PostCardDto?>(null) }
+    var commentsRequest by remember { mutableStateOf<CommentsSheetRequest?>(null) }
     var attendeesPostId by remember { mutableStateOf<String?>(null) }
     var pollVotersPostId by remember { mutableStateOf<String?>(null) }
     var questionPost by remember { mutableStateOf<PostCardDto?>(null) }
     var checkInPostId by remember { mutableStateOf<String?>(null) }
-    var editPost by remember { mutableStateOf<PostCardDto?>(null) }
+    var showCommunityMembers by remember { mutableStateOf(false) }
     var fullMessagePost by remember { mutableStateOf<PostCardDto?>(null) }
     var zoomPhotoUrl by remember { mutableStateOf<String?>(null) }
     var selectedPerson by remember { mutableStateOf<SelectedPersonModal?>(null) }
@@ -278,10 +286,24 @@ fun FeedScreen(
                             if (sessionState.me == null) {
                                 onRequireAuth()
                             } else {
-                                scope.launch { shared.postDetail.addComment(post.id, replyText) }
+                                commentsRequest = CommentsSheetRequest(
+                                    post = post,
+                                    initialDraft = replyText,
+                                    focusInput = true,
+                                )
                             }
                         },
-                        onOpenComments = { commentsPost = post },
+                        onOpenComments = { focusInput ->
+                            if (focusInput && sessionState.me == null) {
+                                onRequireAuth()
+                            } else {
+                                commentsRequest = CommentsSheetRequest(
+                                    post = post,
+                                    initialDraft = "",
+                                    focusInput = focusInput,
+                                )
+                            }
+                        },
                         onToggleEventJoin = {
                             if (sessionState.me == null) {
                                 onRequireAuth()
@@ -301,7 +323,14 @@ fun FeedScreen(
                             }
                         },
                         onOpenPollVoters = { pollVotersPostId = post.id },
-                        onOpenQuestion = { questionPost = post },
+                        onAnswerQuestion = { answerText ->
+                            if (sessionState.me == null) {
+                                onRequireAuth()
+                            } else {
+                                scope.launch { shared.postDetail.answerQuestion(post.id, answerText) }
+                            }
+                        },
+                        onOpenQuestionAnswers = { questionPost = post },
                         onJoinOpenChat = {
                             if (sessionState.me == null) {
                                 onRequireAuth()
@@ -341,8 +370,6 @@ fun FeedScreen(
                                 }
                             }
                         },
-                        onOpenCheckIn = { checkInPostId = post.id },
-                        onEditPost = { editPost = post },
                         onSharePost = {
                             shared.postDetail.sharePost(post.id)
                             val origin = BuildConfig.SERVER_ORIGIN.trimEnd('/')
@@ -360,6 +387,7 @@ fun FeedScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
+            val currentPost = feedState.selectedPost
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -371,12 +399,13 @@ fun FeedScreen(
                     .statusBarsPadding()
                     .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (onBack != null || communityId != null) {
+                if (communityId != null && activeCommunity != null) {
+                    val comm = activeCommunity!!
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         SaigonIconButton(
                             onClick = { onBack?.invoke() ?: onNavigate(AppRoute.Home) },
                             overlay = true,
@@ -387,13 +416,9 @@ fun FeedScreen(
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                    }
-
-                    val currentPost = feedState.selectedPost
-                    Column(modifier = Modifier.weight(1f)) {
-                        if (communityId != null && activeCommunity != null) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "${activeCommunity!!.emoji} ${activeCommunity!!.name}",
+                                text = "${comm.emoji} ${comm.name}",
                                 style = TextStyle(
                                     fontFamily = LivvicFontFamily,
                                     color = Color.White,
@@ -416,83 +441,46 @@ fun FeedScreen(
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable {
-                                        val token = openLocationDestination(
-                                            shared = shared,
-                                            name = currentPost.location,
-                                            placeId = currentPost.placeId,
-                                            locationId = currentPost.locationId,
-                                            lat = currentPost.lat,
-                                            lng = currentPost.lng,
-                                        )
-                                        onNavigate(AppRoute.Location(token))
-                                    },
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            val token = openLocationDestination(
+                                                shared = shared,
+                                                name = currentPost.location,
+                                                placeId = currentPost.placeId,
+                                                locationId = currentPost.locationId,
+                                                lat = currentPost.lat,
+                                                lng = currentPost.lng,
+                                            )
+                                            onNavigate(AppRoute.Location(token))
+                                        },
                                 )
                             }
-                        } else {
-                            if (currentPost != null && currentPost.location.isNotBlank()) {
-                                Text(
-                                    text = "📍 ${currentPost.location}",
-                                    style = TextStyle(
-                                        fontFamily = LivvicFontFamily,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 22.sp,
-                                        letterSpacing = (-0.6).sp,
-                                        shadow = OverlayShadow,
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable {
-                                        val token = openLocationDestination(
-                                            shared = shared,
-                                            name = currentPost.location,
-                                            placeId = currentPost.placeId,
-                                            locationId = currentPost.locationId,
-                                            lat = currentPost.lat,
-                                            lng = currentPost.lng,
-                                        )
-                                        onNavigate(AppRoute.Location(token))
-                                    },
-                                )
-                            } else {
-                                Text(
-                                    text = Copy.text(lang, "appName"),
-                                    style = TextStyle(
-                                        fontFamily = LivvicFontFamily,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 22.sp,
-                                        letterSpacing = (-0.6).sp,
-                                        shadow = OverlayShadow,
-                                    ),
-                                )
-                            }
-                            Text(
-                                text = Copy.text(lang, "appName"),
-                                style = TextStyle(
-                                    fontFamily = LivvicFontFamily,
-                                    color = Color.White.copy(alpha = 0.82f),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    letterSpacing = 0.3.sp,
-                                    shadow = OverlayShadow,
-                                ),
-                                modifier = Modifier.padding(top = 2.dp),
-                            )
-                            EventsSummaryRotatingButton(
-                                today = discoverState.summary.today,
-                                tomorrow = discoverState.summary.tomorrow,
-                                week = discoverState.summary.week,
-                                language = lang,
-                                onClick = { onNavigate(AppRoute.Discover) },
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
                         }
+                        ViewerButton(
+                            me = sessionState.me,
+                            language = lang,
+                            toComposer = true,
+                            overlay = true,
+                            showSignedOutBubble = false,
+                            onClick = { onNavigate(AppRoute.NewPost) },
+                        )
                     }
-
-                    if (communityId != null && activeCommunity != null) {
-                        val comm = activeCommunity!!
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        val membersLabel = buildString {
+                            append(Copy.text(lang, "communityMembers"))
+                            if (comm.memberCount > 0) append(" · ${comm.memberCount}")
+                        }
+                        FeedOverlayPill(
+                            label = membersLabel,
+                            onClick = { showCommunityMembers = true },
+                            height = 40.dp,
+                        )
                         FeedOverlayPill(
                             label = Copy.text(lang, if (comm.joined) "leaveCommunity" else "joinCommunity"),
                             onClick = {
@@ -506,62 +494,165 @@ fun FeedScreen(
                                     }
                                 }
                             },
-                            height = 44.dp,
+                            height = 40.dp,
                         )
-                    } else {
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        val rightReserve = if (sessionState.me != null) 156.dp else 56.dp
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = rightReserve),
                         ) {
-                            if (sessionState.me != null) {
-                                Box(modifier = Modifier.size(44.dp)) {
-                                    SaigonIconButton(
-                                        onClick = { onNavigate(AppRoute.Messages) },
-                                        overlay = true,
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.Chat,
-                                            contentDescription = Copy.text(lang, "openMessages"),
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
-                                    if (msgState.unreadCount > 0L) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = 4.dp, y = (-4).dp)
-                                                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                                                .clip(RoundedCornerShape(999.dp))
-                                                .background(SaigonColors.NotifyRed)
-                                                .border(2.dp, Color.White, RoundedCornerShape(999.dp))
-                                                .padding(horizontal = 5.dp),
-                                        ) {
-                                            Text(
-                                                text = if (msgState.unreadCount > 99) "99+" else msgState.unreadCount.toString(),
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                            )
-                                        }
-                                    }
-                                }
-                                NotificationBellButton(
-                                    unreadCount = notifState.unreadCount,
-                                    label = Copy.text(lang, "openNotifications"),
-                                    onClick = { showNotifications = true },
+                            if (onBack != null || communityId != null) {
+                                SaigonIconButton(
+                                    onClick = { onBack?.invoke() ?: onNavigate(AppRoute.Home) },
                                     overlay = true,
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = Copy.text(lang, "back"),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                if (currentPost != null && currentPost.location.isNotBlank()) {
+                                    Text(
+                                        text = "📍 ${currentPost.location}",
+                                        style = TextStyle(
+                                            fontFamily = LivvicFontFamily,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 22.sp,
+                                            letterSpacing = (-0.6).sp,
+                                            shadow = OverlayShadow,
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                val token = openLocationDestination(
+                                                    shared = shared,
+                                                    name = currentPost.location,
+                                                    placeId = currentPost.placeId,
+                                                    locationId = currentPost.locationId,
+                                                    lat = currentPost.lat,
+                                                    lng = currentPost.lng,
+                                                )
+                                                onNavigate(AppRoute.Location(token))
+                                            },
+                                    )
+                                } else {
+                                    Text(
+                                        text = Copy.text(lang, "appName"),
+                                        style = TextStyle(
+                                            fontFamily = LivvicFontFamily,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 22.sp,
+                                            letterSpacing = (-0.6).sp,
+                                            shadow = OverlayShadow,
+                                        ),
+                                    )
+                                }
+                                Text(
+                                    text = Copy.text(lang, "appName"),
+                                    style = TextStyle(
+                                        fontFamily = LivvicFontFamily,
+                                        color = Color.White.copy(alpha = 0.82f),
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        letterSpacing = 0.3.sp,
+                                        shadow = OverlayShadow,
+                                    ),
+                                    modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
-                            ViewerButton(
-                                me = sessionState.me,
-                                language = lang,
-                                toComposer = true,
-                                overlay = true,
-                                showSignedOutBubble = true,
-                                onClick = { onNavigate(AppRoute.NewPost) },
-                            )
                         }
+
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (sessionState.me != null) {
+                                    Box(modifier = Modifier.size(44.dp)) {
+                                        SaigonIconButton(
+                                            onClick = { onNavigate(AppRoute.Messages) },
+                                            overlay = true,
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Chat,
+                                                contentDescription = Copy.text(lang, "openMessages"),
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+                                        if (msgState.unreadCount > 0L) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .offset(x = 4.dp, y = (-4).dp)
+                                                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .background(SaigonColors.NotifyRed)
+                                                    .border(2.dp, Color.White, RoundedCornerShape(999.dp))
+                                                    .padding(horizontal = 5.dp),
+                                            ) {
+                                                Text(
+                                                    text = if (msgState.unreadCount > 99) "99+" else msgState.unreadCount.toString(),
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    NotificationBellButton(
+                                        unreadCount = notifState.unreadCount,
+                                        label = Copy.text(lang, "openNotifications"),
+                                        onClick = { showNotifications = true },
+                                        overlay = true,
+                                    )
+                                }
+                                ViewerButton(
+                                    me = sessionState.me,
+                                    language = lang,
+                                    toComposer = true,
+                                    overlay = true,
+                                    showSignedOutBubble = false,
+                                    onClick = { onNavigate(AppRoute.NewPost) },
+                                )
+                            }
+                            if (communityId == null && sessionState.me == null) {
+                                FirstPostBubble(
+                                    language = lang,
+                                    onClick = { onNavigate(AppRoute.NewPost) },
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    if (communityId == null) {
+                        EventsSummaryRotatingButton(
+                            today = discoverState.summary.today,
+                            tomorrow = discoverState.summary.tomorrow,
+                            week = discoverState.summary.week,
+                            language = lang,
+                            onClick = { onNavigate(AppRoute.Discover) },
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .padding(top = 10.dp),
+                        )
                     }
                 }
 
@@ -584,18 +675,20 @@ fun FeedScreen(
         )
     }
 
-    commentsPost?.let { post ->
+    commentsRequest?.let { req ->
         CommentsSheet(
-            post = post,
+            post = req.post,
             detailStore = shared.postDetail,
             viewerId = sessionState.me?.id,
             isAdmin = sessionState.me?.admin == true,
             language = lang,
+            initialDraft = req.initialDraft,
+            focusInput = req.focusInput,
             onRequireAuth = onRequireAuth,
             onSelectPerson = { id, name, photoUrl, location, intro ->
                 selectedPerson = SelectedPersonModal(id, name, photoUrl, location, intro)
             },
-            onDismiss = { commentsPost = null },
+            onDismiss = { commentsRequest = null },
         )
     }
 
@@ -643,11 +736,16 @@ fun FeedScreen(
         QuestionAnswersSheet(
             post = post,
             detailStore = shared.postDetail,
-            viewerId = sessionState.me?.id,
             language = lang,
-            onRequireAuth = onRequireAuth,
             onSelectPerson = { id, name, photoUrl, location, intro ->
                 selectedPerson = SelectedPersonModal(id, name, photoUrl, location, intro)
+            },
+            onMessageUser = { userId, _ ->
+                questionPost = null
+                scope.launch {
+                    val chat = shared.messages.openDirectChat(userId)
+                    if (chat != null) onNavigate(AppRoute.Chat(chat.id))
+                }
             },
             onDismiss = { questionPost = null },
         )
@@ -663,12 +761,25 @@ fun FeedScreen(
         )
     }
 
-    editPost?.let { post ->
-        EditPostDialog(
-            post = post,
-            detailStore = shared.postDetail,
+    if (showCommunityMembers && activeCommunity != null) {
+        CommunityMembersSheet(
+            community = activeCommunity!!,
+            shared = shared,
             language = lang,
-            onDismiss = { editPost = null },
+            onCommunityUpdated = { activeCommunity = it },
+            onSelectMember = { member ->
+                showCommunityMembers = false
+                if (member.id.isNotBlank()) {
+                    selectedPerson = SelectedPersonModal(
+                        id = member.id,
+                        name = member.name,
+                        photoUrl = member.photoUrl,
+                        location = member.location,
+                        intro = member.intro,
+                    )
+                }
+            },
+            onDismiss = { showCommunityMembers = false },
         )
     }
 
@@ -766,6 +877,9 @@ private fun EventsSummaryRotatingButton(
         FeedOverlayPill(
             label = messages[idx],
             onClick = onClick,
+            horizontalPadding = 18.dp,
+            verticalPadding = 9.dp,
+            fontSize = 14.sp,
         )
     }
 }
@@ -775,6 +889,9 @@ private fun FeedOverlayPill(
     label: String,
     onClick: () -> Unit,
     height: androidx.compose.ui.unit.Dp? = null,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 12.dp,
+    verticalPadding: androidx.compose.ui.unit.Dp = 5.dp,
+    fontSize: androidx.compose.ui.unit.TextUnit = 13.sp,
 ) {
     val shape = RoundedCornerShape(999.dp)
     Box(
@@ -786,7 +903,7 @@ private fun FeedOverlayPill(
             .background(Color.White.copy(alpha = 0.16f))
             .border(2.dp, Color.White, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 5.dp),
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
     ) {
         Text(
             text = label,
@@ -794,7 +911,7 @@ private fun FeedOverlayPill(
                 fontFamily = LivvicFontFamily,
                 color = Color.White,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp,
+                fontSize = fontSize,
                 shadow = OverlayShadow,
             ),
             maxLines = 1,
@@ -894,16 +1011,15 @@ private fun FeedPostSlide(
     onOpenCommunity: (String) -> Unit,
     onExpandMessage: () -> Unit,
     onQuickReply: (String) -> Unit,
-    onOpenComments: () -> Unit,
+    onOpenComments: (focusInput: Boolean) -> Unit,
     onToggleEventJoin: () -> Unit,
     onOpenAttendees: () -> Unit,
     onVotePoll: (Int) -> Unit,
     onOpenPollVoters: () -> Unit,
-    onOpenQuestion: () -> Unit,
+    onAnswerQuestion: (String) -> Unit,
+    onOpenQuestionAnswers: () -> Unit,
     onJoinOpenChat: () -> Unit,
     onCallToAction: () -> Unit,
-    onOpenCheckIn: () -> Unit,
-    onEditPost: () -> Unit,
     onSharePost: () -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
@@ -1044,7 +1160,10 @@ private fun FeedPostSlide(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.clickable(onClick = onToggleMusic),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .clickable(onClick = onToggleMusic)
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
                                 ) {
                                     Icon(
                                         Icons.Default.MusicNote,
@@ -1130,6 +1249,7 @@ private fun FeedPostSlide(
                                             Column(
                                                 modifier = Modifier
                                                     .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
                                                     .then(if (needsMore) Modifier.clickable(onClick = onExpandMessage) else Modifier),
                                             ) {
                                                 LinkifiedText(
@@ -1180,6 +1300,7 @@ private fun FeedPostSlide(
                                                 border = BorderStroke(1.dp, chipBorder),
                                                 modifier = Modifier
                                                     .widthIn(max = 170.dp)
+                                                    .clip(RoundedCornerShape(999.dp))
                                                     .clickable { onOpenCommunity(post.communityId!!) },
                                             ) {
                                                 Text(
@@ -1240,7 +1361,9 @@ private fun FeedPostSlide(
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
                                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                        modifier = Modifier.clickable(onClick = onOpenLocation),
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable(onClick = onOpenLocation),
                                                     ) {
                                                         Text("📍", fontSize = 16.sp)
                                                         Text(
@@ -1269,7 +1392,9 @@ private fun FeedPostSlide(
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                    modifier = Modifier.clickable(onClick = onOpenAttendees),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .clickable(onClick = onOpenAttendees),
                                                 ) {
                                                     val shownAttendees = post.attendees.take(5)
                                                     if (shownAttendees.isNotEmpty()) {
@@ -1344,7 +1469,10 @@ private fun FeedPostSlide(
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.ExtraBold,
                                                     color = SaigonColors.Accent,
-                                                    modifier = Modifier.clickable(onClick = onOpenPollVoters),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .clickable(onClick = onOpenPollVoters)
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp),
                                                 )
                                             }
                                             post.pollOptions.forEach { option ->
@@ -1391,41 +1519,111 @@ private fun FeedPostSlide(
                                     }
                                 }
 
-                                // Embedded Question / Open Chat / CTA cards (.question-card, .open-chat-card, .cta-card)
+                                // Embedded Question card (.question-card)
                                 if (post.hasQuestion) {
+                                    val isOwner = viewerId != null && viewerId == post.authorId
+                                    var questionDraft by remember(post.id) { mutableStateOf("") }
                                     Surface(
                                         color = SaigonColors.EmbeddedCardBg,
                                         shape = RoundedCornerShape(16.dp),
                                         border = BorderStroke(1.dp, SaigonColors.Ink),
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
                                             modifier = Modifier.padding(12.dp),
                                         ) {
-                                            Text(
-                                                post.questionTitle.ifBlank { Copy.text(language, "askQuestion") },
-                                                color = SaigonColors.Ink,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier
-                                                    .defaultMinSize(minHeight = 44.dp)
-                                                    .clip(RoundedCornerShape(999.dp))
-                                                    .background(SaigonColors.Accent)
-                                                    .clickable(onClick = onOpenQuestion)
-                                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                            ) {
+                                            if (post.questionTitle.isNotBlank()) {
                                                 Text(
-                                                    "${Copy.text(language, "send")} (${post.answerCount})",
-                                                    color = Color.White,
-                                                    fontSize = 14.sp,
+                                                    post.questionTitle,
+                                                    color = SaigonColors.Ink,
+                                                    fontSize = 15.sp,
                                                     fontWeight = FontWeight.ExtraBold,
                                                 )
+                                            }
+                                            when {
+                                                isOwner -> {
+                                                    SaigonTextField(
+                                                        value = "",
+                                                        onValueChange = {},
+                                                        enabled = false,
+                                                        placeholder = Copy.text(language, "questionAnswerHint"),
+                                                        containerColor = Color.Transparent,
+                                                        borderColor = SaigonColors.Ink.copy(alpha = 0.55f),
+                                                        borderWidth = 1.dp,
+                                                        cornerRadius = 12.dp,
+                                                        singleLine = true,
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                    )
+                                                    Box(
+                                                        contentAlignment = Alignment.Center,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .defaultMinSize(minHeight = 44.dp)
+                                                            .clip(RoundedCornerShape(999.dp))
+                                                            .border(1.dp, SaigonColors.Ink, RoundedCornerShape(999.dp))
+                                                            .clickable(onClick = onOpenQuestionAnswers)
+                                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                                    ) {
+                                                        Text(
+                                                            Copy.text(
+                                                                language,
+                                                                "questionResponses",
+                                                                mapOf("count" to post.answerCount.toString()),
+                                                            ),
+                                                            color = SaigonColors.Ink,
+                                                            fontSize = 14.sp,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                        )
+                                                    }
+                                                }
+                                                post.answered -> {
+                                                    Text(
+                                                        Copy.text(language, "questionSent", mapOf("name" to post.authorName)),
+                                                        color = SaigonColors.Ink,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                    )
+                                                }
+                                                else -> {
+                                                    SaigonTextField(
+                                                        value = questionDraft,
+                                                        onValueChange = { if (it.length <= Limits.QUESTION_ANSWER_MAX) questionDraft = it },
+                                                        placeholder = Copy.text(language, "questionAnswerHint"),
+                                                        containerColor = Color.Transparent,
+                                                        borderColor = SaigonColors.Ink,
+                                                        borderWidth = 1.dp,
+                                                        cornerRadius = 12.dp,
+                                                        singleLine = true,
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                    )
+                                                    val canSend = questionDraft.isNotBlank()
+                                                    Box(
+                                                        contentAlignment = Alignment.Center,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .defaultMinSize(minHeight = 44.dp)
+                                                            .clip(RoundedCornerShape(999.dp))
+                                                            .background(
+                                                                if (canSend) SaigonColors.Accent else SaigonColors.Accent.copy(alpha = 0.55f),
+                                                            )
+                                                            .clickable {
+                                                                val trimmed = questionDraft.trim()
+                                                                if (trimmed.isNotEmpty()) {
+                                                                    onAnswerQuestion(trimmed)
+                                                                    questionDraft = ""
+                                                                }
+                                                            }
+                                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                                    ) {
+                                                        Text(
+                                                            Copy.text(language, "sendTo", mapOf("name" to post.authorName)),
+                                                            color = Color.White,
+                                                            fontSize = 15.sp,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1552,7 +1750,8 @@ private fun FeedPostSlide(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .defaultMinSize(minHeight = 20.dp)
-                                        .clickable(onClick = onOpenComments),
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onOpenComments(false) },
                                 ) {
                                     if (previewComment != null) {
                                         UserAvatar(
@@ -1619,7 +1818,9 @@ private fun FeedPostSlide(
                                                 color = Color.White,
                                                 shape = RoundedCornerShape(999.dp),
                                                 border = BorderStroke(1.dp, SaigonColors.LightLine),
-                                                modifier = Modifier.clickable { onQuickReply(reply) },
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .clickable { onQuickReply(reply) },
                                             ) {
                                                 Text(
                                                     reply,
@@ -1633,7 +1834,7 @@ private fun FeedPostSlide(
                                     }
                                 }
 
-                                // .card-actions row (.comment-input with rotating placeholder, NO count, NO location button; Message author + Share)
+                                // .card-actions row (.comment-input with rotating placeholder, NO count; Message author + Share)
                                 val commentPlaceholder = quickReplies.getOrElse(cycleIdx % quickReplies.size) {
                                     Copy.text(language, "comments")
                                 }
@@ -1649,7 +1850,8 @@ private fun FeedPostSlide(
                                         modifier = Modifier
                                             .weight(1f)
                                             .defaultMinSize(minHeight = 44.dp)
-                                            .clickable(onClick = onOpenComments),
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { onOpenComments(true) },
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -1679,18 +1881,6 @@ private fun FeedPostSlide(
                                         contentDescription = Copy.text(language, "share"),
                                         icon = Icons.Default.Share,
                                     )
-                                    if (viewerId != null && viewerId == post.authorId) {
-                                        CardSquareActionButton(
-                                            onClick = onOpenCheckIn,
-                                            contentDescription = Copy.text(language, "checkInDialogTitle"),
-                                            icon = Icons.Default.Schedule,
-                                        )
-                                        CardSquareActionButton(
-                                            onClick = onEditPost,
-                                            contentDescription = Copy.text(language, "edit"),
-                                            icon = Icons.Default.Edit,
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -1752,6 +1942,7 @@ private fun CardSquareActionButton(
         border = BorderStroke(1.dp, SaigonColors.LightLine),
         modifier = Modifier
             .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {

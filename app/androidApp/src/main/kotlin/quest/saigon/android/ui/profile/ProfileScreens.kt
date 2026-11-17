@@ -55,11 +55,13 @@ import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonBrushes
 import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.ActivityCard
+import quest.saigon.android.ui.components.ActivityEditorDialog
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.PostGridRows
 import quest.saigon.android.ui.components.SaigonCard
+import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonOutlinedPillButton
@@ -75,6 +77,7 @@ import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.shared.TownSharedClient
+import quest.saigon.shared.model.ActivityDto
 import quest.saigon.shared.model.UpdateMeRequest
 
 @Composable
@@ -139,6 +142,7 @@ fun ProfileScreen(
                 Box(
                     modifier = Modifier
                         .size(96.dp)
+                        .clip(CircleShape)
                         .clickable {
                             avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         },
@@ -339,13 +343,15 @@ fun PublicUserProfileScreen(
                             name = user.name,
                             size = 96.dp,
                             borderWidth = 0.dp,
-                            modifier = Modifier.then(
-                                if (!user.photoUrl.isNullOrBlank()) {
-                                    Modifier.clickable { zoomPhoto = user.photoUrl }
-                                } else {
-                                    Modifier
-                                },
-                            ),
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .then(
+                                    if (!user.photoUrl.isNullOrBlank()) {
+                                        Modifier.clickable { zoomPhoto = user.photoUrl }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
                         )
                         Text(user.name, color = tokens.text, style = MaterialTheme.typography.titleLarge)
                         if (user.location.isNotBlank()) {
@@ -381,40 +387,22 @@ fun PublicUserProfileScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            if (sessionState.me?.id != user.id) {
-                                SaigonPrimaryButton(
-                                    text = Copy.text(lang, "messageUser", mapOf("name" to user.name)),
-                                    onClick = {
-                                        if (sessionState.me == null) {
-                                            onRequireAuth()
-                                        } else {
-                                            scope.launch {
-                                                val chat = shared.messages.openDirectChat(user.id)
-                                                if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                                            }
+                        if (sessionState.me?.id != user.id) {
+                            Spacer(Modifier.height(6.dp))
+                            SaigonPrimaryButton(
+                                text = Copy.text(lang, "messageUser", mapOf("name" to user.name)),
+                                onClick = {
+                                    if (sessionState.me == null) {
+                                        onRequireAuth()
+                                    } else {
+                                        scope.launch {
+                                            val chat = shared.messages.openDirectChat(user.id)
+                                            if (chat != null) onNavigate(AppRoute.Chat(chat.id))
                                         }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                SaigonIconButton(
-                                    onClick = { AndroidIntents.copyPathLink(context, "/u/${user.id}", lang) },
-                                    overlay = false,
-                                ) {
-                                    Icon(Icons.Default.Link, contentDescription = Copy.text(lang, "copyLink"), modifier = Modifier.size(20.dp))
-                                }
-                            } else {
-                                SaigonOutlinedPillButton(
-                                    text = Copy.text(lang, "copyLink"),
-                                    onClick = { AndroidIntents.copyPathLink(context, "/u/${user.id}", lang) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
@@ -858,10 +846,15 @@ fun MyActivitiesScreen(
     onNavigate: (AppRoute) -> Unit,
     onBack: () -> Unit,
 ) {
-    val lang = shared.session.state.collectAsState().value.language
+    val sessionState by shared.session.state.collectAsState()
+    val lang = sessionState.language
     val state by shared.profile.state.collectAsState()
+    val activityState by shared.activity.state.collectAsState()
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
+    var editingActivity by remember { mutableStateOf<ActivityDto?>(null) }
+    var deletingActivity by remember { mutableStateOf<ActivityDto?>(null) }
+    var zoomPhoto by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { shared.profile.loadMyActivities() }
 
@@ -869,36 +862,107 @@ fun MyActivitiesScreen(
         title = Copy.text(lang, "myActivities"),
         onBack = onBack,
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-        ) {
-            items(state.myActivities, key = { it.id }) { act ->
-                SaigonCard(
-                    onClick = { onNavigate(AppRoute.Activity(act.id)) },
-                    borderWidth = 2.dp,
-                    cornerRadius = 16.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("${act.emoji} ${act.name}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                            Text(act.locationName, fontSize = 13.sp, color = tokens.muted)
-                        }
-                        IconButton(onClick = {
+        if (state.isLoading && state.myActivities.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                SaigonSpinner()
+            }
+        } else if (state.myActivities.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(Copy.text(lang, "noActivities"), color = tokens.muted)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            ) {
+                items(state.myActivities, key = { it.id }) { act ->
+                    ActivityCard(
+                        activity = act,
+                        language = lang,
+                        viewerId = sessionState.me?.id,
+                        showLocation = true,
+                        isMutating = activityState.isMutating,
+                        onOpen = { onNavigate(AppRoute.Activity(act.id)) },
+                        onToggleInterest = {
                             scope.launch {
-                                shared.activity.deleteActivity(act.id)
-                                shared.profile.loadMyActivities()
+                                if (shared.activity.toggleInterest(act.id, act.interested) != null) {
+                                    shared.profile.loadMyActivities()
+                                }
                             }
-                        }) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = tokens.danger)
-                        }
-                    }
+                        },
+                        onOpenLocation = {
+                            val token = openLocationDestination(
+                                shared = shared,
+                                name = act.locationName,
+                                placeId = act.placeId,
+                                locationId = act.locationId,
+                                lat = act.lat,
+                                lng = act.lng,
+                            )
+                            onNavigate(AppRoute.Location(token))
+                        },
+                        onOpenPhoto = { url -> zoomPhoto = url },
+                        footer = {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                SaigonTinyPill(
+                                    label = Copy.text(lang, "edit"),
+                                    onClick = { editingActivity = act },
+                                )
+                                SaigonTinyPill(
+                                    label = Copy.text(lang, "delete"),
+                                    danger = true,
+                                    onClick = { deletingActivity = act },
+                                )
+                            }
+                        },
+                    )
                 }
             }
         }
     }
+
+    editingActivity?.let { act ->
+        ActivityEditorDialog(
+            existing = act,
+            locationName = act.locationName,
+            locationId = act.locationId,
+            placeId = act.placeId,
+            lat = act.lat,
+            lng = act.lng,
+            shared = shared,
+            language = lang,
+            onSaved = {
+                editingActivity = null
+                shared.profile.loadMyActivities()
+            },
+            onDismiss = { editingActivity = null },
+        )
+    }
+
+    deletingActivity?.let { act ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deleteActivityAsk"),
+            hint = Copy.text(lang, "deleteActivityHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = activityState.isMutating,
+            onConfirm = {
+                scope.launch {
+                    if (shared.activity.deleteActivity(act.id)) {
+                        deletingActivity = null
+                        shared.profile.loadMyActivities()
+                    }
+                }
+            },
+            onDismiss = { deletingActivity = null },
+        )
+    }
+
+    zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
 }
 
 @Composable

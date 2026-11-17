@@ -16,12 +16,20 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -29,7 +37,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -86,6 +97,7 @@ import quest.saigon.shared.model.MeDto
 import quest.saigon.shared.model.NotificationDto
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
+import quest.saigon.shared.model.UserPhotoDto
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.NotificationStore
 
@@ -535,13 +547,17 @@ fun SaigonTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     trailing: (@Composable () -> Unit)? = null,
     containerColor: Color? = null,
+    borderColor: Color? = null,
     borderWidth: Dp = 2.dp,
     cornerRadius: Dp = 14.dp,
 ) {
     val tokens = LocalSaigonTokens.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
-    val borderColor by animateColorAsState(if (focused) tokens.accent else tokens.line, label = "fieldBorder")
+    val resolvedBorderColor by animateColorAsState(
+        if (focused) tokens.accent else (borderColor ?: tokens.line),
+        label = "fieldBorder",
+    )
     val shape = RoundedCornerShape(cornerRadius)
     val bg = containerColor ?: tokens.surface
 
@@ -563,7 +579,7 @@ fun SaigonTextField(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(bg, shape)
-                .border(borderWidth, borderColor, shape)
+                .border(borderWidth, resolvedBorderColor, shape)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Box(modifier = Modifier.weight(1f)) {
@@ -645,27 +661,50 @@ fun SaigonSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    label: String? = null,
 ) {
     val tokens = LocalSaigonTokens.current
     val trackColor by animateColorAsState(if (checked) tokens.accent else tokens.line, label = "switchTrack")
     val thumbOffset by animateDpAsState(if (checked) 18.dp else 0.dp, label = "switchThumb")
-    Box(
-        modifier = modifier
-            .size(width = 44.dp, height = 26.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(trackColor)
-            .border(2.dp, tokens.text.copy(alpha = 0.15f), RoundedCornerShape(999.dp))
-            .clickable { onCheckedChange(!checked) }
-            .padding(3.dp),
-    ) {
+    val switchControl: @Composable () -> Unit = {
         Box(
             modifier = Modifier
-                .offset(x = thumbOffset)
-                .size(20.dp)
-                .shadow(1.dp, CircleShape)
-                .clip(CircleShape)
-                .background(Color.White),
-        )
+                .size(width = 44.dp, height = 26.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(trackColor)
+                .border(2.dp, tokens.text.copy(alpha = 0.15f), RoundedCornerShape(999.dp))
+                .clickable { onCheckedChange(!checked) }
+                .padding(3.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset(x = thumbOffset)
+                    .size(20.dp)
+                    .shadow(1.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(Color.White),
+            )
+        }
+    }
+    if (label.isNullOrBlank()) {
+        Box(modifier = modifier) { switchControl() }
+    } else {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onCheckedChange(!checked) }
+                .padding(vertical = 2.dp),
+        ) {
+            switchControl()
+            Text(
+                text = label,
+                color = tokens.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
@@ -1029,8 +1068,9 @@ fun NotificationsSheet(
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 14.sp,
                     modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
                         .clickable { scope.launch { store.markAllRead() } }
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                 )
             }
             when {
@@ -1259,43 +1299,20 @@ fun ViewerButton(
                 }
             }
             if (toComposer && showSignedOutBubble) {
-                Column(
-                    horizontalAlignment = Alignment.End,
+                FirstPostBubble(
+                    language = language,
+                    bobOffsetDp = bubbleBob,
+                    onClick = onClick,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(y = (50 + bubbleBob).dp)
-                        .widthIn(max = 190.dp)
-                        .clickable(onClick = onClick),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 16.dp)
-                            .size(9.dp)
-                            .rotate(45f)
-                            .background(Color.White, RoundedCornerShape(2.dp)),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .offset(y = (-5).dp)
-                            .shadow(8.dp, RoundedCornerShape(16.dp))
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        Text(
-                            text = Copy.text(language, "createFirstPost"),
-                            color = SaigonColors.LightText,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            lineHeight = 15.sp,
-                        )
-                    }
-                }
+                        .offset(y = 50.dp),
+                )
             }
         } else {
             Box(
                 modifier = Modifier
                     .size(44.dp)
+                    .clip(CircleShape)
                     .clickable(onClick = onClick),
             ) {
                 UserAvatar(
@@ -1447,11 +1464,142 @@ fun PostGridRows(
 }
 
 @Composable
+fun FirstPostBubble(
+    language: Language,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    bobOffsetDp: Float? = null,
+) {
+    val resolvedBob = if (bobOffsetDp != null) {
+        bobOffsetDp
+    } else {
+        val pulse = rememberInfiniteTransition(label = "firstPostBubble")
+        val animated by pulse.animateFloat(
+            initialValue = 0f,
+            targetValue = 4f,
+            animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
+            label = "bubbleBob",
+        )
+        animated
+    }
+    Column(
+        horizontalAlignment = Alignment.End,
+        modifier = modifier
+            .offset(y = resolvedBob.dp)
+            .widthIn(max = 190.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(end = 16.dp)
+                .size(9.dp)
+                .rotate(45f)
+                .background(Color.White, RoundedCornerShape(2.dp)),
+        )
+        Box(
+            modifier = Modifier
+                .offset(y = (-5).dp)
+                .shadow(8.dp, RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text = Copy.text(language, "createFirstPost"),
+                color = SaigonColors.LightText,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                lineHeight = 15.sp,
+            )
+        }
+    }
+}
+
+@Composable
+fun SaigonConfirmDialog(
+    title: String,
+    hint: String? = null,
+    confirmLabel: String,
+    cancelLabel: String,
+    danger: Boolean = true,
+    loading: Boolean = false,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    SaigonDialog(onDismiss = onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = title,
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+            if (!hint.isNullOrBlank()) {
+                Text(
+                    text = hint,
+                    color = tokens.muted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            SaigonPrimaryButton(
+                text = confirmLabel,
+                danger = danger,
+                loading = loading,
+                onClick = onConfirm,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SaigonTextButton(
+                text = cancelLabel,
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
 fun PhotoViewerDialog(
     photoUrl: String,
     onDismiss: () -> Unit,
 ) {
-    var scale by remember { mutableFloatStateOf(1f) }
+    PhotoViewerDialog(
+        photos = listOf(UserPhotoDto(id = "", url = photoUrl, canDelete = false)),
+        initialIndex = 0,
+        language = Language.EN,
+        onDeletePhoto = null,
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+fun PhotoViewerDialog(
+    photos: List<UserPhotoDto>,
+    initialIndex: Int = 0,
+    language: Language,
+    onDeletePhoto: (suspend (UserPhotoDto) -> Boolean)? = null,
+    onDismiss: () -> Unit,
+) {
+    if (photos.isEmpty()) {
+        onDismiss()
+        return
+    }
+    val scope = rememberCoroutineScope()
+    val startIndex = initialIndex.coerceIn(0, photos.lastIndex)
+    val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { photos.size })
+    var currentScale by remember { mutableFloatStateOf(1f) }
+    var currentOffsetX by remember { mutableFloatStateOf(0f) }
+    var currentOffsetY by remember { mutableFloatStateOf(0f) }
+    var pendingDelete by remember { mutableStateOf<UserPhotoDto?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pagerState.currentPage, photos.size) {
+        currentScale = 1f
+        currentOffsetX = 0f
+        currentOffsetY = 0f
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1459,35 +1607,233 @@ fun PhotoViewerDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(SaigonColors.PhotoViewerBg)
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(1f, 4f)
-                    }
-                },
+                .background(SaigonColors.PhotoViewerBg),
         ) {
-            AsyncImage(
-                model = photoUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(scaleX = scale, scaleY = scale),
-            )
-            Box(
-                contentAlignment = Alignment.Center,
+            HorizontalPager(
+                state = pagerState,
+                userScrollEnabled = currentScale <= 1.02f,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                val photo = photos[page]
+                val isCurrent = page == pagerState.currentPage
+                val scale = if (isCurrent) currentScale else 1f
+                val offsetX = if (isCurrent) currentOffsetX else 0f
+                val offsetY = if (isCurrent) currentOffsetY else 0f
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = 44.dp)
+                        .pointerInput(page) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (currentScale > 1.05f) {
+                                        currentScale = 1f
+                                        currentOffsetX = 0f
+                                        currentOffsetY = 0f
+                                    } else {
+                                        currentScale = 2.25f
+                                    }
+                                },
+                            )
+                        }
+                        .pointerInput(page) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val pressedCount = event.changes.count { it.pressed }
+                                    if (pressedCount >= 2 || currentScale > 1.02f) {
+                                        val zoom = event.calculateZoom()
+                                        val pan = event.calculatePan()
+                                        val nextScale = (currentScale * zoom).coerceIn(1f, 4f)
+                                        currentScale = nextScale
+                                        if (nextScale <= 1.02f) {
+                                            currentScale = 1f
+                                            currentOffsetX = 0f
+                                            currentOffsetY = 0f
+                                        } else {
+                                            val maxPanX = (size.width * (nextScale - 1f)) / 2f
+                                            val maxPanY = (size.height * (nextScale - 1f)) / 2f
+                                            currentOffsetX = (currentOffsetX + pan.x).coerceIn(-maxPanX, maxPanX)
+                                            currentOffsetY = (currentOffsetY + pan.y).coerceIn(-maxPanY, maxPanY)
+                                        }
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                            }
+                        },
+                ) {
+                    AsyncImage(
+                        model = photo.url,
+                        contentDescription = Copy.text(language, "photo"),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY,
+                            ),
+                    )
+                }
+            }
+
+            if (photos.size > 1) {
+                val canPrev = pagerState.currentPage > 0
+                val canNext = pagerState.currentPage < photos.lastIndex
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 10.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .border(1.dp, Color.White.copy(alpha = 0.36f), CircleShape)
+                        .alpha(if (canPrev) 1f else 0.28f)
+                        .clickable(enabled = canPrev) {
+                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                        },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = Copy.text(language, "previousPhoto"),
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 10.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .border(1.dp, Color.White.copy(alpha = 0.36f), CircleShape)
+                        .alpha(if (canNext) 1f else 0.28f)
+                        .clickable(enabled = canNext) {
+                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                        },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = Copy.text(language, "nextPhoto"),
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(12.dp)
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .border(1.dp, Color.White.copy(alpha = 0.36f), CircleShape)
-                    .clickable(onClick = onDismiss),
+                    .padding(12.dp),
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(22.dp))
+                val activePhoto = photos.getOrNull(pagerState.currentPage)
+                if (onDeletePhoto != null && activePhoto != null && activePhoto.canDelete) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .border(1.dp, Color.White.copy(alpha = 0.36f), CircleShape)
+                            .clickable { pendingDelete = activePhoto },
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = Copy.text(language, "deletePhotoAsk"),
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .border(1.dp, Color.White.copy(alpha = 0.36f), CircleShape)
+                        .clickable(onClick = onDismiss),
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = Copy.text(language, "closePhotoViewer"),
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+
+            if (photos.size > 1 || onDeletePhoto != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.78f))
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                    ) {
+                        photos.forEachIndexed { idx, photo ->
+                            val selected = idx == pagerState.currentPage
+                            AsyncImage(
+                                model = photo.url,
+                                contentDescription = Copy.text(language, "photo"),
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(Color(0xFF222222))
+                                    .border(
+                                        width = 2.dp,
+                                        color = if (selected) Color.White else Color.Transparent,
+                                        shape = RoundedCornerShape(9.dp),
+                                    )
+                                    .alpha(if (selected) 1f else 0.68f)
+                                    .clickable {
+                                        scope.launch { pagerState.animateScrollToPage(idx) }
+                                    },
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+
+    pendingDelete?.let { target ->
+        SaigonConfirmDialog(
+            title = Copy.text(language, "deletePhotoAsk"),
+            hint = Copy.text(language, "deletePhotoHint"),
+            confirmLabel = Copy.text(language, "delete"),
+            cancelLabel = Copy.text(language, "cancel"),
+            loading = deleting,
+            onConfirm = {
+                val handler = onDeletePhoto ?: return@SaigonConfirmDialog
+                scope.launch {
+                    deleting = true
+                    val ok = handler(target)
+                    deleting = false
+                    pendingDelete = null
+                    if (ok && photos.size <= 1) {
+                        onDismiss()
+                    }
+                }
+            },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
