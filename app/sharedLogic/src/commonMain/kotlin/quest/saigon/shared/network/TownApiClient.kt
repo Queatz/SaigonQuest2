@@ -31,6 +31,7 @@ import quest.saigon.shared.platform.TokenStorage
 import quest.saigon.shared.platform.createHttpClientEngine
 import quest.saigon.shared.platform.createPlatformTokenStorage
 import quest.saigon.shared.platform.defaultServerOrigin
+import quest.saigon.shared.platform.includeCookieHeaderOnRequests
 import kotlin.coroutines.cancellation.CancellationException
 
 data class UploadPart(
@@ -1044,7 +1045,9 @@ class TownApiClient(
         val token = tokenStorage.readSessionToken()
         if (!token.isNullOrBlank()) {
             header(HttpHeaders.Authorization, "Bearer $token")
-            header(HttpHeaders.Cookie, "sq_session=$token")
+            if (includeCookieHeaderOnRequests) {
+                header(HttpHeaders.Cookie, "sq_session=$token")
+            }
         }
     }
 

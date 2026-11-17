@@ -51,3 +51,5 @@ expect fun createHttpClientEngine(): HttpClientEngine
 expect fun defaultServerOrigin(): String
 
 expect fun currentTimeMillis(): Long
+
+expect val includeCookieHeaderOnRequests: Boolean

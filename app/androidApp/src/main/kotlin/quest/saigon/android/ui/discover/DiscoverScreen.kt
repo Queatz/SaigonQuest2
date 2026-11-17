@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import quest.saigon.AppRoute
 import quest.saigon.Copy
@@ -52,6 +53,7 @@ import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.PostGridRows
+import quest.saigon.android.ui.components.SaigonBottomSheet
 import quest.saigon.android.ui.components.SaigonCard
 import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonDialog
@@ -134,6 +136,9 @@ fun DiscoverScreen(
                 lat = lat,
                 lng = lng,
                 attendeeCount = ev.attendeeCount,
+                eventStartAt = ev.eventStartAt,
+                eventPrice = ev.eventPrice,
+                attendees = ev.attendees,
             )
         }
     }
@@ -154,6 +159,7 @@ fun DiscoverScreen(
                 activityCount = place.activityCount,
                 activityEmojis = place.activityEmojis,
                 hasActivities = place.hasActivities,
+                photoUrl = place.photoUrl,
             )
         }
     }
@@ -262,6 +268,7 @@ fun DiscoverScreen(
                         events = eventPins,
                         places = placePins,
                         mapsApiKey = sessionState.mapsKey,
+                        language = lang,
                         onEventClick = { postId -> onNavigate(AppRoute.Post(postId)) },
                         onPlaceClick = { key ->
                             val place = placeByKey[key]
@@ -660,7 +667,7 @@ fun DiscoverScreen(
     }
 
     if (showPostSearch) {
-        PostSearchDialog(
+        PostSearchSheet(
             shared = shared,
             language = lang,
             onOpenPost = { postId ->
@@ -673,11 +680,41 @@ fun DiscoverScreen(
 
     if (showCreateCommunity) {
         var name by remember { mutableStateOf("") }
-        var emoji by remember { mutableStateOf("✨") }
+        var emoji by remember { mutableStateOf("") }
+        var emojiManual by remember { mutableStateOf(false) }
+        var suggestingEmoji by remember { mutableStateOf(false) }
+        LaunchedEffect(name, emojiManual) {
+            if (emojiManual) return@LaunchedEffect
+            val trimmed = name.trim()
+            if (trimmed.isEmpty()) {
+                suggestingEmoji = false
+                return@LaunchedEffect
+            }
+            delay(2000)
+            suggestingEmoji = true
+            when (val res = shared.api.suggestCommunityEmoji(trimmed)) {
+                is ApiResult.Success -> {
+                    if (!emojiManual && name.trim() == trimmed && res.value.emoji.isNotBlank()) {
+                        emoji = res.value.emoji
+                    }
+                }
+                is ApiResult.Failure -> Unit
+            }
+            suggestingEmoji = false
+        }
         SaigonDialog(onDismiss = { showCreateCommunity = false }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(Copy.text(lang, "newCommunity"), color = tokens.text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 36.dp))
-                SaigonTextField(value = emoji, onValueChange = { emoji = it.take(4) }, label = Copy.text(lang, "communityEmoji"))
+                SaigonTextField(
+                    value = emoji,
+                    onValueChange = {
+                        emoji = it.take(4)
+                        emojiManual = emoji.isNotBlank()
+                    },
+                    label = Copy.text(lang, "communityEmoji"),
+                    placeholder = if (suggestingEmoji) "…" else "✨",
+                    singleLine = true,
+                )
                 SaigonTextField(value = name, onValueChange = { name = it }, label = Copy.text(lang, "communityName"))
                 SaigonPrimaryButton(
                     text = Copy.text(lang, "createCommunity"),
@@ -722,6 +759,8 @@ fun DiscoverScreen(
                         centerLat = newPlaceLat,
                         centerLng = newPlaceLng,
                         initialZoom = 15f,
+                        alwaysShowBubbles = true,
+                        language = lang,
                         onMapClick = { lat, lng ->
                             newPlaceLat = lat
                             newPlaceLng = lng
@@ -822,40 +861,49 @@ private fun DiscoverEventRow(
 }
 
 @Composable
-private fun PostSearchDialog(
+private fun PostSearchSheet(
     shared: TownSharedClient,
     language: Language,
     onOpenPost: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<PostCardDto>>(emptyList()) }
+    var nextCursor by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var requestId by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(query) {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) {
-            results = emptyList()
-            loading = false
-            return@LaunchedEffect
-        }
+        if (trimmed.isNotEmpty()) delay(220)
+        val token = ++requestId
         loading = true
         when (val res = shared.api.searchPosts(trimmed, limit = 24)) {
-            is ApiResult.Success -> results = res.value.posts
+            is ApiResult.Success -> {
+                if (token == requestId) {
+                    results = res.value.posts
+                    nextCursor = res.value.nextCursor
+                }
+            }
             is ApiResult.Failure -> Unit
         }
-        loading = false
+        if (token == requestId) loading = false
     }
 
-    SaigonDialog(onDismiss = onDismiss) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                Copy.text(language, "searchPosts"),
-                color = tokens.text,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(end = 36.dp),
-            )
+    SaigonBottomSheet(
+        title = Copy.text(language, "searchPosts"),
+        onDismiss = onDismiss,
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 20.dp),
+        ) {
             SaigonTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -863,38 +911,67 @@ private fun PostSearchDialog(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (loading) {
-                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    SaigonSpinner(size = 24.dp)
+            when {
+                loading && results.isEmpty() -> {
+                    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        SaigonSpinner(size = 24.dp)
+                    }
                 }
-            } else if (query.isNotBlank() && results.isEmpty()) {
-                Text(Copy.text(language, "noSearchResults"), color = tokens.muted, fontSize = 13.sp)
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.heightIn(max = 320.dp),
-                ) {
-                    items(results, key = { it.id }) { post ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(tokens.bg)
-                                .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
-                                .clickable { onOpenPost(post.id) }
-                                .padding(8.dp),
-                        ) {
-                            AsyncImage(
-                                model = post.photoUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(post.authorName, color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                                Text(post.message, color = tokens.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                results.isEmpty() -> {
+                    Text(Copy.text(language, "noSearchResults"), color = tokens.muted, fontSize = 13.sp)
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 420.dp),
+                    ) {
+                        items(results, key = { it.id }) { post ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(tokens.bg)
+                                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
+                                    .clickable { onOpenPost(post.id) }
+                                    .padding(8.dp),
+                            ) {
+                                AsyncImage(
+                                    model = post.photoUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(post.authorName, color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                                    Text(post.message, color = tokens.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                        if (nextCursor != null) {
+                            item {
+                                SaigonTextButton(
+                                    text = Copy.text(language, "loadMore"),
+                                    enabled = !loadingMore,
+                                    onClick = {
+                                        val c = nextCursor ?: return@SaigonTextButton
+                                        val activeQuery = query.trim()
+                                        scope.launch {
+                                            loadingMore = true
+                                            when (val res = shared.api.searchPosts(activeQuery, cursor = c, limit = 24)) {
+                                                is ApiResult.Success -> {
+                                                    val seen = results.mapTo(HashSet()) { it.id }
+                                                    results = results + res.value.posts.filter { seen.add(it.id) }
+                                                    nextCursor = res.value.nextCursor
+                                                }
+                                                is ApiResult.Failure -> Unit
+                                            }
+                                            loadingMore = false
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
                         }
                     }
@@ -1026,6 +1103,8 @@ fun LocationDetailScreen(
                                         lat = lat,
                                         lng = lng,
                                         postCount = detail.postsCount,
+                                        activityCount = detail.activities.size.toLong(),
+                                        activityEmojis = detail.activities.map { it.emoji }.distinct(),
                                         hasActivities = detail.activities.isNotEmpty(),
                                     ),
                                 ),
@@ -1033,6 +1112,8 @@ fun LocationDetailScreen(
                                 centerLat = lat,
                                 centerLng = lng,
                                 initialZoom = 15.5f,
+                                alwaysShowBubbles = true,
+                                language = lang,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

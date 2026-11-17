@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SaigonQuest" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/saigon_bg</item>
+    </style>
+    <color name="saigon_bg">#161311</color>
+    <color name="ic_launcher_background">#161311</color>
+</resources>

@@ -67,9 +67,18 @@ fun SaigonApp(
         navigatePath(raw)
     }
 
+    val tokens = LocalSaigonTokens.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(tokens.bg),
+    ) {
     NavHost(
         navController = navController,
         startDestination = "/",
+        modifier = Modifier
+            .fillMaxSize()
+            .background(tokens.bg),
     ) {
         composable("/") {
             FeedScreen(
@@ -336,6 +345,7 @@ fun SaigonApp(
                 AdminScreen(shared = shared, onBack = { navController.popBackStack() })
             }
         }
+    }
     }
 
     if (authPromptVisible) {

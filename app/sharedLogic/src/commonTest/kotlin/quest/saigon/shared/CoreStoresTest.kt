@@ -382,4 +382,49 @@ class CoreStoresTest {
         assertTrue(sawPhotoField, "Expected multipart part named 'photo'")
         assertFalse(sawPluralPhotosField, "Should not send multipart part named 'photos'")
     }
+
+    @Test
+    fun messagesStoreCheckDirectChatPromptsFirstMessageOn404AndCreatesOnSend() = runTest {
+        val storage = InMemoryTokenStorage(initialToken = "tok")
+        var createdText: String? = null
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { request ->
+                val path = request.url.encodedPath
+                when {
+                    path == "/api/chats/direct/u2" && request.method == HttpMethod.Get -> respond(
+                        """{"error":"not_found"}""",
+                        HttpStatusCode.NotFound,
+                        jsonHeaders,
+                    )
+                    path == "/api/chats" && request.method == HttpMethod.Post -> {
+                        createdText = request.body.toString()
+                        respond(
+                            """{"id":"c_dm","type":"direct","title":"Binh","members":[{"id":"u2","name":"Binh"}],"messages":[]}""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                    }
+                    path == "/api/chats/c_dm" -> respond(
+                        """{"id":"c_dm","type":"direct","title":"Binh","members":[{"id":"u2","name":"Binh"}],"messages":[{"id":"m1","senderId":"u1","senderName":"An","text":"Xin chao","createdAt":100}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = storage, serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val messages = quest.saigon.shared.store.MessagesStore(api, storeScope)
+
+        val check = messages.checkDirectChat("u2")
+        assertTrue(check is quest.saigon.shared.store.DirectChatCheckResult.NeedsFirstMessage)
+
+        val created = messages.startDirectChat("u2", "Xin chao")
+        advanceUntilIdle()
+        assertEquals("c_dm", created?.id)
+        assertEquals("c_dm", messages.state.value.activeChat?.id)
+        assertTrue(createdText != null)
+    }
 }

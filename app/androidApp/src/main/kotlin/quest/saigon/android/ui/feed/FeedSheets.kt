@@ -574,6 +574,7 @@ fun PollVotersSheet(
 fun QuestionAnswersSheet(
     post: PostCardDto,
     detailStore: PostDetailStore,
+    viewerId: String?,
     language: Language,
     onSelectPerson: (id: String, name: String, photoUrl: String?, location: String, intro: String) -> Unit,
     onMessageUser: (userId: String, name: String) -> Unit,
@@ -648,7 +649,7 @@ fun QuestionAnswersSheet(
                                             LinkifiedText(text = item.text, color = tokens.text, style = MaterialTheme.typography.bodyMedium)
                                         }
                                     }
-                                    if (item.userId.isNotBlank()) {
+                                    if (item.userId.isNotBlank() && item.userId != viewerId) {
                                         SaigonPrimaryButton(
                                             text = Copy.text(language, "message"),
                                             onClick = { onMessageUser(item.userId, item.name) },
@@ -735,7 +736,7 @@ fun CommunityMembersSheet(
                 SaigonTextField(
                     value = descInput,
                     onValueChange = { if (it.length <= Limits.COMMUNITY_DESCRIPTION_MAX) descInput = it },
-                    placeholder = Copy.text(language, "descriptionHint"),
+                    placeholder = Copy.text(language, "communityDescriptionHint"),
                     singleLine = false,
                     minLines = 2,
                     maxLines = 4,
@@ -867,7 +868,17 @@ fun CheckInSheet(
             CheckIns.durationOptionsMinutes.chunked(4).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     row.forEach { minutes ->
-                        val label = if (minutes < 60) "${minutes}m" else "${minutes / 60}h"
+                        val label = when (minutes) {
+                            30 -> Copy.text(language, "checkIn30Minutes")
+                            60 -> Copy.text(language, "checkIn1Hour")
+                            90 -> Copy.text(language, "checkIn1AndHalfHours")
+                            120 -> Copy.text(language, "checkIn2Hours")
+                            180 -> Copy.text(language, "checkIn3Hours")
+                            240 -> Copy.text(language, "checkIn4Hours")
+                            300 -> Copy.text(language, "checkIn5Hours")
+                            360 -> Copy.text(language, "checkIn6Hours")
+                            else -> if (minutes < 60) "${minutes}m" else "${minutes / 60}h"
+                        }
                         SaigonPillChip(
                             label = label,
                             selected = false,

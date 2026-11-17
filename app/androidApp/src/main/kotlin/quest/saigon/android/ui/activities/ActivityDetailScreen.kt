@@ -105,11 +105,11 @@ fun ActivityDetailScreen(
     val isCreator = act != null && sessionState.me?.id == act.createdBy
 
     // Pre-select host if present and not self (matches web ActivitiesUi.kt)
-    LaunchedEffect(act?.id, act?.hostUserId, sessionState.me?.id) {
+    LaunchedEffect(act?.id, act?.hostUserId, act?.interestedPeople, sessionState.me?.id) {
         val a = act ?: return@LaunchedEffect
         val viewer = sessionState.me?.id
         val hostId = a.hostUserId
-        if (!hostId.isNullOrBlank() && hostId != viewer && a.interestedPeople.any { it.id == hostId }) {
+        if (!hostId.isNullOrBlank() && hostId != viewer && a.interestedPeople.any { it.id == hostId || it.host }) {
             selectedChatIds = selectedChatIds + hostId
         }
     }
@@ -142,9 +142,15 @@ fun ActivityDetailScreen(
                 }
             }
         },
-        bottomBar = if (act != null && act.interestedPeople.any { it.id != sessionState.me?.id }) {
+        bottomBar = if (act != null) {
             {
-                val chatCount = selectedChatIds.size
+                val viewer = sessionState.me?.id
+                val hostIds = act.interestedPeople
+                    .filter { it.host || (!act.hostUserId.isNullOrBlank() && it.id == act.hostUserId) }
+                    .map { it.id }
+                    .toSet()
+                val effectiveIds = (selectedChatIds + hostIds).filter { it.isNotBlank() && it != viewer }
+                val chatCount = effectiveIds.size
                 val chatLabel = if (chatCount <= 1) {
                     Copy.text(lang, "openChat")
                 } else {
@@ -155,19 +161,18 @@ fun ActivityDetailScreen(
                         .fillMaxWidth()
                         .background(tokens.surface)
                         .border(1.dp, tokens.line)
-                        .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
                     SaigonPrimaryButton(
                         text = chatLabel,
-                        enabled = selectedChatIds.isNotEmpty() && !activityState.isMutating,
+                        enabled = effectiveIds.isNotEmpty() && !activityState.isMutating,
                         loading = activityState.isMutating,
                         onClick = {
                             if (sessionState.me == null) {
                                 onRequireAuth()
                             } else {
                                 scope.launch {
-                                    shared.activity.startActivityChat(act.id, selectedChatIds.toList())?.let { chat ->
+                                    shared.activity.startActivityChat(act.id, effectiveIds)?.let { chat ->
                                         onNavigate(AppRoute.Chat(chat.id))
                                     }
                                 }
@@ -304,6 +309,8 @@ fun ActivityDetailScreen(
                                         centerLat = lat,
                                         centerLng = lng,
                                         initialZoom = 15.5f,
+                                        alwaysShowBubbles = true,
+                                        language = lang,
                                         onPlaceClick = { openLocation() },
                                         modifier = Modifier.fillMaxSize(),
                                     )
@@ -400,8 +407,9 @@ fun ActivityDetailScreen(
                 } else {
                     items(act.interestedPeople, key = { it.id }) { person ->
                         val isSelf = person.id == sessionState.me?.id
-                        val checked = person.id in selectedChatIds
-                        val canSelect = sessionState.me != null && !isSelf
+                        val isHost = person.host || (!act.hostUserId.isNullOrBlank() && person.id == act.hostUserId)
+                        val checked = !isSelf && (isHost || person.id in selectedChatIds)
+                        val canToggle = !isSelf && !isHost
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -414,20 +422,25 @@ fun ActivityDetailScreen(
                                     else Modifier,
                                 )
                                 .clickable {
-                                    if (canSelect) {
-                                        selectedChatIds = if (checked) selectedChatIds - person.id else selectedChatIds + person.id
-                                    } else {
-                                        onNavigate(AppRoute.User(person.id))
+                                    when {
+                                        canToggle -> selectedChatIds = if (checked) selectedChatIds - person.id else selectedChatIds + person.id
+                                        isSelf -> onNavigate(AppRoute.User(person.id))
                                     }
                                 }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                         ) {
-                            if (canSelect) {
+                            if (!isSelf) {
                                 Checkbox(
                                     checked = checked,
-                                    colors = CheckboxDefaults.colors(checkedColor = tokens.accent),
+                                    enabled = canToggle,
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = tokens.accent,
+                                        disabledCheckedColor = tokens.accent,
+                                    ),
                                     onCheckedChange = {
-                                        selectedChatIds = if (it) selectedChatIds + person.id else selectedChatIds - person.id
+                                        if (canToggle) {
+                                            selectedChatIds = if (it) selectedChatIds + person.id else selectedChatIds - person.id
+                                        }
                                     },
                                     modifier = Modifier.size(30.dp),
                                 )
@@ -439,7 +452,7 @@ fun ActivityDetailScreen(
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Text(person.name, color = tokens.text, fontWeight = FontWeight.Bold)
-                                if (person.host) SaigonTinyPill(label = Copy.text(lang, "host"), selected = true)
+                                if (isHost) SaigonTinyPill(label = Copy.text(lang, "host"), selected = true)
                             }
                             Box(
                                 contentAlignment = Alignment.Center,

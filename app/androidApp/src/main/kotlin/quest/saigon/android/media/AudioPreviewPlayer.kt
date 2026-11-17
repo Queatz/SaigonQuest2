@@ -37,6 +37,18 @@ class AudioPreviewPlayer(context: Context) {
         )
     }
 
+    fun play(url: String?) {
+        val clean = url?.takeIf { it.isNotBlank() } ?: return
+        if (_state.value.currentUrl == clean) {
+            if (!player.isPlaying) player.play()
+            return
+        }
+        _state.value = AudioPlaybackState(currentUrl = clean, isPlaying = false, isBuffering = true)
+        player.setMediaItem(MediaItem.fromUri(clean))
+        player.prepare()
+        player.play()
+    }
+
     fun toggle(url: String?) {
         val clean = url?.takeIf { it.isNotBlank() } ?: return
         if (_state.value.currentUrl == clean) {

@@ -90,6 +90,59 @@ class MobileAuthAndFcmTest {
     }
 
     @Test
+    fun webCookieSessionAndAndroidBearerSessionCoexistWithoutInvalidation() = testApplication {
+        val services = testServices(clock = { 1_700_000_000_000L })
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+
+        val client = createClient { }
+        val regResponse = client.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"An","phone":"0901110102","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, regResponse.status)
+        val webToken = mapper.readTree(regResponse.bodyAsText()).path("token").asText()
+        assertTrue(webToken.isNotBlank())
+
+        // Simulate Android logging in as the same user later.
+        val androidLogin = client.post("/api/auth/login") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"phone":"0901110102","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, androidLogin.status)
+        val androidToken = mapper.readTree(androidLogin.bodyAsText()).path("token").asText()
+        assertTrue(androidToken.isNotBlank())
+        assertTrue(androidToken != webToken)
+
+        // Existing Web cookie session must still remain valid.
+        val webMe = client.get("/api/me") {
+            header(HttpHeaders.Cookie, "sq_session=$webToken")
+        }
+        assertEquals(HttpStatusCode.OK, webMe.status)
+        assertEquals("An", mapper.readTree(webMe.bodyAsText()).path("name").asText())
+
+        // Android Bearer session must also work concurrently.
+        val androidMe = client.get("/api/me") {
+            header(HttpHeaders.Authorization, "Bearer $androidToken")
+        }
+        assertEquals(HttpStatusCode.OK, androidMe.status)
+
+        // Logging out on Android revokes only Android's token, leaving Web's session intact.
+        val androidLogout = client.post("/api/auth/logout") {
+            header(HttpHeaders.Authorization, "Bearer $androidToken")
+        }
+        assertEquals(HttpStatusCode.OK, androidLogout.status)
+
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.get("/api/me") { header(HttpHeaders.Authorization, "Bearer $androidToken") }.status,
+        )
+        assertEquals(
+            HttpStatusCode.OK,
+            client.get("/api/me") { header(HttpHeaders.Cookie, "sq_session=$webToken") }.status,
+        )
+    }
+
+    @Test
     fun fcmRoutesRequireAuthValidateTokenAndCompositePusherFansOut() = testApplication {
         val webPayloads = mutableListOf<String>()
         val fcmPayloads = mutableListOf<Triple<String, String, Map<String, String>>>()

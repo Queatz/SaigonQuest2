@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -58,6 +59,8 @@ import quest.saigon.android.ui.components.ActivityCard
 import quest.saigon.android.ui.components.ActivityEditorDialog
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
+import quest.saigon.android.ui.components.LocationInputRow
+import quest.saigon.android.ui.components.LocationPickerDialog
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.PostGridRows
 import quest.saigon.android.ui.components.SaigonCard
@@ -76,8 +79,10 @@ import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
+import quest.saigon.android.ui.components.rememberDirectMessageOpener
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ActivityDto
+import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.UpdateMeRequest
 
 @Composable
@@ -87,6 +92,7 @@ fun ProfileScreen(
     onBack: () -> Unit,
 ) {
     val sessionState by shared.session.state.collectAsState()
+    val composerState by shared.composer.state.collectAsState()
     val me = sessionState.me
     val lang = sessionState.language
     val tokens = LocalSaigonTokens.current
@@ -95,8 +101,29 @@ fun ProfileScreen(
 
     var name by remember(me?.id, me?.name) { mutableStateOf(me?.name.orEmpty()) }
     var location by remember(me?.id, me?.location) { mutableStateOf(me?.location.orEmpty()) }
+    var selectedPlace by remember(me?.id, me?.location, me?.placeId, me?.locationId, me?.lat, me?.lng) {
+        mutableStateOf(
+            if (me != null && me.location.isNotBlank() && me.lat != null && me.lng != null) {
+                PlaceSuggestionDto(
+                    id = me.locationId,
+                    name = me.location,
+                    placeId = me.placeId,
+                    lat = me.lat,
+                    lng = me.lng,
+                    custom = me.locationId != null,
+                )
+            } else {
+                null
+            },
+        )
+    }
     var intro by remember(me?.id, me?.intro) { mutableStateOf(me?.intro.orEmpty()) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        shared.composer.searchPlaces("")
+    }
 
     val avatarPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -142,10 +169,13 @@ fun ProfileScreen(
                 Box(
                     modifier = Modifier
                         .size(96.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                        ),
                 ) {
                     UserAvatar(
                         photoUrl = me?.photoUrl,
@@ -158,6 +188,7 @@ fun ProfileScreen(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
+                            .offset(x = 2.dp, y = 2.dp)
                             .size(26.dp)
                             .shadow(3.dp, CircleShape)
                             .clip(CircleShape)
@@ -172,29 +203,76 @@ fun ProfileScreen(
                 }
             }
 
+            val hasCoordinates = selectedPlace?.lat != null &&
+                selectedPlace?.lng != null &&
+                (selectedPlace?.name ?: location).isNotBlank()
+            val hasEdits = me != null && (
+                name.trim() != me.name.trim() ||
+                    location.trim() != me.location.trim() ||
+                    intro.trim() != me.intro.trim() ||
+                    selectedPlace?.placeId != me.placeId ||
+                    selectedPlace?.id != me.locationId ||
+                    selectedPlace?.lat != me.lat ||
+                    selectedPlace?.lng != me.lng
+                )
+
             SaigonTextField(
                 value = name,
-                onValueChange = { if (it.length <= Limits.NAME_MAX) name = it },
+                onValueChange = { if (it.length <= Limits.NAME_MAX) { name = it; savedMessage = null } },
                 label = Copy.text(lang, "name"),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            SaigonTextField(
-                value = location,
-                onValueChange = { if (it.length <= Limits.LOCATION_MAX) location = it },
+            LocationInputRow(
                 label = Copy.text(lang, "location"),
-                singleLine = true,
+                value = location,
+                onValueChange = { typed ->
+                    location = typed
+                    if (selectedPlace != null && !typed.trim().equals(selectedPlace?.name?.trim(), ignoreCase = false)) {
+                        selectedPlace = null
+                    }
+                    savedMessage = null
+                },
+                hasCoordinates = hasCoordinates,
+                language = lang,
+                onOpenMapPicker = { showLocationDialog = true },
                 modifier = Modifier.fillMaxWidth(),
             )
             SaigonTextField(
                 value = intro,
-                onValueChange = { if (it.length <= Limits.INTRO_MAX) intro = it },
+                onValueChange = { if (it.length <= Limits.INTRO_MAX) { intro = it; savedMessage = null } },
                 label = Copy.text(lang, "introduceYourself"),
                 singleLine = false,
                 minLines = 2,
                 maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (hasEdits) {
+                SaigonPrimaryButton(
+                    text = Copy.text(lang, "save"),
+                    enabled = !sessionState.isSubmitting && name.isNotBlank(),
+                    loading = sessionState.isSubmitting,
+                    onClick = {
+                        savedMessage = null
+                        scope.launch {
+                            val ok = shared.session.updateProfile(
+                                UpdateMeRequest(
+                                    name = name.trim(),
+                                    location = location.trim(),
+                                    placeId = selectedPlace?.placeId,
+                                    locationId = selectedPlace?.id,
+                                    lat = selectedPlace?.lat,
+                                    lng = selectedPlace?.lng,
+                                    intro = intro.trim(),
+                                ),
+                            )
+                            if (ok) savedMessage = Copy.text(lang, "saved")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Text(Copy.text(lang, "language"), color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
             Row(
@@ -213,26 +291,6 @@ fun ProfileScreen(
                     )
                 }
             }
-
-            SaigonPrimaryButton(
-                text = Copy.text(lang, "save"),
-                enabled = !sessionState.isSubmitting && name.isNotBlank(),
-                loading = sessionState.isSubmitting,
-                onClick = {
-                    savedMessage = null
-                    scope.launch {
-                        val ok = shared.session.updateProfile(
-                            UpdateMeRequest(
-                                name = name.trim(),
-                                location = location.trim(),
-                                intro = intro.trim(),
-                            ),
-                        )
-                        if (ok) savedMessage = Copy.text(lang, "saved")
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
 
             savedMessage?.let { Text(it, color = tokens.accent, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
             sessionState.error?.let { Text(it, color = tokens.danger, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
@@ -280,6 +338,27 @@ fun ProfileScreen(
             )
         }
     }
+
+    if (showLocationDialog) {
+        LocationPickerDialog(
+            initialQuery = location,
+            currentPlace = selectedPlace,
+            recent = composerState.recentPlaces,
+            results = composerState.placeResults,
+            mapsApiKey = sessionState.mapsKey,
+            language = lang,
+            onSearch = { q -> shared.composer.searchPlaces(q, null) },
+            onResolvePlaceDetails = { placeId -> shared.composer.resolvePlaceDetails(placeId) },
+            onCreateCustomPlace = { placeName, lat, lng -> shared.composer.createCustomPlace(placeName, lat, lng) },
+            onSelectPlace = { place ->
+                selectedPlace = place
+                location = place.name
+                savedMessage = null
+                showLocationDialog = false
+            },
+            onDismiss = { showLocationDialog = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -299,6 +378,11 @@ fun PublicUserProfileScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var zoomPhoto by remember { mutableStateOf<String?>(null) }
+    val openDirectMessage = rememberDirectMessageOpener(
+        shared = shared,
+        onNavigate = onNavigate,
+        onRequireAuth = onRequireAuth,
+    )
 
     LaunchedEffect(userId, sessionState.me?.id) {
         shared.profile.loadUserProfile(userId)
@@ -391,16 +475,7 @@ fun PublicUserProfileScreen(
                             Spacer(Modifier.height(6.dp))
                             SaigonPrimaryButton(
                                 text = Copy.text(lang, "messageUser", mapOf("name" to user.name)),
-                                onClick = {
-                                    if (sessionState.me == null) {
-                                        onRequireAuth()
-                                    } else {
-                                        scope.launch {
-                                            val chat = shared.messages.openDirectChat(user.id)
-                                            if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                                        }
-                                    }
-                                },
+                                onClick = { openDirectMessage(user.id, user.name) },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -725,6 +800,7 @@ fun MyMusicScreen(
     val audioState by audioPlayer.state.collectAsState()
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { shared.profile.loadMyMusic() }
 
@@ -761,18 +837,30 @@ fun MyMusicScreen(
                             Text(track.name.ifBlank { track.prompt }, color = tokens.text, fontWeight = FontWeight.Bold)
                             Text(track.status, fontSize = 12.sp, color = tokens.muted)
                         }
-                        IconButton(onClick = {
-                            scope.launch {
-                                shared.composer.deleteMusic(track.id)
-                                shared.profile.loadMyMusic()
-                            }
-                        }) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = tokens.danger)
+                        IconButton(onClick = { pendingDeleteId = track.id }) {
+                            Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "delete"), tint = tokens.danger)
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingDeleteId?.let { targetId ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "dismissMusicAsk"),
+            hint = Copy.text(lang, "dismissMusicHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            onConfirm = {
+                scope.launch {
+                    shared.composer.deleteMusic(targetId)
+                    shared.profile.loadMyMusic()
+                    pendingDeleteId = null
+                }
+            },
+            onDismiss = { pendingDeleteId = null },
+        )
     }
 }
 

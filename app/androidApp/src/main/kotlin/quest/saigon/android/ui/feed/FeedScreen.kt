@@ -90,6 +90,7 @@ import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
+import quest.saigon.android.ui.components.rememberDirectMessageOpener
 import quest.saigon.feedMotion
 import quest.saigon.postMessageNeedsMore
 import quest.saigon.previewPostMessage
@@ -158,6 +159,18 @@ fun FeedScreen(
     var selectedPerson by remember { mutableStateOf<SelectedPersonModal?>(null) }
     var activeCommunity by remember { mutableStateOf<quest.saigon.shared.model.CommunityDto?>(null) }
     var peeking by remember { mutableStateOf(false) }
+    var feedMusicEnabled by remember { mutableStateOf(false) }
+    val openDirectMessage = rememberDirectMessageOpener(
+        shared = shared,
+        onNavigate = onNavigate,
+        onRequireAuth = onRequireAuth,
+    )
+
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlayer.stop()
+        }
+    }
 
     val filter = remember(communityId) {
         if (!communityId.isNullOrBlank()) FeedFilter.Community(communityId) else FeedFilter.Home
@@ -220,34 +233,62 @@ fun FeedScreen(
                     pageCount = { feedState.posts.size },
                 )
 
-                LaunchedEffect(pagerState.settledPage, feedState.posts.size) {
+                LaunchedEffect(pagerState.settledPage, feedState.posts) {
                     val post = feedState.posts.getOrNull(pagerState.settledPage)
                     if (post != null) {
                         shared.feed.selectPost(post.id)
+                        if (feedMusicEnabled) {
+                            val url = post.musicUrl?.takeIf { it.isNotBlank() }
+                            if (url != null) {
+                                audioPlayer.play(url)
+                            } else {
+                                audioPlayer.stop()
+                            }
+                        }
                     }
-                    if (pagerState.settledPage >= feedState.posts.lastIndex - 1 && feedState.nextCursor != null) {
+                }
+
+                LaunchedEffect(pagerState.currentPage, pagerState.settledPage, feedState.posts.size, feedState.nextCursor) {
+                    val nearEnd = maxOf(pagerState.currentPage, pagerState.settledPage) >=
+                        (feedState.posts.lastIndex - 2).coerceAtLeast(0)
+                    if (nearEnd && feedState.nextCursor != null) {
                         shared.feed.loadMore()
                     }
                 }
 
-                VerticalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                ) { page ->
-                    val post = feedState.posts[page]
-                    val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
-                    val motion = feedMotion(pageOffset * 320.0)
-                    FeedPostSlide(
-                        post = post,
-                        isCurrent = page == pagerState.settledPage,
-                        cardParallaxPx = motion.cardOffset.toFloat(),
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val stageHeightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+                    VerticalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                    ) { page ->
+                        val post = feedState.posts[page]
+                        val pageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                        val motion = feedMotion(-pageOffset.toDouble() * stageHeightPx)
+                        val cardParallaxPx = (motion.cardOffset - motion.photoOffset).toFloat()
+                        FeedPostSlide(
+                            post = post,
+                            isCurrent = page == pagerState.settledPage,
+                            cardParallaxPx = cardParallaxPx,
                         peeking = peeking,
                         viewerId = sessionState.me?.id,
                         language = lang,
                         audioPlaying = audioState.currentUrl == post.musicUrl && audioState.isPlaying,
                         onSetPeeking = { peeking = it },
                         onZoomPhoto = { zoomPhotoUrl = it },
-                        onToggleMusic = { audioPlayer.toggle(post.musicUrl) },
+                        onToggleMusic = {
+                            val url = post.musicUrl?.takeIf { it.isNotBlank() }
+                            if (url != null) {
+                                val playingThis = audioState.currentUrl == url && audioState.isPlaying
+                                if (playingThis) {
+                                    feedMusicEnabled = false
+                                    audioPlayer.stop()
+                                } else {
+                                    feedMusicEnabled = true
+                                    audioPlayer.play(url)
+                                }
+                            }
+                        },
                         onSelectAuthor = {
                             if (post.authorId.isNotBlank()) {
                                 selectedPerson = SelectedPersonModal(
@@ -271,13 +312,8 @@ fun FeedScreen(
                             onNavigate(AppRoute.Location(token))
                         },
                         onMessageAuthor = {
-                            if (sessionState.me == null) {
-                                onRequireAuth()
-                            } else if (post.authorId.isNotBlank()) {
-                                scope.launch {
-                                    val chat = shared.messages.openDirectChat(post.authorId)
-                                    if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                                }
+                            if (post.authorId.isNotBlank()) {
+                                openDirectMessage(post.authorId, post.authorName)
                             }
                         },
                         onOpenCommunity = { cId -> onNavigate(AppRoute.Community(cId)) },
@@ -353,13 +389,8 @@ fun FeedScreen(
                                     }
                                 }
                                 CallToAction.MESSAGE -> {
-                                    if (sessionState.me == null) {
-                                        onRequireAuth()
-                                    } else if (post.authorId.isNotBlank()) {
-                                        scope.launch {
-                                            val chat = shared.messages.openDirectChat(post.authorId)
-                                            if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                                        }
+                                    if (post.authorId.isNotBlank()) {
+                                        openDirectMessage(post.authorId, post.authorName)
                                     }
                                 }
                                 CallToAction.PROFILE -> if (post.authorId.isNotBlank()) {
@@ -376,6 +407,17 @@ fun FeedScreen(
                             AndroidIntents.shareText(context, "$origin/p/${post.id}", post.authorName)
                         },
                     )
+                    }
+                    if (feedState.isLoadingMore && pagerState.currentPage >= feedState.posts.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(bottom = 8.dp),
+                        ) {
+                            SaigonSpinner(size = 20.dp)
+                        }
+                    }
                 }
             }
         }
@@ -736,16 +778,14 @@ fun FeedScreen(
         QuestionAnswersSheet(
             post = post,
             detailStore = shared.postDetail,
+            viewerId = sessionState.me?.id,
             language = lang,
             onSelectPerson = { id, name, photoUrl, location, intro ->
                 selectedPerson = SelectedPersonModal(id, name, photoUrl, location, intro)
             },
-            onMessageUser = { userId, _ ->
+            onMessageUser = { userId, name ->
                 questionPost = null
-                scope.launch {
-                    val chat = shared.messages.openDirectChat(userId)
-                    if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                }
+                openDirectMessage(userId, name)
             },
             onDismiss = { questionPost = null },
         )
@@ -815,6 +855,7 @@ fun FeedScreen(
     }
 
     selectedPerson?.let { person ->
+        val canMessage = person.id.isNotBlank() && person.id != sessionState.me?.id
         MiniProfileDialog(
             name = person.name,
             photoUrl = person.photoUrl,
@@ -823,15 +864,10 @@ fun FeedScreen(
             language = lang,
             onDismiss = { selectedPerson = null },
             onOpenProfile = { onNavigate(AppRoute.User(person.id)) },
-            onMessage = {
-                if (sessionState.me == null) {
-                    onRequireAuth()
-                } else {
-                    scope.launch {
-                        val chat = shared.messages.openDirectChat(person.id)
-                        if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                    }
-                }
+            onMessage = if (canMessage) {
+                { openDirectMessage(person.id, person.name) }
+            } else {
+                null
             },
         )
     }
@@ -1027,9 +1063,7 @@ private fun FeedPostSlide(
     val photos = remember(post.id, post.photoUrl, post.photoUrls) { post.allPhotoUrls() }
     val photoPagerState = rememberPagerState(pageCount = { photos.size.coerceAtLeast(1) })
     val previewTarget = remember(post.id, post.message) { previewPostMessage(post.message) }
-    var visibleChars by remember(post.id, isCurrent) {
-        mutableIntStateOf(if (isCurrent) 0 else previewTarget.length)
-    }
+    var visibleChars by remember(post.id) { mutableIntStateOf(0) }
 
     val quickReplies = remember(post.id, post.quickReplies, language) {
         post.quickReplies.ifEmpty { Copy.quickReplies(language) }
@@ -1045,7 +1079,7 @@ private fun FeedPostSlide(
 
     LaunchedEffect(post.id, isCurrent) {
         if (!isCurrent) {
-            visibleChars = previewTarget.length
+            visibleChars = 0
             return@LaunchedEffect
         }
         visibleChars = 0
@@ -1068,39 +1102,39 @@ private fun FeedPostSlide(
     )
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(post.id, photos.size, peeking) {
-                detectTapGestures(
-                    onTap = { offset ->
-                        if (photos.size >= 2) {
-                            val w = size.width.toFloat().coerceAtLeast(1f)
-                            val xFraction = offset.x / w
-                            when {
-                                xFraction < 0.25f && photoPagerState.currentPage > 0 -> {
-                                    scope.launch { photoPagerState.animateScrollToPage(photoPagerState.currentPage - 1) }
-                                }
-                                xFraction > 0.75f && photoPagerState.currentPage < photos.lastIndex -> {
-                                    scope.launch { photoPagerState.animateScrollToPage(photoPagerState.currentPage + 1) }
-                                }
-                                else -> onSetPeeking(!peeking)
-                            }
-                        } else {
-                            onSetPeeking(!peeking)
-                        }
-                    },
-                    onLongPress = { onSetPeeking(true) },
-                    onPress = {
-                        val wasPeeking = peeking
-                        tryAwaitRelease()
-                        if (!wasPeeking && peeking) onSetPeeking(false)
-                    },
-                )
-            },
+        modifier = Modifier.fillMaxSize(),
     ) {
         HorizontalPager(
             state = photoPagerState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(post.id, photos.size, peeking) {
+                    detectTapGestures(
+                        onTap = { offset ->
+                            if (photos.size >= 2) {
+                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                val xFraction = offset.x / w
+                                when {
+                                    xFraction < 0.25f && photoPagerState.currentPage > 0 -> {
+                                        scope.launch { photoPagerState.animateScrollToPage(photoPagerState.currentPage - 1) }
+                                    }
+                                    xFraction > 0.75f && photoPagerState.currentPage < photos.lastIndex -> {
+                                        scope.launch { photoPagerState.animateScrollToPage(photoPagerState.currentPage + 1) }
+                                    }
+                                    else -> onSetPeeking(!peeking)
+                                }
+                            } else {
+                                onSetPeeking(!peeking)
+                            }
+                        },
+                        onLongPress = { onSetPeeking(true) },
+                        onPress = {
+                            val wasPeeking = peeking
+                            tryAwaitRelease()
+                            if (!wasPeeking && peeking) onSetPeeking(false)
+                        },
+                    )
+                },
         ) { photoIdx ->
             val url = photos.getOrNull(photoIdx).orEmpty()
             AsyncImage(
@@ -1225,6 +1259,7 @@ private fun FeedPostSlide(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = 148.dp)
+                                .pointerInput(Unit) { detectTapGestures { } }
                                 .zIndex(1f),
                         ) {
                             Column(

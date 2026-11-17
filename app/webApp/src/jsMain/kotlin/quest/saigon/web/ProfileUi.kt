@@ -1,6 +1,8 @@
 package quest.saigon.web
 
 import quest.saigon.Limits
+import quest.saigon.shared.js.JsSharedHolder
+import quest.saigon.shared.js.launchAction
 import web.html.HTMLElement
 import web.window.window
 
@@ -168,7 +170,9 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
         button.setAttribute("type", "button")
         button.onClick {
             confirmDialog(shell, Town.t("signOutAsk"), Town.t("signOutHint"), Town.t("signOut")) {
-                http("POST", "/api/auth/logout") { _, _ ->
+                launchAction(JsSharedHolder.scope) {
+                    JsSharedHolder.client.session.logout()
+                    JsSharedHolder.client.onSignedOut()
                     Town.me = null
                     Town.applyLanguage()
                     NotifyInbox.disconnect()

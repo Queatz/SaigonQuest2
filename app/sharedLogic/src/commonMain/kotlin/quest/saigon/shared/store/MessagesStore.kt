@@ -16,6 +16,12 @@ import quest.saigon.shared.model.*
 import quest.saigon.shared.network.ApiResult
 import quest.saigon.shared.network.TownApiClient
 
+sealed interface DirectChatCheckResult {
+    data class Existing(val chat: ChatDto) : DirectChatCheckResult
+    data object NeedsFirstMessage : DirectChatCheckResult
+    data class Error(val message: String) : DirectChatCheckResult
+}
+
 data class MessagesUiState(
     val chats: List<ChatDto> = emptyList(),
     val nextChatsCursor: String? = null,
@@ -200,6 +206,42 @@ class MessagesStore(
                 is ApiResult.Failure -> {
                     _state.update { it.copy(isLoadingMessages = false, error = chatRes.message) }
                 }
+            }
+        }
+    }
+
+    suspend fun checkDirectChat(userId: String): DirectChatCheckResult {
+        return when (val existing = api.getDirectChat(userId)) {
+            is ApiResult.Success -> {
+                val chat = normalizeChat(existing.value)
+                upsertChat(chat)
+                openChat(chat.id)
+                DirectChatCheckResult.Existing(chat)
+            }
+            is ApiResult.Failure -> {
+                if (existing.status == 404) {
+                    DirectChatCheckResult.NeedsFirstMessage
+                } else {
+                    _state.update { it.copy(error = existing.message) }
+                    DirectChatCheckResult.Error(existing.message)
+                }
+            }
+        }
+    }
+
+    suspend fun startDirectChat(userId: String, initialText: String): ChatDto? {
+        val text = initialText.trim()
+        if (text.isEmpty()) return null
+        return when (val created = api.createDirectChat(userId, text)) {
+            is ApiResult.Success -> {
+                val chat = normalizeChat(created.value)
+                upsertChat(chat)
+                openChat(chat.id)
+                chat
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(error = created.message) }
+                null
             }
         }
     }

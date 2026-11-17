@@ -13,3 +13,5 @@ actual fun createHttpClientEngine(): HttpClientEngine = CIO.create()
 actual fun defaultServerOrigin(): String = ""
 
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
+actual val includeCookieHeaderOnRequests: Boolean = true

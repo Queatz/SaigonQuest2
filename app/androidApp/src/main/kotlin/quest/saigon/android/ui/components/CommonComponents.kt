@@ -26,7 +26,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -81,8 +84,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import quest.saigon.AppRoute
 import quest.saigon.Copy
 import quest.saigon.Language
+import quest.saigon.Limits
 import quest.saigon.NotificationCopy
 import quest.saigon.PostAge
 import quest.saigon.TextLinks
@@ -99,6 +104,7 @@ import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.model.UserPhotoDto
 import quest.saigon.shared.platform.currentTimeMillis
+import quest.saigon.shared.store.DirectChatCheckResult
 import quest.saigon.shared.store.NotificationStore
 
 object AndroidIntents {
@@ -265,11 +271,26 @@ fun SaigonPageShell(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .then(
+                        if (bottomBar == null) {
+                            Modifier.windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
+                        } else {
+                            Modifier
+                        },
+                    ),
                 content = content,
             )
             if (bottomBar != null) {
-                bottomBar()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(
+                            WindowInsets.navigationBars.union(WindowInsets.ime).only(WindowInsetsSides.Bottom),
+                        ),
+                ) {
+                    bottomBar()
+                }
             }
         }
         if (floatingActionButton != null) {
@@ -302,11 +323,11 @@ fun SaigonIconButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(size)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
             .background(bg)
             .border(2.dp, border, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.45f),
+            .clickable(enabled = enabled, onClick = onClick),
     ) {
         CompositionLocalProvider(LocalContentColor provides fg) {
             content()
@@ -332,6 +353,7 @@ fun SaigonPrimaryButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .defaultMinSize(minHeight = 48.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(shape)
             .background(bgBrush, shape)
             .border(
@@ -340,7 +362,6 @@ fun SaigonPrimaryButton(
                 shape = shape,
             )
             .clickable(enabled = enabled && !loading, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.45f)
             .padding(contentPadding),
     ) {
         if (loading) {
@@ -375,11 +396,11 @@ fun SaigonSecondaryButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .defaultMinSize(minHeight = 48.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(shape)
             .background(SaigonBrushes.secondaryGradient, shape)
             .border(2.dp, Color.White.copy(alpha = 0.55f), shape)
             .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.45f)
             .padding(contentPadding),
     ) {
         Text(
@@ -407,11 +428,11 @@ fun SaigonOutlinedPillButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(shape)
             .background(tokens.surface, shape)
             .border(2.dp, tokens.line, shape)
             .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.45f)
             .padding(contentPadding),
     ) {
         Text(
@@ -443,9 +464,9 @@ fun SaigonTextButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(RoundedCornerShape(999.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.45f)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Text(
@@ -473,11 +494,11 @@ fun SaigonPillChip(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.4f)
             .clip(shape)
             .background(bgBrush, shape)
             .border(2.dp, borderColor, shape)
             .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.4f)
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Text(
@@ -768,6 +789,7 @@ fun SaigonDialog(
                     indication = null,
                     onClick = onDismiss,
                 )
+                .imePadding()
                 .padding(20.dp),
         ) {
             Surface(
@@ -826,6 +848,20 @@ fun SaigonBottomSheet(
 ) {
     val tokens = LocalSaigonTokens.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    var dismissing by remember { mutableStateOf(false) }
+    val animatedDismiss: () -> Unit = {
+        if (!dismissing) {
+            dismissing = true
+            scope.launch {
+                try {
+                    sheetState.hide()
+                } finally {
+                    onDismiss()
+                }
+            }
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -845,7 +881,9 @@ fun SaigonBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding(),
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars.union(WindowInsets.ime).only(WindowInsetsSides.Bottom),
+                ),
         ) {
             Box(
                 modifier = Modifier
@@ -877,7 +915,7 @@ fun SaigonBottomSheet(
                         .clip(CircleShape)
                         .background(tokens.surface)
                         .border(2.dp, tokens.line, CircleShape)
-                        .clickable(onClick = onDismiss),
+                        .clickable(onClick = animatedDismiss),
                 ) {
                     Icon(
                         Icons.Default.Close,
@@ -1312,8 +1350,11 @@ fun ViewerButton(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onClick),
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick,
+                    ),
             ) {
                 UserAvatar(
                     photoUrl = me.photoUrl,
@@ -1773,6 +1814,12 @@ fun PhotoViewerDialog(
             }
 
             if (photos.size > 1 || onDeletePhoto != null) {
+                val thumbListState = rememberLazyListState(initialFirstVisibleItemIndex = startIndex)
+                LaunchedEffect(pagerState.currentPage, photos.size) {
+                    if (pagerState.currentPage in photos.indices) {
+                        thumbListState.animateScrollToItem(pagerState.currentPage)
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1781,32 +1828,38 @@ fun PhotoViewerDialog(
                         .navigationBarsPadding()
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
-                    Row(
+                    LazyRow(
+                        state = thumbListState,
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        photos.forEachIndexed { idx, photo ->
+                        itemsIndexed(photos, key = { idx, p -> "${p.id}_$idx" }) { idx, photo ->
                             val selected = idx == pagerState.currentPage
-                            AsyncImage(
-                                model = photo.url,
-                                contentDescription = Copy.text(language, "photo"),
-                                contentScale = ContentScale.Crop,
+                            Box(
                                 modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(Color(0xFF222222))
+                                    .size(58.dp)
+                                    .clip(RoundedCornerShape(10.dp))
                                     .border(
                                         width = 2.dp,
                                         color = if (selected) Color.White else Color.Transparent,
-                                        shape = RoundedCornerShape(9.dp),
+                                        shape = RoundedCornerShape(10.dp),
                                     )
-                                    .alpha(if (selected) 1f else 0.68f)
+                                    .padding(2.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF222222))
                                     .clickable {
                                         scope.launch { pagerState.animateScrollToPage(idx) }
                                     },
-                            )
+                            ) {
+                                AsyncImage(
+                                    model = photo.url,
+                                    contentDescription = Copy.text(language, "photo"),
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .alpha(if (selected) 1f else 0.68f),
+                                )
+                            }
                         }
                     }
                 }
@@ -1833,7 +1886,123 @@ fun PhotoViewerDialog(
                     }
                 }
             },
-            onDismiss = { pendingDelete = null },
+                onDismiss = { pendingDelete = null },
         )
+    }
+}
+
+data class DirectMessageTarget(
+    val userId: String,
+    val name: String,
+)
+
+@Composable
+fun rememberDirectMessageOpener(
+    shared: TownSharedClient,
+    onNavigate: (AppRoute) -> Unit,
+    onRequireAuth: () -> Unit,
+): (userId: String, name: String) -> Unit {
+    val sessionState by shared.session.state.collectAsState()
+    val lang = sessionState.language
+    val scope = rememberCoroutineScope()
+    var firstMessageTarget by remember { mutableStateOf<DirectMessageTarget?>(null) }
+
+    firstMessageTarget?.let { target ->
+        FirstDirectMessageDialog(
+            name = target.name,
+            language = lang,
+            onSend = { text ->
+                val chat = shared.messages.startDirectChat(target.userId, text)
+                if (chat != null) {
+                    firstMessageTarget = null
+                    onNavigate(AppRoute.Chat(chat.id))
+                }
+            },
+            onDismiss = { firstMessageTarget = null },
+        )
+    }
+
+    return remember(shared, onNavigate, onRequireAuth, sessionState.me?.id) {
+        { userId: String, name: String ->
+            val viewerId = shared.session.state.value.me?.id
+            when {
+                userId.isBlank() || userId == viewerId -> Unit
+                viewerId == null -> onRequireAuth()
+                else -> {
+                    scope.launch {
+                        when (val result = shared.messages.checkDirectChat(userId)) {
+                            is DirectChatCheckResult.Existing -> onNavigate(AppRoute.Chat(result.chat.id))
+                            is DirectChatCheckResult.NeedsFirstMessage -> {
+                                firstMessageTarget = DirectMessageTarget(userId, name)
+                            }
+                            is DirectChatCheckResult.Error -> Unit
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FirstDirectMessageDialog(
+    name: String,
+    language: Language,
+    onSend: suspend (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val scope = rememberCoroutineScope()
+    var text by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+
+    SaigonDialog(onDismiss = onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = Copy.text(language, "messageUser", mapOf("name" to name)),
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+            Text(
+                text = Copy.text(language, "firstDirectMessage", mapOf("name" to name)),
+                color = tokens.muted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            SaigonTextField(
+                value = text,
+                onValueChange = { if (it.length <= Limits.CHAT_MESSAGE_MAX) text = it },
+                singleLine = false,
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                SaigonTextButton(
+                    text = Copy.text(language, "cancel"),
+                    onClick = onDismiss,
+                    enabled = !sending,
+                    modifier = Modifier.weight(1f),
+                )
+                SaigonPrimaryButton(
+                    text = Copy.text(language, "send"),
+                    enabled = text.isNotBlank() && !sending,
+                    loading = sending,
+                    onClick = {
+                        val trimmed = text.trim()
+                        if (trimmed.isEmpty()) return@SaigonPrimaryButton
+                        scope.launch {
+                            sending = true
+                            onSend(trimmed)
+                            sending = false
+                        }
+                    },
+                    modifier = Modifier.weight(1.4f),
+                )
+            }
+        }
     }
 }

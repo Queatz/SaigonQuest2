@@ -2,6 +2,8 @@ package quest.saigon.shared.platform
 
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.js.Js
+import org.w3c.fetch.INCLUDE
+import org.w3c.fetch.RequestCredentials
 import web.window.window
 import kotlin.js.Date
 
@@ -38,7 +40,11 @@ actual fun systemLanguageTag(): String =
         "en"
     }
 
-actual fun createHttpClientEngine(): HttpClientEngine = Js.create()
+actual fun createHttpClientEngine(): HttpClientEngine = Js.create {
+    configureRequest {
+        credentials = RequestCredentials.INCLUDE
+    }
+}
 
 actual fun defaultServerOrigin(): String =
     try {
@@ -49,3 +55,5 @@ actual fun defaultServerOrigin(): String =
     }
 
 actual fun currentTimeMillis(): Long = Date.now().toLong()
+
+actual val includeCookieHeaderOnRequests: Boolean = false

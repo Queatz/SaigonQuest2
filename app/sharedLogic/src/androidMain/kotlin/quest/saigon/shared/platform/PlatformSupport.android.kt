@@ -150,3 +150,5 @@ actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
 actual fun defaultServerOrigin(): String = "https://saigon.town"
 
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
+actual val includeCookieHeaderOnRequests: Boolean = true

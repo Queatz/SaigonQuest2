@@ -32,8 +32,11 @@ object ImagePreparer {
     ): ByteArray? = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return@withContext null
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+        val openedBounds = resolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+            true
+        } ?: false
+        if (!openedBounds || bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
 
         val orientation = resolver.openInputStream(uri)?.use { stream ->
             try {

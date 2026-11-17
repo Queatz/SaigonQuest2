@@ -54,6 +54,7 @@ import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.SaigonBottomSheet
+import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonPageShell
@@ -290,6 +291,8 @@ fun ChatScreen(
     var showMembersSheet by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    var confirmDeleteGroup by remember { mutableStateOf(false) }
     var reactTargetMessage by remember { mutableStateOf<ChatMessageDto?>(null) }
     var zoomUrl by remember { mutableStateOf<String?>(null) }
 
@@ -331,39 +334,39 @@ fun ChatScreen(
                 ) {
                     Icon(Icons.Default.Group, contentDescription = Copy.text(lang, "chatMembers"), modifier = Modifier.size(20.dp))
                 }
-                Box {
-                    SaigonIconButton(onClick = { showMenu = true }, overlay = false) {
-                        Icon(Icons.Default.MoreVert, contentDescription = Copy.text(lang, "chatMenu"), modifier = Modifier.size(20.dp))
-                    }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        if (activeChat.owner) {
-                            DropdownMenuItem(
-                                text = { Text(Copy.text(lang, "renameGroup")) },
-                                onClick = {
-                                    showMenu = false
-                                    showRenameDialog = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(Copy.text(lang, "deleteGroup"), color = tokens.danger) },
-                                onClick = {
-                                    showMenu = false
-                                    scope.launch {
-                                        if (shared.messages.deleteChat(chatId)) onBack()
-                                    }
-                                },
-                            )
-                        }
+            }
+            Box {
+                SaigonIconButton(onClick = { showMenu = true }, overlay = false) {
+                    Icon(Icons.Default.MoreVert, contentDescription = Copy.text(lang, "chatMenu"), modifier = Modifier.size(20.dp))
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    containerColor = tokens.surface,
+                ) {
+                    if (isGroup && activeChat.owner) {
                         DropdownMenuItem(
-                            text = { Text(Copy.text(lang, "leaveChat")) },
+                            text = { Text(Copy.text(lang, "renameGroup"), color = tokens.text) },
                             onClick = {
                                 showMenu = false
-                                scope.launch {
-                                    if (shared.messages.leaveChat(chatId)) onBack()
-                                }
+                                showRenameDialog = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(Copy.text(lang, "deleteGroup"), color = tokens.danger) },
+                            onClick = {
+                                showMenu = false
+                                confirmDeleteGroup = true
                             },
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text(Copy.text(lang, "leaveChat"), color = tokens.text) },
+                        onClick = {
+                            showMenu = false
+                            confirmLeave = true
+                        },
+                    )
                 }
             }
         },
@@ -399,7 +402,6 @@ fun ChatScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     SaigonIconButton(
@@ -529,6 +531,42 @@ fun ChatScreen(
                 SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { showRenameDialog = false }, modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+
+    if (confirmLeave) {
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "confirmLeaveChat"),
+            hint = "",
+            confirmLabel = Copy.text(lang, "leaveChat"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            onConfirm = {
+                scope.launch {
+                    if (shared.messages.leaveChat(chatId)) {
+                        confirmLeave = false
+                        onBack()
+                    }
+                }
+            },
+            onDismiss = { confirmLeave = false },
+        )
+    }
+
+    if (confirmDeleteGroup) {
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "confirmDeleteGroup"),
+            hint = "",
+            confirmLabel = Copy.text(lang, "deleteGroup"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            onConfirm = {
+                scope.launch {
+                    if (shared.messages.deleteChat(chatId)) {
+                        confirmDeleteGroup = false
+                        onBack()
+                    }
+                }
+            },
+            onDismiss = { confirmDeleteGroup = false },
+        )
     }
 
     reactTargetMessage?.let { msg ->

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import quest.saigon.shared.platform.TokenStorage
+import quest.saigon.shared.platform.includeCookieHeaderOnRequests
 
 data class SseEvent(
     val event: String? = null,
@@ -79,7 +80,9 @@ class SseClient(
                     header(HttpHeaders.CacheControl, "no-cache")
                     if (!token.isNullOrBlank()) {
                         header(HttpHeaders.Authorization, "Bearer $token")
-                        header(HttpHeaders.Cookie, "sq_session=$token")
+                        if (includeCookieHeaderOnRequests) {
+                            header(HttpHeaders.Cookie, "sq_session=$token")
+                        }
                     }
                 }.execute { response ->
                     if (response.status == HttpStatusCode.Unauthorized) {
