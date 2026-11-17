@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,8 +51,11 @@ import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.ActivityCard
 import quest.saigon.android.ui.components.ActivityEditorDialog
 import quest.saigon.android.ui.components.AndroidIntents
+import quest.saigon.android.ui.components.CheckInBubbleItem
+import quest.saigon.android.ui.components.CheckInDetailDialog
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
+import quest.saigon.android.ui.components.PostGridRow
 import quest.saigon.android.ui.components.PostGridRows
 import quest.saigon.android.ui.components.SaigonBottomSheet
 import quest.saigon.android.ui.components.SaigonCard
@@ -76,6 +80,7 @@ import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.encodeLocationToken
 import quest.saigon.shared.TownSharedClient
+import quest.saigon.shared.model.CheckInDto
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.model.UserPhotoDto
@@ -109,7 +114,12 @@ fun DiscoverScreen(
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
 
-    var selectedTab by remember { mutableStateOf(DiscoverTab.EVENTS) }
+    var selectedTabName by rememberSaveable { mutableStateOf(DiscoverTab.EVENTS.name) }
+    val selectedTab = DiscoverTab.entries.firstOrNull { it.name == selectedTabName } ?: DiscoverTab.EVENTS
+    var autoSwitchedEmptyEvents by rememberSaveable { mutableStateOf(false) }
+    var startedInitialLoad by remember { mutableStateOf(false) }
+    var mapTouched by remember { mutableStateOf(false) }
+    var activeCheckIn by remember { mutableStateOf<CheckInDto?>(null) }
     var communityQuery by remember { mutableStateOf("") }
     var showCreateCommunity by remember { mutableStateOf(false) }
     var showPlaceSearch by remember { mutableStateOf(false) }
@@ -122,6 +132,21 @@ fun DiscoverScreen(
     LaunchedEffect(sessionState.me?.id) {
         shared.discover.loadAll()
         shared.activity.loadActivities()
+    }
+
+    LaunchedEffect(discoverState.isLoading, discoverState.events.size, discoverState.error) {
+        if (discoverState.isLoading) {
+            startedInitialLoad = true
+        } else {
+            if (discoverState.events.isNotEmpty()) {
+                autoSwitchedEmptyEvents = true
+            } else if (startedInitialLoad && !autoSwitchedEmptyEvents && discoverState.error == null) {
+                autoSwitchedEmptyEvents = true
+                if (selectedTab == DiscoverTab.EVENTS) {
+                    selectedTabName = DiscoverTab.ACTIVITIES.name
+                }
+            }
+        }
     }
 
     val eventPins = remember(discoverState.events) {
@@ -202,6 +227,7 @@ fun DiscoverScreen(
         },
     ) {
         LazyColumn(
+            userScrollEnabled = !mapTouched,
             contentPadding = PaddingValues(top = 6.dp, bottom = 28.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
@@ -216,38 +242,11 @@ fun DiscoverScreen(
                             .padding(horizontal = 14.dp, vertical = 2.dp),
                     ) {
                         discoverState.checkIns.forEach { checkIn ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(tokens.surface)
-                                    .border(1.dp, tokens.line, RoundedCornerShape(18.dp))
-                                    .clickable { onNavigate(AppRoute.Post(checkIn.postId)) }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) {
-                                UserAvatar(
-                                    photoUrl = checkIn.authorPhotoUrl,
-                                    name = checkIn.authorName,
-                                    size = 34.dp,
-                                    borderWidth = 0.dp,
-                                )
-                                Column {
-                                    Text(
-                                        checkIn.authorName,
-                                        color = tokens.text,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 13.sp,
-                                    )
-                                    Text(
-                                        checkIn.location,
-                                        color = tokens.muted,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
+                            CheckInBubbleItem(
+                                checkIn = checkIn,
+                                language = lang,
+                                onClick = { activeCheckIn = checkIn },
+                            )
                         }
                     }
                 }
@@ -268,6 +267,9 @@ fun DiscoverScreen(
                         events = eventPins,
                         places = placePins,
                         mapsApiKey = sessionState.mapsKey,
+                        restoredCenterLat = discoverState.mapCameraLat,
+                        restoredCenterLng = discoverState.mapCameraLng,
+                        restoredZoom = discoverState.mapCameraZoom,
                         language = lang,
                         onEventClick = { postId -> onNavigate(AppRoute.Post(postId)) },
                         onPlaceClick = { key ->
@@ -289,6 +291,10 @@ fun DiscoverScreen(
                             newPlaceLat = lat
                             newPlaceLng = lng
                         },
+                        onCameraChanged = { lat, lng, zoom ->
+                            shared.discover.updateMapCamera(lat, lng, zoom)
+                        },
+                        onMapTouchChange = { mapTouched = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                     // .events-map-search-toggle
@@ -335,7 +341,7 @@ fun DiscoverScreen(
                     tabs.forEach { (tab, label) ->
                         SaigonPillChip(
                             selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            onClick = { selectedTabName = tab.name },
                             label = label,
                         )
                     }
@@ -786,6 +792,18 @@ fun DiscoverScreen(
     }
 
     zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
+
+    activeCheckIn?.let { checkIn ->
+        CheckInDetailDialog(
+            checkIn = checkIn,
+            shared = shared,
+            language = lang,
+            onNavigate = onNavigate,
+            onRequireAuth = onRequireAuth,
+            onChanged = { shared.discover.refreshCheckIns() },
+            onDismiss = { activeCheckIn = null },
+        )
+    }
 }
 
 @Composable
@@ -921,57 +939,53 @@ private fun PostSearchSheet(
                     Text(Copy.text(language, "noSearchResults"), color = tokens.muted, fontSize = 13.sp)
                 }
                 else -> {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.heightIn(max = 420.dp),
-                    ) {
-                        items(results, key = { it.id }) { post ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(tokens.bg)
-                                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
-                                    .clickable { onOpenPost(post.id) }
-                                    .padding(8.dp),
-                            ) {
-                                AsyncImage(
-                                    model = post.photoUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(post.authorName, color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                                    Text(post.message, color = tokens.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val rows = remember(results) { results.chunked(3) }
+                    fun triggerLoadMore() {
+                        val c = nextCursor ?: return
+                        if (loadingMore) return
+                        val activeQuery = query.trim()
+                        scope.launch {
+                            loadingMore = true
+                            when (val res = shared.api.searchPosts(activeQuery, cursor = c, limit = 24)) {
+                                is ApiResult.Success -> {
+                                    val seen = results.mapTo(HashSet()) { it.id }
+                                    results = results + res.value.posts.filter { seen.add(it.id) }
+                                    nextCursor = res.value.nextCursor
                                 }
+                                is ApiResult.Failure -> Unit
                             }
+                            loadingMore = false
+                        }
+                    }
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp),
+                    ) {
+                        items(rows) { rowPosts ->
+                            PostGridRow(
+                                rowPosts = rowPosts,
+                                showAuthor = true,
+                                onPostClick = { onOpenPost(it.id) },
+                            )
                         }
                         if (nextCursor != null) {
                             item {
-                                SaigonTextButton(
-                                    text = Copy.text(language, "loadMore"),
-                                    enabled = !loadingMore,
-                                    onClick = {
-                                        val c = nextCursor ?: return@SaigonTextButton
-                                        val activeQuery = query.trim()
-                                        scope.launch {
-                                            loadingMore = true
-                                            when (val res = shared.api.searchPosts(activeQuery, cursor = c, limit = 24)) {
-                                                is ApiResult.Success -> {
-                                                    val seen = results.mapTo(HashSet()) { it.id }
-                                                    results = results + res.value.posts.filter { seen.add(it.id) }
-                                                    nextCursor = res.value.nextCursor
-                                                }
-                                                is ApiResult.Failure -> Unit
-                                            }
-                                            loadingMore = false
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                                LaunchedEffect(nextCursor, results.size) {
+                                    triggerLoadMore()
+                                }
+                                if (loadingMore) {
+                                    Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                                        SaigonSpinner(size = 20.dp)
+                                    }
+                                } else {
+                                    SaigonTextButton(
+                                        text = Copy.text(language, "loadMore"),
+                                        onClick = { triggerLoadMore() },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                         }
                     }
@@ -1042,6 +1056,7 @@ fun LocationDetailScreen(
     var viewerInitialIndex by remember { mutableStateOf<Int?>(null) }
     var pendingDeletePhoto by remember { mutableStateOf<UserPhotoDto?>(null) }
     var deletingPhoto by remember { mutableStateOf(false) }
+    var mapTouched by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
@@ -1079,6 +1094,7 @@ fun LocationDetailScreen(
                 ?: encodeLocationToken(detail.name)
 
             LazyColumn(
+                userScrollEnabled = !mapTouched,
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 28.dp + bottomInset),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -1114,6 +1130,7 @@ fun LocationDetailScreen(
                                 initialZoom = 15.5f,
                                 alwaysShowBubbles = true,
                                 language = lang,
+                                onMapTouchChange = { mapTouched = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

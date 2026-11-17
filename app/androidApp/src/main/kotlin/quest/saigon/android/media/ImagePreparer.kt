@@ -3,8 +3,10 @@ package quest.saigon.android.media
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,6 +20,9 @@ object ImagePreparer {
     suspend fun preparePostPhoto(context: Context, uri: Uri): ByteArray? =
         prepareBitmap(context, uri, maxEdge = Limits.PHOTO_MAX_EDGE, targetAspect = 9f / 16f)
 
+    suspend fun prepareSquarePhoto(context: Context, uri: Uri): ByteArray? =
+        prepareBitmap(context, uri, maxEdge = Limits.PHOTO_MAX_EDGE, targetAspect = 1f)
+
     suspend fun prepareAvatarPhoto(context: Context, uri: Uri): ByteArray? =
         prepareBitmap(context, uri, maxEdge = Limits.AVATAR_MAX_EDGE, targetAspect = 1f)
 
@@ -30,41 +35,62 @@ object ImagePreparer {
         maxEdge: Int,
         targetAspect: Float?,
     ): ByteArray? = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val openedBounds = resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-            true
-        } ?: false
-        if (!openedBounds || bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+        runCatching {
+            val resolver = context.contentResolver
+            val decoded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val source = ImageDecoder.createSource(resolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val w = info.size.width
+                    val h = info.size.height
+                    val longest = max(w, h)
+                    val targetMax = maxEdge * 2
+                    if (longest > targetMax && w > 0 && h > 0) {
+                        val scale = targetMax.toFloat() / longest.toFloat()
+                        decoder.setTargetSize(
+                            (w * scale).roundToInt().coerceAtLeast(1),
+                            (h * scale).roundToInt().coerceAtLeast(1),
+                        )
+                    }
+                }
+            } else {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                val openedBounds = resolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, bounds)
+                    true
+                } ?: false
+                if (!openedBounds || bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
 
-        val orientation = resolver.openInputStream(uri)?.use { stream ->
-            try {
-                ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            } catch (_: Throwable) {
-                ExifInterface.ORIENTATION_NORMAL
+                val orientation = resolver.openInputStream(uri)?.use { stream ->
+                    try {
+                        ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                    } catch (_: Throwable) {
+                        ExifInterface.ORIENTATION_NORMAL
+                    }
+                } ?: ExifInterface.ORIENTATION_NORMAL
+
+                val sampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight, maxEdge * 2)
+                val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                val raw = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOpts) }
+                    ?: return@runCatching null
+
+                val oriented = applyExifOrientation(raw, orientation)
+                if (oriented !== raw) raw.recycle()
+                oriented
             }
-        } ?: ExifInterface.ORIENTATION_NORMAL
 
-        val sampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight, maxEdge * 2)
-        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val raw = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOpts) }
-            ?: return@withContext null
+            val cropped = if (targetAspect != null) centerCropAspect(decoded, targetAspect) else decoded
+            if (cropped !== decoded) decoded.recycle()
 
-        val oriented = applyExifOrientation(raw, orientation)
-        if (oriented !== raw) raw.recycle()
+            val scaled = scaleDownToMaxEdge(cropped, maxEdge)
+            if (scaled !== cropped) cropped.recycle()
 
-        val cropped = if (targetAspect != null) centerCropAspect(oriented, targetAspect) else oriented
-        if (cropped !== oriented) oriented.recycle()
-
-        val scaled = scaleDownToMaxEdge(cropped, maxEdge)
-        if (scaled !== cropped) cropped.recycle()
-
-        val quality = (Limits.JPEG_QUALITY * 100.0).roundToInt().coerceIn(50, 95)
-        val out = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
-        scaled.recycle()
-        out.toByteArray()
+            val quality = (Limits.JPEG_QUALITY * 100.0).roundToInt().coerceIn(50, 95)
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            scaled.recycle()
+            out.toByteArray()
+        }.getOrNull()
     }
 
     private fun computeInSampleSize(width: Int, height: Int, reqMaxEdge: Int): Int {

@@ -427,4 +427,26 @@ class CoreStoresTest {
         assertEquals("c_dm", messages.state.value.activeChat?.id)
         assertTrue(createdText != null)
     }
+
+    @Test
+    fun discoverStorePreservesMapCameraAcrossUpdates() = runTest {
+        val storage = InMemoryTokenStorage()
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { respond("""{"ok":true}""", HttpStatusCode.OK, jsonHeaders) }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = storage, serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val discover = quest.saigon.shared.store.DiscoverStore(api, storeScope)
+
+        discover.updateMapCamera(10.7812, 106.7019, 16.5f)
+        assertEquals(10.7812, discover.state.value.mapCameraLat)
+        assertEquals(106.7019, discover.state.value.mapCameraLng)
+        assertEquals(16.5f, discover.state.value.mapCameraZoom)
+
+        // Non-finite camera coordinates should be ignored
+        discover.updateMapCamera(Double.NaN, 106.7, 15f)
+        assertEquals(10.7812, discover.state.value.mapCameraLat)
+        assertEquals(16.5f, discover.state.value.mapCameraZoom)
+    }
 }

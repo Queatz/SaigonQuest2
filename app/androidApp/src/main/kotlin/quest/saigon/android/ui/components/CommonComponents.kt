@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -13,6 +14,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +22,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -57,15 +61,18 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -82,9 +89,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import quest.saigon.AppRoute
+import quest.saigon.CheckIns
 import quest.saigon.Copy
 import quest.saigon.Language
 import quest.saigon.Limits
@@ -98,6 +108,7 @@ import quest.saigon.android.theme.SaigonBrushes
 import quest.saigon.android.theme.SaigonColors
 import quest.saigon.encodeLocationToken
 import quest.saigon.shared.TownSharedClient
+import quest.saigon.shared.model.CheckInDto
 import quest.saigon.shared.model.MeDto
 import quest.saigon.shared.model.NotificationDto
 import quest.saigon.shared.model.PlaceSuggestionDto
@@ -106,6 +117,8 @@ import quest.saigon.shared.model.UserPhotoDto
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.DirectChatCheckResult
 import quest.saigon.shared.store.NotificationStore
+import java.util.Calendar
+import java.util.TimeZone
 
 object AndroidIntents {
     fun openExternalUrl(context: Context, url: String) {
@@ -343,19 +356,32 @@ fun SaigonPrimaryButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     danger: Boolean = false,
+    dimWhenDisabled: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
 ) {
     val tokens = LocalSaigonTokens.current
     val shape = RoundedCornerShape(999.dp)
-    val bgBrush = if (danger) SolidColor(tokens.danger) else SaigonBrushes.primaryGradient
     val textColor = if (danger && tokens.isDark) tokens.bg else Color.White
+    val visualAlpha = if (enabled || !dimWhenDisabled) 1f else 0.45f
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .defaultMinSize(minHeight = 48.dp)
-            .alpha(if (enabled) 1f else 0.45f)
+            .graphicsLayer { alpha = visualAlpha }
             .clip(shape)
-            .background(bgBrush, shape)
+            .drawBehind {
+                if (danger) {
+                    drawRect(color = tokens.danger)
+                } else {
+                    drawRect(
+                        brush = Brush.linearGradient(
+                            colors = listOf(SaigonColors.AccentSoft, SaigonColors.Tertiary),
+                            start = Offset.Zero,
+                            end = Offset(size.width, size.height),
+                        ),
+                    )
+                }
+            }
             .border(
                 width = 2.dp,
                 color = if (danger) Color.Transparent else Color.White.copy(alpha = 0.42f),
@@ -389,16 +415,26 @@ fun SaigonSecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    dimWhenDisabled: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
 ) {
     val shape = RoundedCornerShape(999.dp)
+    val visualAlpha = if (enabled || !dimWhenDisabled) 1f else 0.45f
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .defaultMinSize(minHeight = 48.dp)
-            .alpha(if (enabled) 1f else 0.45f)
+            .graphicsLayer { alpha = visualAlpha }
             .clip(shape)
-            .background(SaigonBrushes.secondaryGradient, shape)
+            .drawBehind {
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(SaigonColors.SecondaryStart, SaigonColors.SecondaryEnd),
+                        start = Offset.Zero,
+                        end = Offset(size.width, size.height),
+                    ),
+                )
+            }
             .border(2.dp, Color.White.copy(alpha = 0.55f), shape)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(contentPadding),
@@ -489,14 +525,25 @@ fun SaigonPillChip(
     val tokens = LocalSaigonTokens.current
     val shape = RoundedCornerShape(999.dp)
     val borderColor = if (selected) tokens.text else tokens.line
-    val bgBrush: Brush = if (selected) SaigonBrushes.primaryGradient else SolidColor(tokens.surface)
     val textColor = if (selected) Color.White else tokens.text
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .alpha(if (enabled) 1f else 0.4f)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
             .clip(shape)
-            .background(bgBrush, shape)
+            .drawBehind {
+                if (selected) {
+                    drawRect(
+                        brush = Brush.linearGradient(
+                            colors = listOf(SaigonColors.AccentSoft, SaigonColors.Tertiary),
+                            start = Offset.Zero,
+                            end = Offset(size.width, size.height),
+                        ),
+                    )
+                } else {
+                    drawRect(color = tokens.surface)
+                }
+            }
             .border(2.dp, borderColor, shape)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1413,93 +1460,368 @@ fun PostGridRows(
     onPostClick: (PostCardDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = LocalSaigonTokens.current
     val rows = posts.chunked(3)
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         rows.forEach { rowPosts ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth(),
+            PostGridRow(
+                rowPosts = rowPosts,
+                showAuthor = showAuthor,
+                onPostClick = onPostClick,
+            )
+        }
+    }
+}
+
+@Composable
+fun PostGridRow(
+    rowPosts: List<PostCardDto>,
+    showAuthor: Boolean,
+    onPostClick: (PostCardDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        rowPosts.forEach { post ->
+            val thumb = post.allPhotoUrls().firstOrNull()
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .aspectRatio(9f / 16f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(tokens.line)
+                    .clickable { onPostClick(post) },
             ) {
-                rowPosts.forEach { post ->
-                    val thumb = post.allPhotoUrls().firstOrNull()
+                if (!thumb.isNullOrBlank()) {
+                    AsyncImage(
+                        model = thumb,
+                        contentDescription = post.message,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.48f)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color(0xB814100C)),
+                            ),
+                        ),
+                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                ) {
+                    if (post.message.isNotBlank()) {
+                        Text(
+                            text = post.message,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 14.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (showAuthor && post.authorName.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            UserAvatar(
+                                photoUrl = post.authorPhotoUrl,
+                                name = post.authorName,
+                                size = 20.dp,
+                                borderColor = Color.White.copy(alpha = 0.85f),
+                                borderWidth = 1.dp,
+                            )
+                            Text(
+                                text = post.authorName,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        repeat((3 - rowPosts.size).coerceAtLeast(0)) {
+            Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+data class PickedPhotoItem(
+    val existingPath: String? = null,
+    val existingUrl: String? = null,
+    val bytes: ByteArray? = null,
+)
+
+@Composable
+fun SaigonPhotoPicker(
+    photos: List<PickedPhotoItem>,
+    activeIndex: Int,
+    onActiveIndexChange: (Int) -> Unit,
+    onPhotosChange: (List<PickedPhotoItem>) -> Unit,
+    onAddPhotosClick: () -> Unit,
+    language: Language,
+    square: Boolean = false,
+    rotatePrompts: Boolean = !square,
+    emptyPrompt: String = Copy.text(language, if (square) "addPhoto" else "uploadPrompt1"),
+    isBusy: Boolean = false,
+    maxPhotos: Int = Limits.PHOTOS_MAX,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    val safeIdx = activeIndex.coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+    val activeItem = photos.getOrNull(safeIdx)
+    val uploadPrompts = remember(language) { Copy.uploadPrompts(language) }
+    var uploadPromptIdx by remember(language) { mutableIntStateOf(0) }
+    LaunchedEffect(photos.isEmpty(), rotatePrompts, uploadPrompts) {
+        if (!rotatePrompts || photos.isNotEmpty() || uploadPrompts.isEmpty()) return@LaunchedEffect
+        while (true) {
+            delay(2600)
+            uploadPromptIdx = (uploadPromptIdx + 1) % uploadPrompts.size
+        }
+    }
+
+    val stageAspect = if (square) 1f else 9f / 16f
+    val thumbWidthDp = 40.dp
+    val thumbHeightDp = if (square) 40.dp else 71.dp
+    val thumbGapDp = 8.dp
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .width(220.dp)
+                .aspectRatio(stageAspect)
+                .clip(RoundedCornerShape(18.dp))
+                .background(tokens.surface)
+                .then(
+                    if (activeItem == null) {
+                        Modifier
+                            .dashedBorder(tokens.line, strokeWidth = 2.dp, cornerRadius = 18.dp)
+                            .clickable(enabled = !isBusy) { onAddPhotosClick() }
+                    } else {
+                        Modifier.border(2.dp, tokens.line, RoundedCornerShape(18.dp))
+                    },
+                ),
+        ) {
+            if (activeItem != null) {
+                val activeBytes = activeItem.bytes
+                if (activeBytes != null) {
+                    val bitmap = remember(activeBytes) {
+                        BitmapFactory.decodeByteArray(activeBytes, 0, activeBytes.size)
+                    }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                } else if (!activeItem.existingUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = activeItem.existingUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(36.dp)
+                        .shadow(4.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .clickable {
+                            onPhotosChange(photos.filterIndexed { i, _ -> i != safeIdx })
+                            onActiveIndexChange((safeIdx - 1).coerceAtLeast(0))
+                        },
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = Copy.text(language, "removePhoto"),
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    Icon(
+                        Icons.Default.AddPhotoAlternate,
+                        contentDescription = null,
+                        tint = tokens.muted,
+                        modifier = Modifier.size(34.dp),
+                    )
+                    Text(
+                        text = if (rotatePrompts && uploadPrompts.isNotEmpty()) {
+                            uploadPrompts[uploadPromptIdx % uploadPrompts.size]
+                        } else {
+                            emptyPrompt
+                        },
+                        color = tokens.muted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+
+        if (photos.isNotEmpty()) {
+            val density = LocalDensity.current
+            val stridePx = with(density) { (thumbWidthDp + thumbGapDp).toPx() }
+            var draggingOrigin by remember { mutableStateOf<Int?>(null) }
+            var dragOffsetX by remember { mutableFloatStateOf(0f) }
+            var dragOffsetY by remember { mutableFloatStateOf(0f) }
+            val dragTarget = draggingOrigin?.let { origin ->
+                val shift = kotlin.math.round(dragOffsetX / stridePx).toInt()
+                (origin + shift).coerceIn(0, photos.lastIndex)
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(thumbGapDp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .width(220.dp)
+                    .horizontalScroll(rememberScrollState(), enabled = draggingOrigin == null)
+                    .padding(bottom = 4.dp),
+            ) {
+                photos.forEachIndexed { idx, item ->
+                    val selected = idx == safeIdx
+                    val isDraggingThis = draggingOrigin == idx
+                    val siblingShiftPx = when {
+                        draggingOrigin == null || dragTarget == null -> 0f
+                        idx == draggingOrigin -> dragOffsetX
+                        draggingOrigin!! < dragTarget && idx in (draggingOrigin!! + 1)..dragTarget -> -stridePx
+                        dragTarget < draggingOrigin!! && idx in dragTarget until draggingOrigin!! -> stridePx
+                        else -> 0f
+                    }
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(9f / 16f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(tokens.line)
-                            .clickable { onPostClick(post) },
+                            .zIndex(if (isDraggingThis) 40f else 0f)
+                            .graphicsLayer {
+                                translationX = siblingShiftPx
+                                translationY = if (isDraggingThis) dragOffsetY else 0f
+                                scaleX = if (isDraggingThis) 1.08f else 1f
+                                scaleY = if (isDraggingThis) 1.08f else 1f
+                            }
+                            .size(width = thumbWidthDp, height = thumbHeightDp)
+                            .then(if (isDraggingThis) Modifier.shadow(10.dp, RoundedCornerShape(8.dp)) else Modifier)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(tokens.surface)
+                            .border(2.dp, if (selected) tokens.accent else Color.Transparent, RoundedCornerShape(8.dp))
+                            .clickable(enabled = draggingOrigin == null) { onActiveIndexChange(idx) }
+                            .pointerInput(photos.size, idx) {
+                                if (photos.size <= 1) return@pointerInput
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        draggingOrigin = idx
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragOffsetX += dragAmount.x
+                                        dragOffsetY += dragAmount.y
+                                    },
+                                    onDragEnd = {
+                                        val origin = draggingOrigin
+                                        val target = origin?.let {
+                                            (it + kotlin.math.round(dragOffsetX / stridePx).toInt())
+                                                .coerceIn(0, photos.lastIndex)
+                                        }
+                                        if (origin != null && target != null && origin != target) {
+                                            val nextList = photos.toMutableList()
+                                            val moved = nextList.removeAt(origin)
+                                            nextList.add(target, moved)
+                                            onPhotosChange(nextList)
+                                            onActiveIndexChange(target)
+                                        }
+                                        draggingOrigin = null
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    },
+                                    onDragCancel = {
+                                        draggingOrigin = null
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    },
+                                )
+                            },
                     ) {
-                        if (!thumb.isNullOrBlank()) {
+                        val itemBytes = item.bytes
+                        if (itemBytes != null) {
+                            val bitmap = remember(itemBytes) {
+                                BitmapFactory.decodeByteArray(itemBytes, 0, itemBytes.size)
+                            }
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        } else if (!item.existingUrl.isNullOrBlank()) {
                             AsyncImage(
-                                model = thumb,
-                                contentDescription = post.message,
+                                model = item.existingUrl,
+                                contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .fillMaxHeight(0.48f)
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(Color.Transparent, Color(0xB814100C)),
-                                    ),
-                                ),
-                        )
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                        ) {
-                            if (post.message.isNotBlank()) {
-                                Text(
-                                    text = post.message,
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    lineHeight = 14.sp,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            if (showAuthor && post.authorName.isNotBlank()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                ) {
-                                    UserAvatar(
-                                        photoUrl = post.authorPhotoUrl,
-                                        name = post.authorName,
-                                        size = 20.dp,
-                                        borderColor = Color.White.copy(alpha = 0.85f),
-                                        borderWidth = 1.dp,
-                                    )
-                                    Text(
-                                        text = post.authorName,
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
-                repeat(3 - rowPosts.size) {
-                    Spacer(Modifier.weight(1f))
+                if (photos.size < maxPhotos) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(width = thumbWidthDp, height = thumbHeightDp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .dashedBorder(tokens.line, strokeWidth = 2.dp, cornerRadius = 8.dp)
+                            .clickable(enabled = !isBusy) { onAddPhotosClick() },
+                    ) {
+                        Text("+", color = tokens.muted, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                    }
                 }
             }
+        }
+
+        if (isBusy) {
+            LinearProgressIndicator(
+                color = tokens.accent,
+                trackColor = tokens.line,
+                modifier = Modifier.width(220.dp).clip(RoundedCornerShape(999.dp)),
+            )
         }
     }
 }
@@ -2001,6 +2323,379 @@ fun FirstDirectMessageDialog(
                         }
                     },
                     modifier = Modifier.weight(1.4f),
+                )
+            }
+        }
+    }
+}
+
+fun checkInDurationLabel(minutes: Int, language: Language): String = when (minutes) {
+    30 -> Copy.text(language, "checkIn30Minutes")
+    60 -> Copy.text(language, "checkIn1Hour")
+    90 -> Copy.text(language, "checkIn1AndHalfHours")
+    120 -> Copy.text(language, "checkIn2Hours")
+    180 -> Copy.text(language, "checkIn3Hours")
+    240 -> Copy.text(language, "checkIn4Hours")
+    300 -> Copy.text(language, "checkIn5Hours")
+    360 -> Copy.text(language, "checkIn6Hours")
+    else -> if (minutes < 60) "${minutes}m" else "${minutes / 60}h"
+}
+
+fun formatCheckInTime(epochMillis: Long, language: Language): String {
+    val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh")).apply {
+        timeInMillis = epochMillis
+    }
+    val hour = cal.get(Calendar.HOUR_OF_DAY)
+    val minute = cal.get(Calendar.MINUTE)
+    val minutes = minute.toString().padStart(2, '0')
+    if (language == Language.VI) {
+        return "${hour.toString().padStart(2, '0')}:$minutes"
+    }
+    val hour12 = (hour % 12).takeIf { it != 0 } ?: 12
+    return "$hour12:$minutes ${if (hour < 12) "AM" else "PM"}"
+}
+
+fun formatCheckInBubbleSummary(checkIn: CheckInDto, language: Language): String =
+    Copy.text(
+        language,
+        "checkInBubble",
+        mapOf(
+            "name" to checkIn.authorName,
+            "location" to checkIn.location,
+            "time" to formatCheckInTime(checkIn.untilAt, language),
+        ),
+    )
+
+@Composable
+fun CheckInBubbleItem(
+    checkIn: CheckInDto,
+    language: Language,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val summary = formatCheckInBubbleSummary(checkIn, language)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        modifier = modifier
+            .clip(RoundedCornerShape(28.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        UserAvatar(
+            photoUrl = checkIn.authorPhotoUrl,
+            name = checkIn.authorName,
+            size = 58.dp,
+            borderColor = Color.White,
+            borderWidth = 3.dp,
+            modifier = Modifier.shadow(6.dp, CircleShape),
+        )
+        Surface(
+            color = Color.White.copy(alpha = 0.96f),
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 6.dp,
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 268.dp)
+                    .padding(horizontal = 15.dp, vertical = 11.dp),
+            ) {
+                Text(
+                    text = summary,
+                    color = Color(0xFF28231F),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 18.sp,
+                )
+                if (checkIn.message.isNotBlank()) {
+                    Text(
+                        text = checkIn.message,
+                        color = Color(0xFF28231F),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun CheckInDetailDialog(
+    checkIn: CheckInDto,
+    shared: TownSharedClient,
+    language: Language,
+    onNavigate: (AppRoute) -> Unit,
+    onRequireAuth: () -> Unit,
+    onChanged: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sessionState by shared.session.state.collectAsState()
+    val tokens = LocalSaigonTokens.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var currentCheckIn by remember(checkIn.postId, checkIn.untilAt) { mutableStateOf(checkIn) }
+    var selectedMinutes by remember(checkIn.postId) { mutableStateOf<Int?>(null) }
+    var messageDraft by remember(checkIn.postId) { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    val isSelf = sessionState.me?.id == currentCheckIn.authorId
+    val summary = formatCheckInBubbleSummary(currentCheckIn, language)
+
+    SaigonDialog(onDismiss = onDismiss) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = Copy.text(language, "checkInDialogTitle"),
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(end = 36.dp),
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                UserAvatar(
+                    photoUrl = currentCheckIn.authorPhotoUrl,
+                    name = currentCheckIn.authorName,
+                    size = 64.dp,
+                    borderColor = Color.White,
+                    borderWidth = 3.dp,
+                    modifier = Modifier
+                        .shadow(5.dp, CircleShape)
+                        .clickable {
+                            onDismiss()
+                            onNavigate(AppRoute.User(currentCheckIn.authorId))
+                        },
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(tokens.bg)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = summary,
+                        color = tokens.text,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp,
+                    )
+                }
+            }
+
+            if (currentCheckIn.message.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(tokens.surface)
+                        .border(1.dp, tokens.line, RoundedCornerShape(14.dp))
+                        .clickable {
+                            onDismiss()
+                            onNavigate(AppRoute.Post(currentCheckIn.postId))
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = currentCheckIn.message,
+                        color = tokens.text,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                    )
+                }
+            }
+
+            val checkInLat = currentCheckIn.lat
+            val checkInLng = currentCheckIn.lng
+            val locationToken = openLocationDestination(
+                shared = shared,
+                name = currentCheckIn.location,
+                placeId = currentCheckIn.placeId,
+                locationId = currentCheckIn.locationId,
+                lat = checkInLat,
+                lng = checkInLng,
+            )
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (checkInLat != null && checkInLng != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(136.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(tokens.surface)
+                            .border(1.dp, tokens.line, RoundedCornerShape(14.dp)),
+                    ) {
+                        SaigonMapView(
+                            places = listOf(
+                                SaigonMapPlacePin(
+                                    key = locationToken,
+                                    name = currentCheckIn.location,
+                                    lat = checkInLat,
+                                    lng = checkInLng,
+                                ),
+                            ),
+                            mapsApiKey = sessionState.mapsKey,
+                            centerLat = checkInLat,
+                            centerLng = checkInLng,
+                            initialZoom = 15.5f,
+                            alwaysShowBubbles = true,
+                            language = language,
+                            onPlaceClick = {
+                                onDismiss()
+                                onNavigate(AppRoute.Location(locationToken))
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        text = currentCheckIn.location,
+                        color = tokens.text,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                onDismiss()
+                                onNavigate(AppRoute.Location(locationToken))
+                            }
+                            .padding(vertical = 2.dp),
+                    )
+                    SaigonPrimaryButton(
+                        text = Copy.text(language, "directions"),
+                        onClick = {
+                            AndroidIntents.openDirections(
+                                context = context,
+                                name = currentCheckIn.location,
+                                lat = checkInLat,
+                                lng = checkInLng,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
+
+            if (!errorText.isNullOrBlank()) {
+                Text(
+                    text = errorText.orEmpty(),
+                    color = tokens.danger,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            if (isSelf) {
+                Text(
+                    text = Copy.text(language, "updateCheckIn"),
+                    color = tokens.text,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    CheckIns.durationOptionsMinutes.forEach { minutes ->
+                        val selected = selectedMinutes == minutes
+                        SaigonPillChip(
+                            label = checkInDurationLabel(minutes, language),
+                            selected = selected,
+                            enabled = !busy,
+                            onClick = { selectedMinutes = if (selected) null else minutes },
+                        )
+                    }
+                }
+                val untilAt = selectedMinutes?.let { CheckIns.endAt(currentTimeMillis(), it) } ?: currentCheckIn.untilAt
+                Text(
+                    text = Copy.text(language, "checkInUntil", mapOf("time" to formatCheckInTime(untilAt, language))),
+                    color = tokens.text,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                )
+                SaigonSecondaryButton(
+                    text = Copy.text(language, if (selectedMinutes == null) "checkOut" else "updateCheckIn"),
+                    enabled = !busy,
+                    onClick = {
+                        val minutes = selectedMinutes
+                        scope.launch {
+                            busy = true
+                            errorText = null
+                            if (minutes != null) {
+                                val nextUntil = shared.postDetail.updateCheckIn(currentCheckIn.postId, minutes)
+                                if (nextUntil != null) {
+                                    currentCheckIn = currentCheckIn.copy(untilAt = nextUntil)
+                                    selectedMinutes = null
+                                    onChanged()
+                                } else {
+                                    errorText = shared.postDetail.state.value.error
+                                }
+                            } else {
+                                if (shared.postDetail.removeCheckIn(currentCheckIn.postId)) {
+                                    onChanged()
+                                    onDismiss()
+                                } else {
+                                    errorText = shared.postDetail.state.value.error
+                                }
+                            }
+                            busy = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                SaigonTextField(
+                    value = messageDraft,
+                    onValueChange = { if (it.length <= Limits.CHAT_MESSAGE_MAX) messageDraft = it },
+                    placeholder = Copy.text(language, "checkInMessagePlaceholder", mapOf("name" to currentCheckIn.authorName)),
+                    singleLine = false,
+                    minLines = 3,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SaigonPrimaryButton(
+                    text = Copy.text(language, "sendMessage"),
+                    enabled = !busy,
+                    loading = busy,
+                    onClick = {
+                        val text = messageDraft.trim()
+                        if (text.isEmpty()) return@SaigonPrimaryButton
+                        if (sessionState.me == null) {
+                            onRequireAuth()
+                            return@SaigonPrimaryButton
+                        }
+                        scope.launch {
+                            busy = true
+                            errorText = null
+                            val chat = shared.messages.startDirectChat(currentCheckIn.authorId, text)
+                            busy = false
+                            if (chat != null) {
+                                onDismiss()
+                                onNavigate(AppRoute.Chat(chat.id))
+                            } else {
+                                errorText = shared.messages.state.value.error ?: Copy.text(language, "unavailable")
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

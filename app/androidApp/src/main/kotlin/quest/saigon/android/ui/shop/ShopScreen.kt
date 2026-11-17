@@ -1,5 +1,6 @@
 package quest.saigon.android.ui.shop
 
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -36,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import quest.saigon.AppRoute
 import quest.saigon.Copy
 import quest.saigon.Language
@@ -47,11 +50,13 @@ import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
+import quest.saigon.android.ui.components.PickedPhotoItem
 import quest.saigon.android.ui.components.SaigonCard
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonOutlinedPillButton
 import quest.saigon.android.ui.components.SaigonPageShell
+import quest.saigon.android.ui.components.SaigonPhotoPicker
 import quest.saigon.android.ui.components.SaigonPillChip
 import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSpinner
@@ -436,14 +441,64 @@ private fun ProductEditorDialog(
     var price by remember(existing?.id) { mutableStateOf(existing?.price?.toString().orEmpty()) }
     var category by remember(existing?.id) { mutableStateOf(existing?.category.orEmpty()) }
     var description by remember(existing?.id) { mutableStateOf(existing?.description.orEmpty()) }
-    var newPhotos by remember { mutableStateOf<List<ByteArray>>(emptyList()) }
+    var photos by remember(existing?.id) {
+        mutableStateOf(
+            existing?.photoUrls.orEmpty().map { url ->
+                val mediaIdx = url.indexOf("/media/")
+                val path = if (mediaIdx >= 0) url.substring(mediaIdx) else url
+                PickedPhotoItem(existingPath = path, existingUrl = url)
+            },
+        )
+    }
+    var activePhotoIdx by remember(existing?.id) { mutableIntStateOf(0) }
+    var preparingPhotos by remember { mutableStateOf(false) }
+    var localError by remember { mutableStateOf<String?>(null) }
+
+    fun processPickedUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        scope.launch {
+            preparingPhotos = true
+            localError = null
+            try {
+                val initialCount = photos.size
+                val next = photos.toMutableList()
+                var failedCount = 0
+                for (uri in uris) {
+                    if (next.size >= Limits.PHOTOS_MAX) break
+                    val prepared = ImagePreparer.prepareSquarePhoto(context, uri)
+                    if (prepared != null && prepared.isNotEmpty()) {
+                        next += PickedPhotoItem(bytes = prepared)
+                    } else {
+                        failedCount += 1
+                    }
+                }
+                photos = next
+                if (next.isNotEmpty()) activePhotoIdx = next.lastIndex
+                if (failedCount > 0 && next.size == initialCount) {
+                    localError = Copy.text(language, "invalidPhoto")
+                }
+            } finally {
+                preparingPhotos = false
+            }
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
     ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            newPhotos = uris.mapNotNull { ImagePreparer.prepareSquareOrOriginal(context, it) }
+        processPickedUris(uris)
+    }
+    val fallbackPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents(),
+    ) { uris: List<Uri> ->
+        processPickedUris(uris)
+    }
+
+    fun launchPhotoPicker() {
+        try {
+            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } catch (_: ActivityNotFoundException) {
+            runCatching { fallbackPicker.launch("image/*") }
         }
     }
 
@@ -487,22 +542,56 @@ private fun ProductEditorDialog(
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth(),
             )
-            SaigonOutlinedPillButton(
-                text = "${Copy.text(language, "productPhotos")} (${newPhotos.size})",
-                onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            shopState.error?.let { Text(it, color = tokens.danger, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    Copy.text(language, "productPhotos"),
+                    color = tokens.text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                SaigonPhotoPicker(
+                    photos = photos,
+                    activeIndex = activePhotoIdx,
+                    onActiveIndexChange = { activePhotoIdx = it },
+                    onPhotosChange = { photos = it },
+                    onAddPhotosClick = { launchPhotoPicker() },
+                    language = language,
+                    square = true,
+                    rotatePrompts = false,
+                    emptyPrompt = Copy.text(language, "addPhoto"),
+                    isBusy = preparingPhotos,
+                )
+                Text(
+                    Copy.text(language, "productPhotosHint"),
+                    color = tokens.muted,
+                    fontSize = 13.sp,
+                )
+            }
+            (localError ?: shopState.error)?.let {
+                Text(it, color = tokens.danger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
             SaigonPrimaryButton(
-                text = Copy.text(language, "save"),
-                enabled = name.isNotBlank() && price.isNotBlank() && !shopState.isSubmitting,
+                text = Copy.text(language, if (existing == null) "createProduct" else "save"),
+                enabled = name.isNotBlank() && price.isNotBlank() && !shopState.isSubmitting && !preparingPhotos,
                 loading = shopState.isSubmitting,
                 onClick = {
+                    val newBytes = mutableListOf<ByteArray>()
+                    val orderTokens = mutableListOf<String>()
+                    photos.forEach { item ->
+                        when {
+                            item.existingPath != null -> orderTokens += item.existingPath
+                            item.bytes != null -> {
+                                orderTokens += "new:${newBytes.size}"
+                                newBytes += item.bytes
+                            }
+                        }
+                    }
+                    val photoOrderJson = JsonArray(orderTokens.map(::JsonPrimitive)).toString()
                     scope.launch {
                         val saved = if (existing == null) {
-                            shared.shop.createProduct(name.trim(), price.trim(), category.trim(), description.trim(), newPhotos)
+                            shared.shop.createProduct(name.trim(), price.trim(), category.trim(), description.trim(), newBytes)
                         } else {
-                            shared.shop.updateProduct(existing.id, name.trim(), price.trim(), category.trim(), description.trim(), null, newPhotos)
+                            shared.shop.updateProduct(existing.id, name.trim(), price.trim(), category.trim(), description.trim(), photoOrderJson, newBytes)
                         }
                         if (saved != null) onDismiss()
                     }

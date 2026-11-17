@@ -8,6 +8,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -283,6 +284,50 @@ class MobileAuthAndFcmTest {
         assertTrue(config.fcmConfigured)
         assertEquals("saigon-town-test", config.fcmProjectId)
         assertEquals("fcm@saigon-town-test.iam.gserviceaccount.com", config.fcmClientEmail)
+    }
+
+    @Test
+    fun multipartPhotoPostUploadMatchesClientFormData() = testApplication {
+        val repo = InMemoryTownRepository()
+        val services = testServices(repo = repo, clock = { 1_700_000_000_000L })
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+
+        val mobile = createClient { }
+        val regBody = mobile.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"phone":"0903334455","password":"password123","name":"Vy"}""")
+        }.bodyAsText()
+        val token = mapper.readTree(regBody).path("token").asText()
+        assertTrue(token.isNotBlank())
+
+        val img = java.awt.image.BufferedImage(16, 28, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val jpegBytes = java.io.ByteArrayOutputStream().also { out ->
+            javax.imageio.ImageIO.write(img, "jpg", out)
+        }.toByteArray()
+
+        val response = mobile.post("/api/posts") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            setBody(
+                io.ktor.client.request.forms.MultiPartFormDataContent(
+                    io.ktor.client.request.forms.formData {
+                        append("message", "Morning coffee")
+                        append("location", "District 1")
+                        append(
+                            "photo",
+                            jpegBytes,
+                            Headers.build {
+                                append(HttpHeaders.ContentType, ContentType.Image.JPEG.toString())
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo_0.jpg\"")
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
+        val postJson = mapper.readTree(response.bodyAsText())
+        assertEquals("Morning coffee", postJson.path("message").asText())
+        assertTrue(postJson.path("photoUrl").asText().startsWith("/media/"))
     }
 
     private fun testServices(

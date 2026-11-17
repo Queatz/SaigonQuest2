@@ -40,6 +40,9 @@ data class DiscoverUiState(
     val communityQuery: String = "",
     val searchRecentPlaces: List<PlaceSuggestionDto> = emptyList(),
     val searchPlaces: List<PlaceSuggestionDto> = emptyList(),
+    val mapCameraLat: Double? = null,
+    val mapCameraLng: Double? = null,
+    val mapCameraZoom: Float? = null,
     val locationDetail: LocationDetailState? = null,
     val isLoading: Boolean = false,
     val isLoadingCommunities: Boolean = false,
@@ -105,6 +108,14 @@ class DiscoverStore(
                 is ApiResult.Success -> _state.update { it.copy(checkIns = res.value.checkIns) }
                 is ApiResult.Failure -> Unit
             }
+        }
+    }
+
+    fun updateMapCamera(lat: Double, lng: Double, zoom: Float) {
+        if (!lat.isFinite() || !lng.isFinite() || !zoom.isFinite()) return
+        _state.update {
+            if (it.mapCameraLat == lat && it.mapCameraLng == lng && it.mapCameraZoom == zoom) it
+            else it.copy(mapCameraLat = lat, mapCameraLng = lng, mapCameraZoom = zoom)
         }
     }
 

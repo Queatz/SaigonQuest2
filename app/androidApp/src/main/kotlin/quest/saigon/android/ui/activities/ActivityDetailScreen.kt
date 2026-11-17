@@ -86,6 +86,7 @@ fun ActivityDetailScreen(
     var pendingDeletePhoto by remember { mutableStateOf<UserPhotoDto?>(null) }
     var viewerInitialIndex by remember { mutableStateOf<Int?>(null) }
     var selectedChatIds by remember(activityId) { mutableStateOf<Set<String>>(emptySet()) }
+    var mapTouched by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
@@ -156,30 +157,35 @@ fun ActivityDetailScreen(
                 } else {
                     Copy.text(lang, "startGroupChat")
                 }
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(tokens.surface)
-                        .border(1.dp, tokens.line)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .background(tokens.surface),
                 ) {
-                    SaigonPrimaryButton(
-                        text = chatLabel,
-                        enabled = effectiveIds.isNotEmpty() && !activityState.isMutating,
-                        loading = activityState.isMutating,
-                        onClick = {
-                            if (sessionState.me == null) {
-                                onRequireAuth()
-                            } else {
-                                scope.launch {
-                                    shared.activity.startActivityChat(act.id, effectiveIds)?.let { chat ->
-                                        onNavigate(AppRoute.Chat(chat.id))
+                    HorizontalDivider(color = tokens.line, thickness = 1.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        SaigonPrimaryButton(
+                            text = chatLabel,
+                            enabled = effectiveIds.isNotEmpty() && !activityState.isMutating,
+                            loading = activityState.isMutating,
+                            onClick = {
+                                if (sessionState.me == null) {
+                                    onRequireAuth()
+                                } else {
+                                    scope.launch {
+                                        shared.activity.startActivityChat(act.id, effectiveIds)?.let { chat ->
+                                            onNavigate(AppRoute.Chat(chat.id))
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         } else {
@@ -192,6 +198,7 @@ fun ActivityDetailScreen(
             }
         } else {
             LazyColumn(
+                userScrollEnabled = !mapTouched,
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -312,6 +319,7 @@ fun ActivityDetailScreen(
                                         alwaysShowBubbles = true,
                                         language = lang,
                                         onPlaceClick = { openLocation() },
+                                        onMapTouchChange = { mapTouched = it },
                                         modifier = Modifier.fillMaxSize(),
                                     )
                                 }

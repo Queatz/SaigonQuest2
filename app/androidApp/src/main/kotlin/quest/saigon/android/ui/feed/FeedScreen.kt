@@ -75,6 +75,8 @@ import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonBrushes
 import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.AndroidIntents
+import quest.saigon.android.ui.components.CheckInBubbleItem
+import quest.saigon.android.ui.components.CheckInDetailDialog
 import quest.saigon.android.ui.components.FirstPostBubble
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.MiniProfileDialog
@@ -153,6 +155,7 @@ fun FeedScreen(
     var pollVotersPostId by remember { mutableStateOf<String?>(null) }
     var questionPost by remember { mutableStateOf<PostCardDto?>(null) }
     var checkInPostId by remember { mutableStateOf<String?>(null) }
+    var activeCheckIn by remember { mutableStateOf<CheckInDto?>(null) }
     var showCommunityMembers by remember { mutableStateOf(false) }
     var fullMessagePost by remember { mutableStateOf<PostCardDto?>(null) }
     var zoomPhotoUrl by remember { mutableStateOf<String?>(null) }
@@ -160,11 +163,22 @@ fun FeedScreen(
     var activeCommunity by remember { mutableStateOf<quest.saigon.shared.model.CommunityDto?>(null) }
     var peeking by remember { mutableStateOf(false) }
     var feedMusicEnabled by remember { mutableStateOf(false) }
+    var feedScrolling by remember { mutableStateOf(false) }
+    var checkInBubblesHidden by remember { mutableStateOf(false) }
     val openDirectMessage = rememberDirectMessageOpener(
         shared = shared,
         onNavigate = onNavigate,
         onRequireAuth = onRequireAuth,
     )
+
+    LaunchedEffect(feedScrolling) {
+        if (feedScrolling) {
+            checkInBubblesHidden = true
+        } else if (checkInBubblesHidden) {
+            delay(5_000L)
+            checkInBubblesHidden = false
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -232,6 +246,13 @@ fun FeedScreen(
                     initialPage = initialIndex,
                     pageCount = { feedState.posts.size },
                 )
+
+                LaunchedEffect(pagerState.isScrollInProgress) {
+                    feedScrolling = pagerState.isScrollInProgress
+                }
+                DisposableEffect(Unit) {
+                    onDispose { feedScrolling = false }
+                }
 
                 LaunchedEffect(pagerState.settledPage, feedState.posts) {
                     val post = feedState.posts.getOrNull(pagerState.settledPage)
@@ -701,7 +722,9 @@ fun FeedScreen(
                 if (communityId == null && discoverState.checkIns.isNotEmpty()) {
                     CheckInBubblesRow(
                         checkIns = discoverState.checkIns,
-                        onClick = { checkIn -> onNavigate(AppRoute.Post(checkIn.postId)) },
+                        language = lang,
+                        hidden = checkInBubblesHidden,
+                        onClick = { checkIn -> activeCheckIn = checkIn },
                     )
                 }
             }
@@ -798,6 +821,18 @@ fun FeedScreen(
             language = lang,
             onUpdated = { shared.discover.refreshCheckIns() },
             onDismiss = { checkInPostId = null },
+        )
+    }
+
+    activeCheckIn?.let { checkIn ->
+        CheckInDetailDialog(
+            checkIn = checkIn,
+            shared = shared,
+            language = lang,
+            onNavigate = onNavigate,
+            onRequireAuth = onRequireAuth,
+            onChanged = { shared.discover.refreshCheckIns() },
+            onDismiss = { activeCheckIn = null },
         )
     }
 
@@ -958,8 +993,15 @@ private fun FeedOverlayPill(
 @Composable
 private fun CheckInBubblesRow(
     checkIns: List<CheckInDto>,
+    language: Language,
+    hidden: Boolean,
     onClick: (CheckInDto) -> Unit,
 ) {
+    val bubblesAlpha by animateFloatAsState(
+        targetValue = if (hidden) 0f else 1f,
+        animationSpec = tween(durationMillis = 250),
+        label = "checkInBubblesAlpha",
+    )
     val driftTransition = rememberInfiniteTransition(label = "checkInDrift")
     val driftY by driftTransition.animateFloat(
         initialValue = -3f,
@@ -974,57 +1016,18 @@ private fun CheckInBubblesRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .graphicsLayer { alpha = bubblesAlpha }
+            .horizontalScroll(rememberScrollState(), enabled = !hidden)
             .padding(top = 12.dp),
     ) {
         checkIns.forEach { checkIn ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .graphicsLayer { translationY = driftY }
-                    .clickable { onClick(checkIn) },
-            ) {
-                UserAvatar(
-                    photoUrl = checkIn.authorPhotoUrl,
-                    name = checkIn.authorName,
-                    size = 54.dp,
-                    borderColor = Color.White,
-                    borderWidth = 3.dp,
-                    modifier = Modifier.shadow(6.dp, CircleShape),
-                )
-                Surface(
-                    color = Color.White.copy(alpha = 0.96f),
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 6.dp,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(max = 220.dp)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            text = "${checkIn.authorName} · ${checkIn.location}",
-                            color = Color(0xFF28231F),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            lineHeight = 18.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (checkIn.message.isNotBlank()) {
-                            Text(
-                                text = checkIn.message,
-                                color = Color(0xFF28231F),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
+            CheckInBubbleItem(
+                checkIn = checkIn,
+                language = language,
+                enabled = !hidden,
+                onClick = { onClick(checkIn) },
+                modifier = Modifier.graphicsLayer { translationY = driftY },
+            )
         }
     }
 }

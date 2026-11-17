@@ -1,5 +1,6 @@
 package quest.saigon.android.ui.composer
 
+import android.content.ActivityNotFoundException
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -71,12 +72,14 @@ import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.ui.components.LocationInputRow
 import quest.saigon.android.ui.components.LocationPickerDialog
+import quest.saigon.android.ui.components.PickedPhotoItem
 import quest.saigon.android.ui.components.SaigonBottomSheet
 import quest.saigon.android.ui.components.SaigonCard
 import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonOutlinedPillButton
 import quest.saigon.android.ui.components.SaigonPageShell
+import quest.saigon.android.ui.components.SaigonPhotoPicker
 import quest.saigon.android.ui.components.SaigonPillChip
 import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSpinner
@@ -85,6 +88,7 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.ViewerButton
+import quest.saigon.android.ui.components.checkInDurationLabel
 import quest.saigon.android.ui.components.dashedBorder
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.shared.TownSharedClient
@@ -199,20 +203,51 @@ fun ComposerScreen(
         if (!hasCoordinates) checkInMinutes = null
     }
 
+    fun processPickedUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        scope.launch {
+            preparingPhotos = true
+            localError = null
+            try {
+                val initialCount = preparedPhotos.size
+                val list = preparedPhotos.toMutableList()
+                var failedCount = 0
+                for (uri in uris) {
+                    if (list.size >= Limits.PHOTOS_MAX) break
+                    val prepared = ImagePreparer.preparePostPhoto(context, uri)
+                    if (prepared != null && prepared.isNotEmpty()) {
+                        list += prepared
+                    } else {
+                        failedCount += 1
+                    }
+                }
+                preparedPhotos = list
+                if (list.isNotEmpty()) activePhotoIdx = list.lastIndex
+                if (failedCount > 0 && list.size == initialCount) {
+                    localError = Copy.text(lang, "invalidPhoto")
+                }
+            } finally {
+                preparingPhotos = false
+            }
+        }
+    }
+
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
     ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            preparingPhotos = true
-            val list = preparedPhotos.toMutableList()
-            for (uri in uris) {
-                if (list.size >= Limits.PHOTOS_MAX) break
-                ImagePreparer.preparePostPhoto(context, uri)?.let { list += it }
-            }
-            preparedPhotos = list
-            if (list.isNotEmpty()) activePhotoIdx = list.lastIndex
-            preparingPhotos = false
+        processPickedUris(uris)
+    }
+    val fallbackPhotoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents(),
+    ) { uris: List<Uri> ->
+        processPickedUris(uris)
+    }
+
+    fun launchPhotoPicker() {
+        try {
+            photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } catch (_: ActivityNotFoundException) {
+            runCatching { fallbackPhotoPicker.launch("image/*") }
         }
     }
 
@@ -271,8 +306,10 @@ fun ComposerScreen(
             put("message", message.trim())
             put("location", locName)
             if (firstComment.isNotBlank()) put("firstComment", firstComment.trim())
-            selectedPlace?.placeId?.let { put("placeId", it) }
-            selectedPlace?.id?.takeIf { selectedPlace?.custom == true }?.let { put("locationId", it) }
+            val placeId = selectedPlace?.placeId?.takeIf { it.isNotBlank() }
+            val locationId = selectedPlace?.id?.takeIf { selectedPlace?.custom == true && placeId == null }
+            placeId?.let { put("placeId", it) }
+            locationId?.let { put("locationId", it) }
             selectedPlace?.lat?.let { put("lat", it.toString()) }
             selectedPlace?.lng?.let { put("lng", it.toString()) }
             composerState.selectedAvatarId?.let { put("avatarId", it) }
@@ -382,212 +419,22 @@ fun ComposerScreen(
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         ) {
             // .composer-photo-stage (220.dp wide, 9:16, 18.dp radius, 2.dp dashed line) + .photo-thumbs
-            val safeIdx = activePhotoIdx.coerceIn(0, (preparedPhotos.size - 1).coerceAtLeast(0))
-            val activeBytes = preparedPhotos.getOrNull(safeIdx)
-            val uploadPrompts = remember(lang) { Copy.uploadPrompts(lang) }
-            var uploadPromptIdx by remember(lang) { mutableIntStateOf(0) }
-            LaunchedEffect(preparedPhotos.isEmpty(), uploadPrompts) {
-                if (preparedPhotos.isNotEmpty() || uploadPrompts.isEmpty()) return@LaunchedEffect
-                while (true) {
-                    delay(2600)
-                    uploadPromptIdx = (uploadPromptIdx + 1) % uploadPrompts.size
-                }
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .width(220.dp)
-                        .aspectRatio(9f / 16f)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(tokens.surface)
-                        .then(
-                            if (activeBytes == null) {
-                                Modifier
-                                    .dashedBorder(tokens.line, strokeWidth = 2.dp, cornerRadius = 18.dp)
-                                    .clickable {
-                                        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    }
-                            } else {
-                                Modifier.border(2.dp, tokens.line, RoundedCornerShape(18.dp))
-                            },
-                        ),
-                ) {
-                    if (activeBytes != null) {
-                        val bitmap = remember(activeBytes) { BitmapFactory.decodeByteArray(activeBytes, 0, activeBytes.size) }
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .size(36.dp)
-                                .shadow(4.dp, CircleShape)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.65f))
-                                .clickable {
-                                    preparedPhotos = preparedPhotos.filterIndexed { i, _ -> i != safeIdx }
-                                    activePhotoIdx = (safeIdx - 1).coerceAtLeast(0)
-                                },
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = Copy.text(lang, "removePhoto"), tint = Color.White, modifier = Modifier.size(18.dp))
-                        }
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(16.dp),
-                        ) {
-                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = tokens.muted, modifier = Modifier.size(34.dp))
-                            Text(
-                                uploadPrompts.getOrElse(uploadPromptIdx % uploadPrompts.size.coerceAtLeast(1)) {
-                                    Copy.text(lang, "uploadPrompt1")
-                                },
-                                color = tokens.muted,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
-                }
-
-                if (preparedPhotos.isNotEmpty()) {
-                    val density = LocalDensity.current
-                    val thumbWidthDp = 40.dp
-                    val thumbGapDp = 8.dp
-                    val stridePx = with(density) { (thumbWidthDp + thumbGapDp).toPx() }
-                    var draggingOrigin by remember { mutableStateOf<Int?>(null) }
-                    var dragOffsetX by remember { mutableFloatStateOf(0f) }
-                    var dragOffsetY by remember { mutableFloatStateOf(0f) }
-                    val dragTarget = draggingOrigin?.let { origin ->
-                        val shift = kotlin.math.round(dragOffsetX / stridePx).toInt()
-                        (origin + shift).coerceIn(0, preparedPhotos.lastIndex)
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(thumbGapDp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .width(220.dp)
-                            .horizontalScroll(rememberScrollState(), enabled = draggingOrigin == null)
-                            .padding(bottom = 4.dp),
-                    ) {
-                        preparedPhotos.forEachIndexed { idx, bytes ->
-                            val bitmap = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                            val selected = idx == safeIdx
-                            val isDraggingThis = draggingOrigin == idx
-                            val siblingShiftPx = when {
-                                draggingOrigin == null || dragTarget == null -> 0f
-                                idx == draggingOrigin -> dragOffsetX
-                                draggingOrigin!! < dragTarget && idx in (draggingOrigin!! + 1)..dragTarget -> -stridePx
-                                dragTarget < draggingOrigin!! && idx in dragTarget until draggingOrigin!! -> stridePx
-                                else -> 0f
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .zIndex(if (isDraggingThis) 40f else 0f)
-                                    .graphicsLayer {
-                                        translationX = siblingShiftPx
-                                        translationY = if (isDraggingThis) dragOffsetY else 0f
-                                        scaleX = if (isDraggingThis) 1.08f else 1f
-                                        scaleY = if (isDraggingThis) 1.08f else 1f
-                                    }
-                                    .size(width = thumbWidthDp, height = 71.dp)
-                                    .then(if (isDraggingThis) Modifier.shadow(10.dp, RoundedCornerShape(8.dp)) else Modifier)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(tokens.surface)
-                                    .border(2.dp, if (selected) tokens.accent else Color.Transparent, RoundedCornerShape(8.dp))
-                                    .clickable(enabled = draggingOrigin == null) { activePhotoIdx = idx }
-                                    .pointerInput(preparedPhotos.size, idx) {
-                                        if (preparedPhotos.size <= 1) return@pointerInput
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                draggingOrigin = idx
-                                                dragOffsetX = 0f
-                                                dragOffsetY = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                dragOffsetX += dragAmount.x
-                                                dragOffsetY += dragAmount.y
-                                            },
-                                            onDragEnd = {
-                                                val origin = draggingOrigin
-                                                val target = origin?.let {
-                                                    (it + kotlin.math.round(dragOffsetX / stridePx).toInt())
-                                                        .coerceIn(0, preparedPhotos.lastIndex)
-                                                }
-                                                if (origin != null && target != null && origin != target) {
-                                                    val nextList = preparedPhotos.toMutableList()
-                                                    val moved = nextList.removeAt(origin)
-                                                    nextList.add(target, moved)
-                                                    preparedPhotos = nextList
-                                                    activePhotoIdx = target
-                                                }
-                                                draggingOrigin = null
-                                                dragOffsetX = 0f
-                                                dragOffsetY = 0f
-                                            },
-                                            onDragCancel = {
-                                                draggingOrigin = null
-                                                dragOffsetX = 0f
-                                                dragOffsetY = 0f
-                                            },
-                                        )
-                                    },
-                            ) {
-                                if (bitmap != null) {
-                                    Image(
-                                        bitmap = bitmap.asImageBitmap(),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-                            }
-                        }
-                        if (preparedPhotos.size < Limits.PHOTOS_MAX) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(width = thumbWidthDp, height = 71.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .dashedBorder(tokens.line, strokeWidth = 2.dp, cornerRadius = 8.dp)
-                                    .clickable {
-                                        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    },
-                            ) {
-                                Text("+", color = tokens.muted, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (preparingPhotos) {
-                LinearProgressIndicator(
-                    color = tokens.accent,
-                    trackColor = tokens.line,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)),
-                )
-            }
+            SaigonPhotoPicker(
+                photos = preparedPhotos.map { PickedPhotoItem(bytes = it) },
+                activeIndex = activePhotoIdx,
+                onActiveIndexChange = { activePhotoIdx = it },
+                onPhotosChange = { updated -> preparedPhotos = updated.mapNotNull { it.bytes } },
+                onAddPhotosClick = { launchPhotoPicker() },
+                language = lang,
+                square = false,
+                rotatePrompts = true,
+                isBusy = preparingPhotos,
+            )
 
             SaigonTextField(
                 value = message,
                 onValueChange = { if (it.length <= Limits.MESSAGE_MAX) { message = it; localError = null } },
-                label = Copy.text(lang, "message"),
+                label = "💬 ${Copy.text(lang, "message")}",
                 singleLine = false,
                 minLines = 3,
                 maxLines = 6,
@@ -606,7 +453,7 @@ fun ComposerScreen(
 
             // Location input + map picker button (.location-input-row)
             LocationInputRow(
-                label = Copy.text(lang, "location"),
+                label = "📍 ${Copy.text(lang, "location")}",
                 value = locationText,
                 onValueChange = { typed ->
                     locationText = typed
@@ -633,14 +480,14 @@ fun ComposerScreen(
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                 )
                 SaigonOutlinedPillButton(
-                    text = Copy.text(lang, "selectAvatar"),
+                    text = "🙆 ${Copy.text(lang, "selectAvatar")}",
                     onClick = { showAvatarSheet = true },
                     contentColor = if (composerState.selectedAvatarId != null) tokens.accent else tokens.text,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                 )
                 SaigonOutlinedPillButton(
-                    text = composerState.selectedMusic?.name?.takeIf { it.isNotBlank() } ?: Copy.text(lang, "selectMusic"),
+                    text = "🎵 ${composerState.selectedMusic?.name?.takeIf { it.isNotBlank() } ?: Copy.text(lang, "selectMusic")}",
                     onClick = { showMusicSheet = true },
                     contentColor = if (composerState.selectedMusic != null) tokens.accent else tokens.text,
                     modifier = Modifier.weight(1f),
@@ -694,22 +541,11 @@ fun ComposerScreen(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                     ) {
                         CheckIns.durationOptionsMinutes.forEach { mins ->
-                            val label = when (mins) {
-                                30 -> Copy.text(lang, "checkIn30Minutes")
-                                60 -> Copy.text(lang, "checkIn1Hour")
-                                90 -> Copy.text(lang, "checkIn1AndHalfHours")
-                                120 -> Copy.text(lang, "checkIn2Hours")
-                                180 -> Copy.text(lang, "checkIn3Hours")
-                                240 -> Copy.text(lang, "checkIn4Hours")
-                                300 -> Copy.text(lang, "checkIn5Hours")
-                                360 -> Copy.text(lang, "checkIn6Hours")
-                                else -> if (mins < 60) "${mins}m" else "${mins / 60}h"
-                            }
                             val selected = checkInMinutes == mins
                             SaigonPillChip(
                                 selected = selected,
                                 onClick = { checkInMinutes = if (selected) null else mins },
-                                label = label,
+                                label = checkInDurationLabel(mins, lang),
                             )
                         }
                     }
@@ -730,19 +566,19 @@ fun ComposerScreen(
                             eventStartAt = defaultEventStartMillis()
                         }
                     },
-                    label = Copy.text(lang, "addEvent"),
+                    label = "📅 ${Copy.text(lang, "addEvent")}",
                 )
-                SaigonPillChip(selected = enablePoll, onClick = { enablePoll = !enablePoll }, label = Copy.text(lang, "addPoll"))
-                SaigonPillChip(selected = enableQuestion, onClick = { enableQuestion = !enableQuestion }, label = Copy.text(lang, "askQuestion"))
-                SaigonPillChip(selected = enableCta, onClick = { enableCta = !enableCta }, label = Copy.text(lang, "addCallToAction"))
-                SaigonPillChip(selected = enableOpenChat, onClick = { enableOpenChat = !enableOpenChat }, label = Copy.text(lang, "addOpenChat"))
+                SaigonPillChip(selected = enablePoll, onClick = { enablePoll = !enablePoll }, label = "📊 ${Copy.text(lang, "addPoll")}")
+                SaigonPillChip(selected = enableQuestion, onClick = { enableQuestion = !enableQuestion }, label = "❓ ${Copy.text(lang, "askQuestion")}")
+                SaigonPillChip(selected = enableCta, onClick = { enableCta = !enableCta }, label = "📣 ${Copy.text(lang, "addCallToAction")}")
+                SaigonPillChip(selected = enableOpenChat, onClick = { enableOpenChat = !enableOpenChat }, label = "💬 ${Copy.text(lang, "addOpenChat")}")
             }
 
             if (enableEvent) {
                 val startMs = eventStartAt ?: defaultEventStartMillis()
                 SaigonCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(Copy.text(lang, "addEvent"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        Text("📅 ${Copy.text(lang, "addEvent")}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
 
                         // Start date & time
                         Text(Copy.text(lang, "eventStart"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -871,7 +707,7 @@ fun ComposerScreen(
             if (enableQuestion) {
                 SaigonCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(Copy.text(lang, "askQuestion"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        Text("❓ ${Copy.text(lang, "askQuestion")}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
                         SaigonTextField(
                             value = questionTitle,
                             onValueChange = { if (it.length <= Limits.QUESTION_TITLE_MAX) questionTitle = it },
@@ -887,7 +723,7 @@ fun ComposerScreen(
             if (enableCta) {
                 SaigonCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(Copy.text(lang, "addCallToAction"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        Text("📣 ${Copy.text(lang, "addCallToAction")}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
                         SaigonTextField(
                             value = ctaTitle,
                             onValueChange = { if (it.length <= Limits.CTA_TITLE_MAX) ctaTitle = it },
@@ -950,7 +786,7 @@ fun ComposerScreen(
             if (enableOpenChat) {
                 SaigonCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(Copy.text(lang, "addOpenChat"), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                        Text("💬 ${Copy.text(lang, "addOpenChat")}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
                         if (!openChatCreateNew) {
                             Text(Copy.text(lang, "groupChat"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             SelectorRowButton(
@@ -1721,6 +1557,7 @@ private fun AvatarStudioSheet(
                 SaigonPrimaryButton(
                     text = Copy.text(language, "createAvatar"),
                     enabled = prompt.isNotBlank(),
+                    dimWhenDisabled = false,
                     onClick = {
                         onCreate(prompt.trim())
                         prompt = ""
@@ -1850,6 +1687,7 @@ private fun MusicStudioSheet(
                 SaigonPrimaryButton(
                     text = Copy.text(language, "createMusic"),
                     enabled = prompt.isNotBlank(),
+                    dimWhenDisabled = false,
                     onClick = {
                         onCreate(prompt.trim(), instrumental)
                         prompt = ""

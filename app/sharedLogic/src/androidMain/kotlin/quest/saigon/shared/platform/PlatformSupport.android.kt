@@ -145,7 +145,14 @@ actual fun createPlatformTokenStorage(): TokenStorage {
 
 actual fun systemLanguageTag(): String = Locale.getDefault().toLanguageTag()
 
-actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create()
+actual fun createHttpClientEngine(): HttpClientEngine = OkHttp.create {
+    config {
+        connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        callTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+    }
+}
 
 actual fun defaultServerOrigin(): String = "https://saigon.town"
 

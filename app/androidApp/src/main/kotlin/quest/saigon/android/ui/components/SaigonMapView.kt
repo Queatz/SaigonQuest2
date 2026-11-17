@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +35,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
@@ -172,11 +175,16 @@ fun SaigonMapView(
     centerLat: Double? = null,
     centerLng: Double? = null,
     initialZoom: Float = 13f,
+    restoredCenterLat: Double? = null,
+    restoredCenterLng: Double? = null,
+    restoredZoom: Float? = null,
     alwaysShowBubbles: Boolean = false,
     language: Language = Language.EN,
     onEventClick: (String) -> Unit = {},
     onPlaceClick: (String) -> Unit = {},
     onMapClick: ((Double, Double) -> Unit)? = null,
+    onCameraChanged: ((Double, Double, Float) -> Unit)? = null,
+    onMapTouchChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalSaigonTokens.current
@@ -187,11 +195,16 @@ fun SaigonMapView(
             centerLat = centerLat,
             centerLng = centerLng,
             initialZoom = initialZoom,
+            restoredCenterLat = restoredCenterLat,
+            restoredCenterLng = restoredCenterLng,
+            restoredZoom = restoredZoom,
             alwaysShowBubbles = alwaysShowBubbles,
             language = language,
             onEventClick = onEventClick,
             onPlaceClick = onPlaceClick,
             onMapClick = onMapClick,
+            onCameraChanged = onCameraChanged,
+            onMapTouchChange = onMapTouchChange,
             modifier = modifier,
         )
     } else {
@@ -207,6 +220,7 @@ fun SaigonMapView(
             onEventClick = onEventClick,
             onPlaceClick = onPlaceClick,
             onMapClick = onMapClick,
+            onMapTouchChange = onMapTouchChange,
             modifier = modifier,
         )
     }
@@ -220,17 +234,24 @@ private fun NativeGoogleMapView(
     centerLat: Double?,
     centerLng: Double?,
     initialZoom: Float,
+    restoredCenterLat: Double?,
+    restoredCenterLng: Double?,
+    restoredZoom: Float?,
     alwaysShowBubbles: Boolean,
     language: Language,
     onEventClick: (String) -> Unit,
     onPlaceClick: (String) -> Unit,
     onMapClick: ((Double, Double) -> Unit)?,
+    onCameraChanged: ((Double, Double, Float) -> Unit)?,
+    onMapTouchChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalSaigonTokens.current
     val context = LocalContext.current
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val latestOnCameraChanged by rememberUpdatedState(onCameraChanged)
+    val latestOnMapTouchChange by rememberUpdatedState(onMapTouchChange)
 
     val validEvents = remember(events) {
         events.filter { isValidLatLng(it.lat, it.lng) }.distinctBy { it.postId }
@@ -239,16 +260,21 @@ private fun NativeGoogleMapView(
         places.filter { isValidLatLng(it.lat, it.lng) }.distinctBy { it.key }
     }
 
-    val safeCenterLat = centerLat?.takeIf { it.isFinite() && it in -90.0..90.0 }
-    val safeCenterLng = centerLng?.takeIf { it.isFinite() && it in -180.0..180.0 }
-    val defaultCenter = remember(safeCenterLat, safeCenterLng) {
-        LatLng(safeCenterLat ?: 10.7769, safeCenterLng ?: 106.7009)
-    }
+    val safeCenterLat = centerLat?.takeIf { isValidLatLng(it, 0.0) }
+    val safeCenterLng = centerLng?.takeIf { isValidLatLng(0.0, it) }
+    val safeRestoredLat = restoredCenterLat?.takeIf { isValidLatLng(it, 0.0) }
+    val safeRestoredLng = restoredCenterLng?.takeIf { isValidLatLng(0.0, it) }
+    val safeRestoredZoom = restoredZoom?.takeIf { it.isFinite() && it in 2f..22f }
+    val hasRestored = safeRestoredLat != null && safeRestoredLng != null && safeRestoredZoom != null
+    val startLat = safeRestoredLat ?: safeCenterLat ?: 10.7769
+    val startLng = safeRestoredLng ?: safeCenterLng ?: 106.7009
+    val startZoom = safeRestoredZoom ?: initialZoom
     val cameraState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(defaultCenter, initialZoom)
+        position = CameraPosition.fromLatLngZoom(LatLng(startLat, startLng), startZoom)
     }
     var mapSize by remember { mutableStateOf(IntSize.Zero) }
     var mapReady by remember { mutableStateOf(false) }
+    var hasFittedBounds by remember { mutableStateOf(hasRestored) }
 
     val placeBitmaps = remember { mutableStateMapOf<String, ImageBitmap>() }
     val thumbSizePx = with(density) { 40.dp.roundToPx().coerceAtLeast(32) }
@@ -515,16 +541,19 @@ private fun NativeGoogleMapView(
             runCatching {
                 cameraState.move(CameraUpdateFactory.newLatLngZoom(LatLng(safeCenterLat, safeCenterLng), initialZoom))
             }
-        } else {
+            hasFittedBounds = true
+        } else if (!hasFittedBounds) {
             val coords = coordsKey.map { LatLng(it.first, it.second) }
             if (coords.size == 1) {
                 runCatching {
                     cameraState.move(CameraUpdateFactory.newLatLngZoom(coords.first(), 15f))
                 }
+                hasFittedBounds = true
             } else if (coords.size > 1) {
                 val bounds = LatLngBounds.builder().apply { coords.forEach(::include) }.build()
                 val pad = (minOf(mapSize.width, mapSize.height) / 6).coerceIn(16, 72)
                 runCatching { cameraState.move(CameraUpdateFactory.newLatLngBounds(bounds, pad)) }
+                hasFittedBounds = true
             }
         }
         delay(30)
@@ -547,6 +576,8 @@ private fun NativeGoogleMapView(
     LaunchedEffect(mapReady, cameraState.isMoving, alwaysShowBubbles, validEvents, validPlaces) {
         if (!mapReady) return@LaunchedEffect
         if (!cameraState.isMoving) {
+            val pos = cameraState.position
+            latestOnCameraChanged?.invoke(pos.target.latitude, pos.target.longitude, pos.zoom)
             delay(60)
             recomputeMarkerLayout()
         } else {
@@ -558,8 +589,27 @@ private fun NativeGoogleMapView(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            if (mapReady) {
+                val pos = cameraState.position
+                latestOnCameraChanged?.invoke(pos.target.latitude, pos.target.longitude, pos.zoom)
+            }
+            latestOnMapTouchChange?.invoke(false)
+        }
+    }
+
     Box(
-        modifier = modifier.onSizeChanged { mapSize = it },
+        modifier = modifier
+            .onSizeChanged { mapSize = it }
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        latestOnMapTouchChange?.invoke(event.changes.any { it.pressed })
+                    }
+                }
+            },
     ) {
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
@@ -893,6 +943,7 @@ private fun PlaceDotLabel(
         if (title.isNotBlank()) {
             Text(
                 text = title,
+                textAlign = if (alignEnd) TextAlign.End else TextAlign.Start,
                 style = titleStyle.copy(color = Color.White, shadow = labelShadow),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -901,6 +952,7 @@ private fun PlaceDotLabel(
         if (emojiText.isNotBlank()) {
             Text(
                 text = emojiText,
+                textAlign = if (alignEnd) TextAlign.End else TextAlign.Start,
                 style = emojiStyle.copy(color = Color.White, shadow = labelShadow),
                 maxLines = 1,
             )
@@ -981,7 +1033,7 @@ private class SaigonMapJsBridge(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 @Composable
 private fun WebSaigonMapView(
     events: List<SaigonMapEventPin>,
@@ -995,11 +1047,13 @@ private fun WebSaigonMapView(
     onEventClick: (String) -> Unit,
     onPlaceClick: (String) -> Unit,
     onMapClick: ((Double, Double) -> Unit)?,
+    onMapTouchChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val latestOnEvent by rememberUpdatedState(onEventClick)
     val latestOnPlace by rememberUpdatedState(onPlaceClick)
     val latestOnMapClick by rememberUpdatedState(onMapClick)
+    val latestOnMapTouchChange by rememberUpdatedState(onMapTouchChange)
 
     val markersJson = remember(events, places) {
         val list = buildList {
@@ -1061,13 +1115,30 @@ private fun WebSaigonMapView(
         wv.evaluateJavascript("if (window.__setSaigonMarkers) window.__setSaigonMarkers($markersJson);", null)
     }
 
-    Box(modifier = modifier) {
+    DisposableEffect(Unit) {
+        onDispose { latestOnMapTouchChange?.invoke(false) }
+    }
+
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    latestOnMapTouchChange?.invoke(event.changes.any { it.pressed })
+                }
+            }
+        },
+    ) {
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     webChromeClient = WebChromeClient()
+                    setOnTouchListener { v, _ ->
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        false
+                    }
                     addJavascriptInterface(
                         SaigonMapJsBridge(
                             onEvent = { id -> post { latestOnEvent(id) } },

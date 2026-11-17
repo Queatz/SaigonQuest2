@@ -82,6 +82,7 @@ import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.android.ui.components.rememberDirectMessageOpener
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ActivityDto
+import quest.saigon.shared.model.FeatureSuggestionDto
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.UpdateMeRequest
 
@@ -1137,6 +1138,7 @@ fun FeatureSuggestionsScreen(
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
+    var pendingDeleteFeature by remember { mutableStateOf<FeatureSuggestionDto?>(null) }
 
     LaunchedEffect(Unit) { shared.profile.loadFeatures() }
 
@@ -1153,9 +1155,10 @@ fun FeatureSuggestionsScreen(
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                SaigonSecondaryButton(
+                SaigonPrimaryButton(
                     text = Copy.text(lang, "send"),
                     enabled = input.isNotBlank() && !state.isMutating,
+                    dimWhenDisabled = false,
                     onClick = {
                         val text = input.trim()
                         scope.launch {
@@ -1196,8 +1199,8 @@ fun FeatureSuggestionsScreen(
                                 onClick = { scope.launch { shared.profile.voteFeature(feat.id) } },
                             )
                             if (sessionState.me?.admin == true) {
-                                IconButton(onClick = { scope.launch { shared.profile.deleteFeature(feat.id) } }) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, tint = tokens.danger)
+                                IconButton(onClick = { pendingDeleteFeature = feat }) {
+                                    Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "delete"), tint = tokens.danger)
                                 }
                             }
                         }
@@ -1205,5 +1208,23 @@ fun FeatureSuggestionsScreen(
                 }
             }
         }
+    }
+
+    pendingDeleteFeature?.let { target ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deleteFeatureAsk"),
+            hint = Copy.text(lang, "deleteFeatureHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = state.isMutating,
+            onConfirm = {
+                scope.launch {
+                    if (shared.profile.deleteFeature(target.id)) {
+                        pendingDeleteFeature = null
+                    }
+                }
+            },
+            onDismiss = { pendingDeleteFeature = null },
+        )
     }
 }

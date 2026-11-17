@@ -293,6 +293,7 @@ fun LocationPickerDialog(
                     text = Copy.text(language, if (placingLocation) "createLocation" else "usePlace"),
                     enabled = canConfirm,
                     loading = creating || resolving,
+                    dimWhenDisabled = false,
                     onClick = {
                         val place = pendingPlace ?: return@SaigonPrimaryButton
                         if (placingLocation) {

@@ -46,6 +46,7 @@ import quest.saigon.android.ui.components.SaigonSpinner
 import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.checkInDurationLabel
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CommentCardDto
 import quest.saigon.shared.model.CommunityDto
@@ -265,38 +266,29 @@ fun CommentsSheet(
                             .focusRequester(focusRequester),
                     )
                     val sendEnabled = inputText.isNotBlank() && !state.isPostingComment
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .defaultMinSize(minHeight = 46.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(SaigonBrushes.primaryGradient, RoundedCornerShape(999.dp))
-                            .border(2.dp, tokens.text.copy(alpha = 0.15f), RoundedCornerShape(999.dp))
-                            .clickable(enabled = sendEnabled) {
-                                if (viewerId == null) {
-                                    onRequireAuth()
-                                    return@clickable
-                                }
-                                val text = inputText.trim()
-                                val replyId = replyTarget?.id
-                                scope.launch {
-                                    val created = detailStore.addComment(post.id, text, replyId)
-                                    if (created != null) {
-                                        inputText = ""
-                                        replyTarget = null
-                                    }
+                    SaigonPrimaryButton(
+                        text = Copy.text(language, "sendComment"),
+                        enabled = sendEnabled,
+                        loading = state.isPostingComment,
+                        dimWhenDisabled = false,
+                        onClick = {
+                            if (viewerId == null) {
+                                onRequireAuth()
+                                return@SaigonPrimaryButton
+                            }
+                            val text = inputText.trim()
+                            val replyId = replyTarget?.id
+                            scope.launch {
+                                val created = detailStore.addComment(post.id, text, replyId)
+                                if (created != null) {
+                                    inputText = ""
+                                    replyTarget = null
                                 }
                             }
-                            .alpha(if (sendEnabled) 1f else 0.45f)
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            Copy.text(language, "sendComment"),
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
-                        )
-                    }
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier.defaultMinSize(minHeight = 46.dp),
+                    )
                 }
             }
         }
@@ -845,6 +837,7 @@ fun CommunityMembersSheet(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CheckInSheet(
     postId: String,
@@ -865,34 +858,24 @@ fun CheckInSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
-            CheckIns.durationOptionsMinutes.chunked(4).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    row.forEach { minutes ->
-                        val label = when (minutes) {
-                            30 -> Copy.text(language, "checkIn30Minutes")
-                            60 -> Copy.text(language, "checkIn1Hour")
-                            90 -> Copy.text(language, "checkIn1AndHalfHours")
-                            120 -> Copy.text(language, "checkIn2Hours")
-                            180 -> Copy.text(language, "checkIn3Hours")
-                            240 -> Copy.text(language, "checkIn4Hours")
-                            300 -> Copy.text(language, "checkIn5Hours")
-                            360 -> Copy.text(language, "checkIn6Hours")
-                            else -> if (minutes < 60) "${minutes}m" else "${minutes / 60}h"
-                        }
-                        SaigonPillChip(
-                            label = label,
-                            selected = false,
-                            onClick = {
-                                scope.launch {
-                                    if (detailStore.updateCheckIn(postId, minutes) != null) {
-                                        onUpdated()
-                                        onDismiss()
-                                    }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                CheckIns.durationOptionsMinutes.forEach { minutes ->
+                    SaigonPillChip(
+                        label = checkInDurationLabel(minutes, language),
+                        selected = false,
+                        onClick = {
+                            scope.launch {
+                                if (detailStore.updateCheckIn(postId, minutes) != null) {
+                                    onUpdated()
+                                    onDismiss()
                                 }
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                            }
+                        },
+                    )
                 }
             }
             SaigonTextButton(
