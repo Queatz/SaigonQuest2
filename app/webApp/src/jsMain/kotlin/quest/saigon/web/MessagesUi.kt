@@ -1,6 +1,12 @@
 package quest.saigon.web
 
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import quest.saigon.Limits
+import quest.saigon.shared.js.JsSharedHolder
+import quest.saigon.shared.js.launchAction
+import quest.saigon.shared.js.observeState
+import quest.saigon.shared.model.ChatStreamEventDto
 import web.html.HTMLElement
 import web.window.window
 
@@ -29,7 +35,8 @@ internal fun clearChatScreen() {
 internal object ChatInbox {
     var unread = 0
         internal set
-    private var stopStream: (() -> Unit)? = null
+    private var stopObserve: (() -> Unit)? = null
+    private var eventsJob: Job? = null
     private val listeners = mutableListOf<(dynamic) -> Unit>()
 
     fun connect() {
@@ -37,25 +44,25 @@ internal object ChatInbox {
             disconnect()
             return
         }
-        stopStream?.invoke()
-        stopStream = null
-        notifyReconnect()
-        refresh()
-        stopStream = openNotificationStream(
-            "/api/chats/stream",
-            onEvent = { event ->
-                val type = jsText(event.type)
-                val count = num(event.unreadCount).toInt()
-                if (event.unreadCount != null && event.unreadCount != undefined) unread = count
-                else if (type == "message") unread += 1
+        val messages = JsSharedHolder.client.messages
+        if (stopObserve == null) {
+            stopObserve = observeState(JsSharedHolder.scope, messages.state) { state ->
+                unread = state.unreadCount.toInt()
                 paintBadges()
-                val message = event.message
-                val incoming = if (message == null || message == undefined) "" else jsText(message.userId)
-                if (type == "message" && incoming != Town.me?.id) playNotifySound()
-                notifyListeners(event)
-            },
-            onReconnect = { notifyReconnect() },
-        )
+            }
+        }
+        if (eventsJob == null || eventsJob?.isActive != true) {
+            eventsJob = JsSharedHolder.scope.launch {
+                messages.streamEvents.collect { event ->
+                    if (event.type == "message" && event.message?.userId != Town.me?.id) {
+                        playNotifySound()
+                    }
+                    val json = JsSharedHolder.client.api.json.encodeToString(ChatStreamEventDto.serializer(), event)
+                    notifyListeners(parseJson(json))
+                }
+            }
+        }
+        messages.connectStream()
     }
 
     private fun notifyListeners(event: dynamic) {
@@ -67,25 +74,20 @@ internal object ChatInbox {
         }
     }
 
-    private fun notifyReconnect() {
-        val event = js("({})")
-        event.type = "reconnect"
-        notifyListeners(event)
-    }
-
     fun disconnect() {
-        stopStream?.invoke()
-        stopStream = null
+        stopObserve?.invoke()
+        stopObserve = null
+        eventsJob?.cancel()
+        eventsJob = null
+        JsSharedHolder.client.messages.disconnectStream()
         unread = 0
         paintBadges()
     }
 
     fun refresh() {
         if (Town.me == null) return
-        http("GET", "/api/chats?limit=1") { status, body ->
-            if (status != 200) return@http
-            unread = num(parseJson(body).unreadCount).toInt()
-            paintBadges()
+        launchAction(JsSharedHolder.scope) {
+            JsSharedHolder.client.messages.refreshUnread()
         }
     }
 

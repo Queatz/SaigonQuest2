@@ -66,7 +66,9 @@ class TownServices(
             val clock: () -> Long = System::currentTimeMillis
             val hub = NotificationHub()
             val chatHub = NotificationHub()
-            val pusher = WebPushService.fromConfig(config, repo, clock)
+            val webPush = WebPushService.fromConfig(config, repo, clock)
+            val fcmPush = FcmPushService.fromConfig(config, repo, clock)
+            val pusher = CompositeNotificationPusher(listOf(webPush, fcmPush))
             val events = EventService(repo, hub, clock, pusher).also { it.start() }
             return TownServices(
                 repo = repo,

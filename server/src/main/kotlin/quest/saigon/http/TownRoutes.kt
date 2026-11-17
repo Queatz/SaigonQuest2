@@ -50,6 +50,7 @@ import quest.saigon.town.ChatType
 import quest.saigon.town.CheckInView
 import quest.saigon.town.CommentItem
 import quest.saigon.town.CommentService
+import quest.saigon.town.FcmTokenRecord
 import quest.saigon.town.FeatureSuggestionView
 import quest.saigon.town.FeedItem
 import quest.saigon.town.LocationDescriptionRecord
@@ -87,8 +88,8 @@ fun Route.townApi(services: TownServices) {
         } catch (error: TownException) {
             return@post call.fail(error.code)
         }
-        call.session(services, user.id)
-        call.respondJson(mePayload(user, services))
+        val token = call.session(services, user.id)
+        call.respondJson(mePayload(user, services) + ("token" to token))
     }
 
     post("/auth/login") {
@@ -99,12 +100,12 @@ fun Route.townApi(services: TownServices) {
         if (user == null || !quest.saigon.auth.PasswordHasher.verify(password, user.passwordHash)) {
             return@post call.fail("bad_credentials")
         }
-        call.session(services, user.id)
-        call.respondJson(mePayload(user, services))
+        val token = call.session(services, user.id)
+        call.respondJson(mePayload(user, services) + ("token" to token))
     }
 
     post("/auth/logout") {
-        call.requestCookie()?.let(services.repo::deleteSession)
+        setOfNotNull(call.bearerToken(), call.requestCookie()).forEach(services.repo::deleteSession)
         call.clearSession(services)
         call.respondJson(mapOf("ok" to true))
     }
@@ -1606,6 +1607,30 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("ok" to true))
     }
 
+    post("/push/fcm") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val token = cleanFcmToken(Jsons.text(body, "token")) ?: return@post call.fail("invalid_push")
+        val language = if (resolveLanguage(Jsons.text(body, "language"), user.language) == Language.VI) "vi" else "en"
+        services.repo.upsertFcmToken(
+            FcmTokenRecord(
+                token = token,
+                userId = user.id,
+                language = language,
+                createdAt = services.clock(),
+            ),
+        )
+        call.respondJson(mapOf("ok" to true))
+    }
+
+    delete("/push/fcm") {
+        val user = call.user(services) ?: return@delete call.fail("unauthorized")
+        val token = cleanFcmToken(Jsons.text(Jsons.parse(call.receiveText()), "token"))
+            ?: return@delete call.fail("invalid_push")
+        services.repo.deleteFcmToken(user.id, token)
+        call.respondJson(mapOf("ok" to true))
+    }
+
     get("/posts/{id}/author-photo") {
         val post = services.repo.findPost(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
         val author = services.repo.findUser(post.userId) ?: return@get call.fail("not_found")
@@ -2280,7 +2305,7 @@ private suspend fun ApplicationCall.requireAdmin(services: TownServices): UserRe
 }
 
 private fun ApplicationCall.user(services: TownServices): UserRecord? {
-    val token = requestCookie() ?: return null
+    val token = sessionToken() ?: return null
     val session = services.repo.findSession(token) ?: return null
     if (session.expiresAt <= services.clock()) {
         services.repo.deleteSession(token)
@@ -2289,10 +2314,11 @@ private fun ApplicationCall.user(services: TownServices): UserRecord? {
     return services.repo.findUser(session.userId)
 }
 
-private fun ApplicationCall.session(services: TownServices, userId: String) {
+private fun ApplicationCall.session(services: TownServices, userId: String): String {
     val token = services.tokens()
     services.repo.createSession(token, userId, services.clock() + SESSION_SECONDS * 1000L)
     response.cookies.append(sessionCookie(token, services.config, SESSION_SECONDS))
+    return token
 }
 
 private fun ApplicationCall.clearSession(services: TownServices) {
@@ -2309,6 +2335,16 @@ private fun sessionCookie(value: String, config: AppConfig, maxAge: Int) = Cooki
     httpOnly = true,
     extensions = mapOf("SameSite" to config.cookieSameSite),
 )
+
+private fun ApplicationCall.bearerToken(): String? =
+    request.headers[HttpHeaders.Authorization]
+        ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+        ?.substring(7)
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+private fun ApplicationCall.sessionToken(): String? =
+    bearerToken() ?: requestCookie()
 
 private fun ApplicationCall.requestCookie(): String? =
     request.cookies[SESSION_COOKIE]?.takeIf { it.isNotBlank() }
@@ -2680,6 +2716,13 @@ private fun cleanPushKey(raw: String): String? {
     if (key.length !in 8..256) return null
     if (key.any { !it.isLetterOrDigit() && it != '-' && it != '_' && it != '+' && it != '/' && it != '=' }) return null
     return key
+}
+
+private fun cleanFcmToken(raw: String): String? {
+    val token = raw.trim()
+    if (token.length !in 16..4096) return null
+    if (token.any { it.isISOControl() || it.isWhitespace() }) return null
+    return token
 }
 
 private fun cleanPlaceId(raw: String): String? {

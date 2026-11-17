@@ -1,5 +1,6 @@
 package quest.saigon
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import java.io.File
 
 data class AppConfig(
@@ -22,16 +23,24 @@ data class AppConfig(
     val vapidPublicKey: String? = null,
     val vapidPrivateKey: String? = null,
     val vapidSubject: String = "mailto:hello@saigon.town",
+    val fcmProjectId: String? = null,
+    val fcmClientEmail: String? = null,
+    val fcmPrivateKey: String? = null,
 ) {
     val qwenConfigured: Boolean get() = !qwenApiKey.isNullOrBlank()
     val mapsConfigured: Boolean get() = !googleMapsApiKey.isNullOrBlank()
     val webPushConfigured: Boolean get() = !vapidPublicKey.isNullOrBlank() && !vapidPrivateKey.isNullOrBlank()
+    val fcmConfigured: Boolean get() = !fcmProjectId.isNullOrBlank() && !fcmClientEmail.isNullOrBlank() && !fcmPrivateKey.isNullOrBlank()
 
     companion object {
         fun load(env: (String) -> String? = System::getenv, envFile: File = File(".env")): AppConfig {
             val fileValues = EnvFile.read(envFile)
             fun value(name: String): String? = env(name)?.takeIf { it.isNotBlank() } ?: fileValues[name]
             val spa = value("SPA_DIR")?.let(::File)?.takeIf { it.isDirectory }
+            val fcmCreds = loadFcmCredentials(value("FCM_SERVICE_ACCOUNT_JSON") ?: value("GOOGLE_APPLICATION_CREDENTIALS"))
+            val fcmProjectId = value("FCM_PROJECT_ID") ?: fcmCreds.projectId
+            val fcmClientEmail = value("FCM_CLIENT_EMAIL") ?: fcmCreds.clientEmail
+            val fcmPrivateKey = (value("FCM_PRIVATE_KEY") ?: fcmCreds.privateKey)?.replace("\\n", "\n")
             return AppConfig(
                 port = value("PORT")?.toIntOrNull() ?: 8080,
                 arango = ArangoConfig.fromEnv { name -> value(name) },
@@ -52,7 +61,34 @@ data class AppConfig(
                 vapidPublicKey = value("VAPID_PUBLIC_KEY"),
                 vapidPrivateKey = value("VAPID_PRIVATE_KEY"),
                 vapidSubject = value("VAPID_SUBJECT") ?: "mailto:hello@saigon.town",
+                fcmProjectId = fcmProjectId,
+                fcmClientEmail = fcmClientEmail,
+                fcmPrivateKey = fcmPrivateKey,
             )
+        }
+
+        private data class FcmCreds(
+            val projectId: String? = null,
+            val clientEmail: String? = null,
+            val privateKey: String? = null,
+        )
+
+        private fun loadFcmCredentials(raw: String?): FcmCreds {
+            if (raw.isNullOrBlank()) return FcmCreds()
+            val text = raw.trim().let { candidate ->
+                if (candidate.startsWith("{")) candidate
+                else File(candidate).takeIf { it.isFile }?.readText() ?: return FcmCreds()
+            }
+            return try {
+                val node = ObjectMapper().readTree(text)
+                FcmCreds(
+                    projectId = node.path("project_id").asText("").ifBlank { null },
+                    clientEmail = node.path("client_email").asText("").ifBlank { null },
+                    privateKey = node.path("private_key").asText("").ifBlank { null },
+                )
+            } catch (_: Exception) {
+                FcmCreds()
+            }
         }
     }
 }

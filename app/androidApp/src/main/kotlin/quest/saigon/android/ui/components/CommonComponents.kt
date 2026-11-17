@@ -1,0 +1,1170 @@
+package quest.saigon.android.ui.components
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
+import quest.saigon.Copy
+import quest.saigon.Language
+import quest.saigon.NotificationCopy
+import quest.saigon.PostAge
+import quest.saigon.TextLinks
+import quest.saigon.android.theme.LivvicFontFamily
+import quest.saigon.android.theme.LocalSaigonTokens
+import quest.saigon.android.theme.SaigonBrushes
+import quest.saigon.android.theme.SaigonColors
+import quest.saigon.shared.model.NotificationDto
+import quest.saigon.shared.platform.currentTimeMillis
+import quest.saigon.shared.store.NotificationStore
+
+object AndroidIntents {
+    fun openExternalUrl(context: Context, url: String) {
+        val clean = url.trim().takeIf { it.isNotBlank() } ?: return
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clean)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    fun openDirections(context: Context, name: String, lat: Double?, lng: Double?) {
+        val uri = if (lat != null && lng != null) {
+            Uri.parse("geo:$lat,$lng?q=$lat,$lng(${Uri.encode(name)})")
+        } else {
+            Uri.parse("geo:0,0?q=${Uri.encode(name)}")
+        }
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    fun shareText(context: Context, text: String, title: String = "Saigon.Town") {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        runCatching {
+            context.startActivity(Intent.createChooser(intent, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    fun copyToClipboard(context: Context, label: String, text: String) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+    }
+}
+
+fun Modifier.dashedBorder(
+    color: Color,
+    strokeWidth: Dp = 2.dp,
+    cornerRadius: Dp = 16.dp,
+    dashLength: Dp = 6.dp,
+    gapLength: Dp = 5.dp,
+): Modifier = drawBehind {
+    val strokePx = strokeWidth.toPx()
+    val radiusPx = cornerRadius.toPx()
+    drawRoundRect(
+        color = color,
+        style = Stroke(
+            width = strokePx,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashLength.toPx(), gapLength.toPx()), 0f),
+        ),
+        cornerRadius = CornerRadius(radiusPx, radiusPx),
+    )
+}
+
+@Composable
+fun SaigonPageShell(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    backContentDescription: String = "Back",
+    topActions: (@Composable RowScope.() -> Unit)? = null,
+    floatingActionButton: (@Composable () -> Unit)? = null,
+    bottomBar: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(SaigonBrushes.pageBackground(tokens.isDark)),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(tokens.bg)
+                    .statusBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
+            ) {
+                if (onBack != null) {
+                    SaigonIconButton(
+                        onClick = onBack,
+                        overlay = false,
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = backContentDescription,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = title,
+                    color = tokens.text,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.6).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (topActions != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        content = topActions,
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                content = content,
+            )
+            if (bottomBar != null) {
+                bottomBar()
+            }
+        }
+        if (floatingActionButton != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 18.dp, bottom = 18.dp),
+            ) {
+                floatingActionButton()
+            }
+        }
+    }
+}
+
+@Composable
+fun SaigonIconButton(
+    onClick: () -> Unit,
+    overlay: Boolean = false,
+    enabled: Boolean = true,
+    size: Dp = 44.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val bg = if (overlay) Color.White.copy(alpha = 0.16f) else tokens.surface
+    val border = if (overlay) Color.White else tokens.line
+    val fg = if (overlay) Color.White else tokens.text
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(bg)
+            .border(2.dp, border, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.45f),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides fg) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun SaigonPrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    danger: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+) {
+    val tokens = LocalSaigonTokens.current
+    val shape = RoundedCornerShape(999.dp)
+    val bgBrush = if (danger) SolidColor(tokens.danger) else SaigonBrushes.primaryGradient
+    val textColor = if (danger && tokens.isDark) tokens.bg else Color.White
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .clip(shape)
+            .background(bgBrush, shape)
+            .border(
+                width = 2.dp,
+                color = if (danger) Color.Transparent else Color.White.copy(alpha = 0.42f),
+                shape = shape,
+            )
+            .clickable(enabled = enabled && !loading, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.45f)
+            .padding(contentPadding),
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                color = textColor,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(18.dp),
+            )
+        } else {
+            Text(
+                text = text,
+                color = textColor,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+fun SaigonSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+) {
+    val shape = RoundedCornerShape(999.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .clip(shape)
+            .background(SaigonBrushes.secondaryGradient, shape)
+            .border(2.dp, Color.White.copy(alpha = 0.55f), shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.45f)
+            .padding(contentPadding),
+    ) {
+        Text(
+            text = text,
+            color = Color(0xFF1C1916),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun SaigonOutlinedPillButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentColor: Color? = null,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+) {
+    val tokens = LocalSaigonTokens.current
+    val shape = RoundedCornerShape(999.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(shape)
+            .background(tokens.surface, shape)
+            .border(2.dp, tokens.line, shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.45f)
+            .padding(contentPadding),
+    ) {
+        Text(
+            text = text,
+            color = contentColor ?: tokens.text,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun SaigonTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    accent: Boolean = false,
+) {
+    val tokens = LocalSaigonTokens.current
+    val color = when {
+        danger -> tokens.danger
+        accent -> tokens.accent
+        else -> tokens.muted
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.45f)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = text,
+            color = color,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+        )
+    }
+}
+
+@Composable
+fun SaigonPillChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val tokens = LocalSaigonTokens.current
+    val shape = RoundedCornerShape(999.dp)
+    val borderColor = if (selected) tokens.text else tokens.line
+    val bgBrush: Brush = if (selected) SaigonBrushes.primaryGradient else SolidColor(tokens.surface)
+    val textColor = if (selected) Color.White else tokens.text
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(shape)
+            .background(bgBrush, shape)
+            .border(2.dp, borderColor, shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.4f)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun SaigonTinyPill(
+    label: String,
+    onClick: (() -> Unit)? = null,
+    selected: Boolean = false,
+    danger: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    val bg = when {
+        danger -> tokens.danger
+        selected -> tokens.accent
+        else -> tokens.bg
+    }
+    val fg = when {
+        danger && tokens.isDark -> tokens.bg
+        danger || selected -> Color.White
+        else -> tokens.text
+    }
+    val shape = RoundedCornerShape(999.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(shape)
+            .background(bg, shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = label,
+            color = fg,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+fun SaigonTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    placeholder: String = "",
+    supportingText: String? = null,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = if (singleLine) 1 else 6,
+    readOnly: Boolean = false,
+    enabled: Boolean = true,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    trailing: (@Composable () -> Unit)? = null,
+    containerColor: Color? = null,
+    borderWidth: Dp = 2.dp,
+    cornerRadius: Dp = 14.dp,
+) {
+    val tokens = LocalSaigonTokens.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val borderColor by animateColorAsState(if (focused) tokens.accent else tokens.line, label = "fieldBorder")
+    val shape = RoundedCornerShape(cornerRadius)
+    val bg = containerColor ?: tokens.surface
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier,
+    ) {
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                color = tokens.text,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+            )
+        }
+        Row(
+            verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(bg, shape)
+                .border(borderWidth, borderColor, shape)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                if (value.isEmpty() && placeholder.isNotEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = tokens.muted,
+                        fontSize = 15.sp,
+                        fontFamily = LivvicFontFamily,
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    readOnly = readOnly,
+                    singleLine = singleLine,
+                    minLines = minLines,
+                    maxLines = maxLines,
+                    textStyle = TextStyle(
+                        fontFamily = LivvicFontFamily,
+                        fontSize = 15.sp,
+                        lineHeight = 21.sp,
+                        color = tokens.text,
+                    ),
+                    cursorBrush = SolidColor(tokens.accent),
+                    visualTransformation = visualTransformation,
+                    keyboardOptions = keyboardOptions,
+                    keyboardActions = keyboardActions,
+                    interactionSource = interactionSource,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (trailing != null) {
+                Spacer(Modifier.width(8.dp))
+                trailing()
+            }
+        }
+        if (!supportingText.isNullOrBlank()) {
+            Text(
+                text = supportingText,
+                color = tokens.muted,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+@Composable
+fun SaigonCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    borderColor: Color? = null,
+    borderWidth: Dp = 2.dp,
+    containerColor: Color? = null,
+    cornerRadius: Dp = 16.dp,
+    contentPadding: PaddingValues = PaddingValues(12.dp),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val shape = RoundedCornerShape(cornerRadius)
+    Surface(
+        shape = shape,
+        color = containerColor ?: tokens.surface,
+        border = BorderStroke(borderWidth, borderColor ?: tokens.line),
+        modifier = modifier
+            .clip(shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+    ) {
+        Column(
+            modifier = Modifier.padding(contentPadding),
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun SaigonSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    val trackColor by animateColorAsState(if (checked) tokens.accent else tokens.line, label = "switchTrack")
+    val thumbOffset by animateDpAsState(if (checked) 18.dp else 0.dp, label = "switchThumb")
+    Box(
+        modifier = modifier
+            .size(width = 44.dp, height = 26.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(trackColor)
+            .border(2.dp, tokens.text.copy(alpha = 0.15f), RoundedCornerShape(999.dp))
+            .clickable { onCheckedChange(!checked) }
+            .padding(3.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .offset(x = thumbOffset)
+                .size(20.dp)
+                .shadow(1.dp, CircleShape)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
+    }
+}
+
+@Composable
+fun SaigonSpinner(
+    size: Dp = 28.dp,
+    strokeWidth: Dp = 3.dp,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    CircularProgressIndicator(
+        color = tokens.accent,
+        trackColor = tokens.line,
+        strokeWidth = strokeWidth,
+        modifier = modifier.size(size),
+    )
+}
+
+@Composable
+fun SaigonFab(
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(56.dp)
+            .shadow(8.dp, CircleShape)
+            .clip(CircleShape)
+            .background(tokens.fabBg)
+            .clickable(onClick = onClick),
+    ) {
+        CompositionLocalProvider(LocalContentColor provides tokens.fabContent) {
+            icon()
+        }
+    }
+}
+
+@Composable
+fun SaigonDialog(
+    onDismiss: () -> Unit,
+    showCloseButton: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(SaigonColors.Backdrop)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                )
+                .padding(20.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = tokens.surface,
+                shadowElevation = 20.dp,
+                modifier = modifier
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+            ) {
+                Box {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 14.dp),
+                        content = content,
+                    )
+                    if (showCloseButton) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 10.dp, end = 10.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(tokens.surface)
+                                .border(2.dp, tokens.line, CircleShape)
+                                .clickable(onClick = onDismiss),
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = tokens.text,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SaigonBottomSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    trailingHeader: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = tokens.surface,
+        contentColor = tokens.text,
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp, bottom = 4.dp)
+                    .size(width = 44.dp, height = 5.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(tokens.line),
+            )
+        },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 36.dp)
+                    .padding(start = 48.dp, end = 48.dp, top = 4.dp, bottom = 8.dp),
+            ) {
+                Text(
+                    text = title,
+                    color = tokens.text,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                if (trailingHeader != null) {
+                    Box(modifier = Modifier.align(Alignment.CenterStart)) {
+                        trailingHeader()
+                    }
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = 38.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(tokens.surface)
+                        .border(2.dp, tokens.line, CircleShape)
+                        .clickable(onClick = onDismiss),
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = tokens.text,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+fun UserAvatar(
+    photoUrl: String?,
+    name: String,
+    size: Dp = 44.dp,
+    borderColor: Color? = null,
+    borderWidth: Dp = 1.dp,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    val resolvedBorder = borderColor ?: tokens.line.copy(alpha = 0.7f)
+    if (!photoUrl.isNullOrBlank()) {
+        AsyncImage(
+            model = photoUrl,
+            contentDescription = name,
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(SaigonColors.FaceBg)
+                .then(if (borderWidth > 0.dp) Modifier.border(borderWidth, resolvedBorder, CircleShape) else Modifier),
+        )
+    } else {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(SaigonColors.FaceBg)
+                .then(if (borderWidth > 0.dp) Modifier.border(borderWidth, resolvedBorder, CircleShape) else Modifier),
+        ) {
+            val initial = name.trim().firstOrNull()?.uppercaseChar()?.toString()
+            if (initial != null) {
+                Text(
+                    text = initial,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = (size.value * 0.42f).sp,
+                    color = SaigonColors.Ink,
+                )
+            } else {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = name,
+                    tint = SaigonColors.Ink,
+                    modifier = Modifier.size(size * 0.55f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LinkifiedText(
+    text: String,
+    color: Color = LocalContentColor.current,
+    linkColor: Color = SaigonColors.Accent,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+    maxLines: Int = Int.MAX_VALUE,
+    textAlign: TextAlign? = null,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val annotated: AnnotatedString = remember(text, linkColor) {
+        buildAnnotatedString {
+            TextLinks.pieces(text).forEach { piece ->
+                if (piece.href != null) {
+                    pushLink(
+                        LinkAnnotation.Url(
+                            url = piece.href!!,
+                            styles = TextLinkStyles(
+                                style = SpanStyle(
+                                    color = linkColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textDecoration = TextDecoration.Underline,
+                                ),
+                            ),
+                            linkInteractionListener = {
+                                AndroidIntents.openExternalUrl(context, piece.href!!)
+                            },
+                        ),
+                    )
+                    append(piece.text)
+                    pop()
+                } else {
+                    append(piece.text)
+                }
+            }
+        }
+    }
+    Text(
+        text = annotated,
+        color = color,
+        style = style,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = textAlign,
+        modifier = modifier,
+    )
+}
+
+@Composable
+fun NotificationBellButton(
+    unreadCount: Long,
+    label: String,
+    onClick: () -> Unit,
+    overlay: Boolean = true,
+) {
+    val tokens = LocalSaigonTokens.current
+    Box(modifier = Modifier.size(44.dp)) {
+        SaigonIconButton(
+            onClick = onClick,
+            overlay = overlay,
+            size = 44.dp,
+        ) {
+            Icon(
+                Icons.Default.Notifications,
+                contentDescription = label,
+                tint = if (overlay) Color.White else tokens.text,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        if (unreadCount > 0L) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 4.dp, y = (-4).dp)
+                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(SaigonColors.NotifyRed)
+                    .border(2.dp, Color.White, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 5.dp),
+            ) {
+                Text(
+                    text = if (unreadCount > 99) "99+" else unreadCount.toString(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun NotificationsSheet(
+    store: NotificationStore,
+    language: Language,
+    onDismiss: () -> Unit,
+    onNavigatePath: (String) -> Unit,
+) {
+    val state by store.state.collectAsState()
+    val tokens = LocalSaigonTokens.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        store.loadInitial()
+    }
+
+    SaigonBottomSheet(
+        title = Copy.text(language, "notifications"),
+        onDismiss = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 20.dp),
+        ) {
+            if (state.items.any { !it.read }) {
+                Text(
+                    text = Copy.text(language, "markAllRead"),
+                    color = tokens.accent,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .clickable { scope.launch { store.markAllRead() } }
+                        .padding(vertical = 8.dp),
+                )
+            }
+            when {
+                state.isLoading && state.items.isEmpty() -> {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        SaigonSpinner()
+                    }
+                }
+                state.items.isEmpty() -> {
+                    Text(
+                        Copy.text(language, "noNotifications"),
+                        color = tokens.muted,
+                        modifier = Modifier.padding(vertical = 24.dp),
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.heightIn(max = 420.dp),
+                    ) {
+                        items(state.items, key = { it.id }) { item ->
+                            NotificationRow(
+                                item = item,
+                                language = language,
+                                onClick = {
+                                    scope.launch { store.markRead(item.id) }
+                                    onDismiss()
+                                    onNavigatePath(NotificationCopy.path(item.type, item.postId, item.chatId))
+                                },
+                            )
+                        }
+                        if (state.nextCursor != null) {
+                            item {
+                                SaigonTextButton(
+                                    text = Copy.text(language, "loadMore"),
+                                    onClick = { store.loadMore() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationRow(
+    item: NotificationDto,
+    language: Language,
+    onClick: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val bg = if (item.read) tokens.surface else tokens.accent.copy(alpha = 0.12f)
+    val border = if (item.read) tokens.line else tokens.accent
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+    ) {
+        Text(
+            NotificationCopy.title(language, item.type, item.actorName, item.preview),
+            color = tokens.text,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        val body = NotificationCopy.body(item.preview)
+        if (body.isNotBlank()) {
+            Text(body, fontSize = 13.sp, color = tokens.muted)
+        }
+        val age = PostAge.relative(item.createdAt, currentTimeMillis(), language)
+        if (!age.isNullOrBlank()) {
+            Text(age, fontSize = 12.sp, color = tokens.muted)
+        }
+    }
+}
+
+@Composable
+fun MiniProfileDialog(
+    name: String,
+    photoUrl: String?,
+    location: String,
+    intro: String,
+    language: Language,
+    onDismiss: () -> Unit,
+    onOpenProfile: (() -> Unit)? = null,
+    onMessage: (() -> Unit)? = null,
+) {
+    val tokens = LocalSaigonTokens.current
+    SaigonDialog(onDismiss = onDismiss) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            UserAvatar(photoUrl = photoUrl, name = name, size = 96.dp, borderWidth = 0.dp)
+            Text(
+                text = name,
+                color = tokens.text,
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center,
+            )
+            if (location.isNotBlank()) {
+                Text(
+                    text = location,
+                    color = tokens.muted,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (intro.isNotBlank()) {
+                LinkifiedText(
+                    text = intro,
+                    color = tokens.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (onMessage != null) {
+                    SaigonPrimaryButton(
+                        text = Copy.text(language, "messageUser", mapOf("name" to name)),
+                        onClick = {
+                            onDismiss()
+                            onMessage()
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (onOpenProfile != null) {
+                    SaigonOutlinedPillButton(
+                        text = Copy.text(language, "profile"),
+                        onClick = {
+                            onDismiss()
+                            onOpenProfile()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PhotoViewerDialog(
+    photoUrl: String,
+    onDismiss: () -> Unit,
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(SaigonColors.PhotoViewerBg)
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, _, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 4f)
+                    }
+                },
+        ) {
+            AsyncImage(
+                model = photoUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(scaleX = scale, scaleY = scale),
+            )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .border(1.dp, Color.White.copy(alpha = 0.36f), CircleShape)
+                    .clickable(onClick = onDismiss),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+}

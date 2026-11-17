@@ -1,5 +1,7 @@
 package quest.saigon.web
 
+import quest.saigon.shared.js.JsSharedHolder
+import quest.saigon.shared.js.launchAction
 import web.html.HTMLElement
 import web.window.window
 
@@ -68,22 +70,22 @@ private fun authDialog(onSuccess: () -> Unit, onClose: () -> Unit): HTMLElement 
             error.asDynamic().hidden = false
         } else {
             submit.setAttribute("disabled", "disabled")
-            val payload = js("({})")
-            payload.phone = phone.value()
-            payload.password = password.value()
-            if (creating) payload.name = name.value()
-            val path = if (creating) "/api/auth/register" else "/api/auth/login"
-            http("POST", path, jsonStringify(payload)) { status, body ->
+            val session = JsSharedHolder.client.session
+            launchAction(JsSharedHolder.scope) {
+                val ok = if (creating) {
+                    session.register(name.value(), phone.value(), password.value())
+                } else {
+                    session.login(phone.value(), password.value())
+                }
                 submit.removeAttribute("disabled")
-                if (status == 200) {
-                    Town.me = meFrom(parseJson(body))
+                if (ok) {
+                    Town.syncFromShared(session.state.value)
                     Town.rememberLanguage(Town.me?.language ?: "system")
-                    Town.applyLanguage()
                     recordUserVisit()
                     NotifyInbox.connect()
                     onSuccess()
                 } else {
-                    error.textContent = errorText(body, status)
+                    error.textContent = session.state.value.error ?: Town.t("errorGeneric")
                     error.asDynamic().hidden = false
                 }
             }

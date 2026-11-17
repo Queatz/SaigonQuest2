@@ -18,6 +18,7 @@ class InMemoryTownRepository : TownRepository {
     private val watches = ConcurrentHashMap<String, Boolean>()
     private val notifications = ConcurrentHashMap<String, NotificationRecord>()
     private val pushSubscriptions = ConcurrentHashMap<String, PushSubscriptionRecord>()
+    private val fcmTokens = ConcurrentHashMap<String, FcmTokenRecord>()
     private val admins = ConcurrentHashMap<String, AdminRecord>()
     private val communities = ConcurrentHashMap<String, CommunityRecord>()
     private val memberships = ConcurrentHashMap<String, Membership>()
@@ -1505,6 +1506,22 @@ class InMemoryTownRepository : TownRepository {
 
     override fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord> =
         pushSubscriptions.values.filter { it.userId == userId }
+
+    override fun upsertFcmToken(record: FcmTokenRecord) {
+        fcmTokens[record.token] = record
+    }
+
+    override fun deleteFcmToken(userId: String, token: String) {
+        val current = fcmTokens[token] ?: return
+        if (current.userId == userId) fcmTokens.remove(token)
+    }
+
+    override fun deleteFcmTokenByValue(token: String) {
+        fcmTokens.remove(token)
+    }
+
+    override fun fcmTokensFor(userId: String): List<FcmTokenRecord> =
+        fcmTokens.values.filter { it.userId == userId }
 
     override fun insertChat(chat: ChatRecord): ChatRecord {
         val stored = if (chat.id.isBlank()) chat.copy(id = newId()) else chat

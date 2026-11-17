@@ -5,6 +5,10 @@ import quest.saigon.PostAge
 import quest.saigon.feedSlideMotion
 import quest.saigon.postMessageNeedsMore
 import quest.saigon.previewPostMessage
+import quest.saigon.shared.js.JsSharedHolder
+import quest.saigon.shared.js.launchAction
+import quest.saigon.shared.js.observeState
+import quest.saigon.shared.store.FeedFilter
 import web.dom.document
 import web.html.HTMLElement
 import web.window.window
@@ -145,36 +149,40 @@ internal fun feedScreen(
             autoOpenFocusComments = onBack == null,
         )
     }
+    val feedFilter = when {
+        searchQuery != null -> FeedFilter.Search(searchQuery)
+        !communityId.isNullOrBlank() -> FeedFilter.Community(communityId)
+        else -> FeedFilter.Home
+    }
+    var stopFeedObserve: (() -> Unit)? = null
     fun loadFeed() {
         if (feedLoading || pagerLive) return
         feedLoading = true
-        http("GET", feedPageUrl(feedPath)) { status, body ->
+        val feedStore = JsSharedHolder.client.feed
+        var sawLoading = false
+        stopFeedObserve?.invoke()
+        stopFeedObserve = observeState(JsSharedHolder.scope, feedStore.state) { state ->
+            if (state.isLoading) {
+                sawLoading = true
+                return@observeState
+            }
+            if (!sawLoading) return@observeState
+            stopFeedObserve?.invoke()
+            stopFeedObserve = null
             feedLoading = false
-            if (shell.asDynamic().isConnected == false) return@http
-            if (pagerLive) return@http
-            if (status != 200) {
+            if (shell.asDynamic().isConnected == false || pagerLive) return@observeState
+            if (state.error != null && state.posts.isEmpty()) {
                 stage.clear()
                 stage.appendChild(emptyState(Town.t("unavailable"), emptyHint))
-                return@http
+                return@observeState
             }
-            val parsed = parseJson(body)
-            val posts = readPosts(parsed.posts)
+            val posts = state.posts.map { it.toLegacyPost() }.toMutableList()
             val pending = if (communityId == null) Town.pending else null
             Town.pending = null
             if (pending != null && posts.none { it.id == pending.id }) posts.add(0, pending)
-            if (!focusPostId.isNullOrBlank() && posts.none { it.id == focusPostId }) {
-                http("GET", "/api/posts/${encodeQuery(focusPostId)}") { postStatus, postBody ->
-                    if (shell.asDynamic().isConnected == false) return@http
-                    if (postStatus == 200) {
-                        val focused = postFrom(parseJson(postBody))
-                        if (posts.none { it.id == focused.id }) posts.add(0, focused)
-                    }
-                    start(posts, parsed.nextCursor as? String)
-                }
-            } else {
-                start(posts, parsed.nextCursor as? String)
-            }
+            start(posts, state.nextCursor)
         }
+        feedStore.loadInitial(feedFilter, focusPostId)
     }
     fun watchFeed() {
         feedResumeHandler = { loadFeed() }
@@ -265,7 +273,7 @@ private fun mountPager(
         paintPostTime(message.querySelector(".message-time"), post.createdAt)
         if (viewedId != post.id) {
             viewedId = post.id
-            http("POST", "/api/posts/${post.id}/view", "{}") { _, _ -> }
+            JsSharedHolder.client.feed.selectPost(post.id)
         }
         message.classList.remove("ready")
         cancelType = typewrite(copy, previewPostMessage(post.message)) {
@@ -352,6 +360,26 @@ private fun mountPager(
             return
         }
         loading = true
+        val feedStore = JsSharedHolder.client.feed
+        if (feedStore.state.value.nextCursor == next) {
+            var sawLoading = false
+            var stopMore: (() -> Unit)? = null
+            stopMore = observeState(JsSharedHolder.scope, feedStore.state) { state ->
+                if (state.isLoadingMore) {
+                    sawLoading = true
+                    return@observeState
+                }
+                if (!sawLoading) return@observeState
+                stopMore?.invoke()
+                loading = false
+                val existing = posts.mapTo(HashSet()) { it.id }
+                posts.addAll(state.posts.filter { it.id !in existing }.map { it.toLegacyPost() })
+                cursor = state.nextCursor
+                then()
+            }
+            feedStore.loadMore()
+            return
+        }
         http("GET", feedPageUrl(feedPath, next)) { status, body ->
             loading = false
             if (status == 200) {

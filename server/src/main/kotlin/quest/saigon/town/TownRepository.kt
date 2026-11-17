@@ -172,6 +172,10 @@ interface TownRepository {
     fun deletePushSubscription(userId: String, endpoint: String)
     fun deletePushSubscriptionByEndpoint(endpoint: String)
     fun pushSubscriptionsFor(userId: String): List<PushSubscriptionRecord>
+    fun upsertFcmToken(record: FcmTokenRecord)
+    fun deleteFcmToken(userId: String, token: String)
+    fun deleteFcmTokenByValue(token: String)
+    fun fcmTokensFor(userId: String): List<FcmTokenRecord>
     fun insertChat(chat: ChatRecord): ChatRecord
     fun updateChat(chat: ChatRecord)
     fun findChat(id: String): ChatRecord?

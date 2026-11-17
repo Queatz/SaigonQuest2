@@ -3,6 +3,12 @@ package quest.saigon.web
 import quest.saigon.Copy
 import quest.saigon.Language
 import quest.saigon.resolveLanguage
+import quest.saigon.shared.model.CommentCardDto
+import quest.saigon.shared.model.EventPersonDto
+import quest.saigon.shared.model.MeDto
+import quest.saigon.shared.model.PollChoiceDto
+import quest.saigon.shared.model.PostCardDto
+import quest.saigon.shared.store.SessionUiState
 import web.dom.document
 import web.window.window
 
@@ -128,7 +134,115 @@ internal object Town {
     fun rememberLanguage(preference: String) {
         window.asDynamic().localStorage.setItem("sq_lang", preference)
     }
+
+    fun syncFromShared(state: SessionUiState) {
+        me = state.me?.toLegacyMe()
+        meKnown = state.meKnown
+        language = state.language
+        document.asDynamic().documentElement.lang = if (language == Language.VI) "vi" else "en"
+        document.asDynamic().title = t("appName")
+    }
 }
+
+internal fun MeDto.toLegacyMe(): Me = Me(
+    id = id,
+    name = name,
+    phone = phone,
+    location = location,
+    intro = intro,
+    language = language,
+    hasProfilePhoto = hasProfilePhoto,
+    photoUrl = photoUrl,
+    paused = paused,
+    admin = admin,
+    placeId = placeId,
+    lat = lat,
+    lng = lng,
+    locationId = locationId,
+)
+
+internal fun CommentCardDto.toLegacyComment(): CommentCard = CommentCard(
+    id = id,
+    userId = userId,
+    authorName = authorName,
+    authorPhotoUrl = authorPhotoUrl,
+    authorLocation = authorLocation,
+    authorIntro = authorIntro,
+    text = text,
+    createdAt = createdAt,
+    replyToAuthorName = replyToAuthorName,
+    replyToText = replyToText,
+    postText = postText,
+)
+
+internal fun EventPersonDto.toLegacyEventPerson(): EventPerson = EventPerson(
+    id = id,
+    name = name,
+    photoUrl = photoUrl,
+    latestPostId = latestPostId,
+    latestPostPhotoUrl = latestPostPhotoUrl,
+    location = location,
+    intro = intro,
+    phone = phone,
+    zaloUrl = zaloUrl,
+)
+
+internal fun PollChoiceDto.toLegacyPollChoice(): PollChoice = PollChoice(
+    index = index,
+    text = text,
+    voteCount = voteCount,
+    voted = voted,
+    voters = voters.map { it.toLegacyEventPerson() },
+)
+
+internal fun PostCardDto.toLegacyPost(): PostCard = PostCard(
+    id = id,
+    authorId = authorId,
+    authorName = authorName,
+    authorPhotoUrl = authorPhotoUrl,
+    authorLocation = authorLocation,
+    authorIntro = authorIntro,
+    message = message,
+    location = location,
+    photoUrl = photoUrl,
+    photoUrls = photoUrls,
+    avatarUrl = avatarUrl,
+    musicName = musicName,
+    musicUrl = musicUrl,
+    quickReplies = quickReplies,
+    createdAt = createdAt,
+    commentCount = commentCount,
+    previewComments = comments.map { it.toLegacyComment() },
+    communityId = communityId,
+    communityName = communityName,
+    communityEmoji = communityEmoji,
+    communityOnly = communityOnly,
+    placeId = placeId,
+    lat = lat,
+    lng = lng,
+    locationId = locationId,
+    eventStartAt = eventStartAt,
+    eventEndAt = eventEndAt,
+    eventPrice = eventPrice,
+    attendeeCount = attendeeCount,
+    joined = joined,
+    attendees = attendees.map { it.toLegacyEventPerson() },
+    pollOptions = pollOptions.map { it.toLegacyPollChoice() },
+    hasQuestion = hasQuestion,
+    questionTitle = questionTitle,
+    answerCount = answerCount,
+    answered = answered,
+    ctaTitle = ctaTitle,
+    ctaText = ctaText,
+    ctaDestination = ctaDestination,
+    ctaUrl = ctaUrl.orEmpty(),
+    authorZaloUrl = authorZaloUrl,
+    openChatId = openChatId,
+    openChatName = openChatName.orEmpty(),
+    openChatExpiresAt = openChatExpiresAt,
+    openChatRemaining = openChatRemaining,
+    openChatJoined = openChatJoined,
+)
 
 internal fun localizedActivityText(activity: dynamic, field: String): String {
     val original = (activity[field] as? String).orEmpty()

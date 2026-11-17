@@ -23,6 +23,8 @@ kotlin {
         jsMain.dependencies {
             implementation(project(":app:sharedLogic"))
             implementation(libs.wrappers.browser)
+            implementation(libs.kotlinx.coroutinesCore)
+            implementation(libs.kotlinx.serializationJson)
         }
         jsTest.dependencies {
             implementation(libs.kotlin.test)

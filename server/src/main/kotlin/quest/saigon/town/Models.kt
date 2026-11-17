@@ -516,6 +516,13 @@ data class PushSubscriptionRecord(
     val createdAt: Long,
 )
 
+data class FcmTokenRecord(
+    val token: String,
+    val userId: String,
+    val language: String,
+    val createdAt: Long,
+)
+
 data class EventAttendee(
     val id: String,
     val name: String,

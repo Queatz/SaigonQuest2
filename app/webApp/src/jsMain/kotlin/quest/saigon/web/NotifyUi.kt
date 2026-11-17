@@ -2,34 +2,45 @@ package quest.saigon.web
 
 import quest.saigon.Language
 import quest.saigon.NotificationCopy
+import quest.saigon.shared.js.JsSharedHolder
+import quest.saigon.shared.js.launchAction
+import quest.saigon.shared.js.observeState
 import web.html.HTMLElement
 import web.window.window
 
 internal object NotifyInbox {
     var unread = 0
         private set
-    private var stopStream: (() -> Unit)? = null
+    private var stopObserve: (() -> Unit)? = null
+    private var lastSoundId: String? = null
 
     fun connect() {
         if (Town.me == null) {
             disconnect()
             return
         }
-        stopStream?.invoke()
-        stopStream = null
-        refresh()
+        val notifications = JsSharedHolder.client.notifications
+        if (stopObserve == null) {
+            stopObserve = observeState(JsSharedHolder.scope, notifications.state) { state ->
+                unread = state.unreadCount.toInt()
+                paintBadges()
+                val latest = state.latestNotification
+                if (latest != null && latest.id != lastSoundId) {
+                    lastSoundId = latest.id
+                    playNotifySound()
+                }
+            }
+        }
+        notifications.connect()
         WebPush.enable()
         ChatInbox.connect()
-        stopStream = openNotificationStream(onEvent = { _ ->
-            unread += 1
-            paintBadges()
-            playNotifySound()
-        })
     }
 
     fun disconnect() {
-        stopStream?.invoke()
-        stopStream = null
+        stopObserve?.invoke()
+        stopObserve = null
+        lastSoundId = null
+        JsSharedHolder.client.notifications.disconnect()
         unread = 0
         paintBadges()
         ChatInbox.disconnect()
@@ -38,25 +49,21 @@ internal object NotifyInbox {
 
     fun refresh() {
         if (Town.me == null) return
-        http("GET", "/api/notifications?limit=1") { status, body ->
-            if (status != 200) return@http
-            unread = num(parseJson(body).unreadCount).toInt()
-            paintBadges()
+        launchAction(JsSharedHolder.scope) {
+            JsSharedHolder.client.notifications.refreshUnread()
         }
     }
 
     fun markRead(id: String, then: () -> Unit = {}) {
-        http("POST", "/api/notifications/$id/read", "{}") { status, _ ->
-            if (status == 200 && unread > 0) unread -= 1
-            paintBadges()
+        launchAction(JsSharedHolder.scope) {
+            JsSharedHolder.client.notifications.markRead(id)
             then()
         }
     }
 
     fun markAllRead(then: () -> Unit = {}) {
-        http("POST", "/api/notifications/read-all", "{}") { status, _ ->
-            if (status == 200) unread = 0
-            paintBadges()
+        launchAction(JsSharedHolder.scope) {
+            JsSharedHolder.client.notifications.markAllRead()
             then()
         }
     }

@@ -16,7 +16,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
-            NOTIFICATIONS, PUSH_SUBSCRIPTIONS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
+            NOTIFICATIONS, PUSH_SUBSCRIPTIONS, FCM_TOKENS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
             POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
             ACTIVITIES, ACTIVITY_INTERESTS, USER_PHOTOS, LOCATION_DESCRIPTIONS,
             CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
@@ -67,6 +67,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(NOTIFICATIONS).ensurePersistentIndex(listOf("userKey", "readAt"), PersistentIndexOptions())
         db.collection(PUSH_SUBSCRIPTIONS).ensurePersistentIndex(listOf("endpoint"), PersistentIndexOptions().unique(true))
         db.collection(PUSH_SUBSCRIPTIONS).ensurePersistentIndex(listOf("userKey"), PersistentIndexOptions())
+        db.collection(FCM_TOKENS).ensurePersistentIndex(listOf("token"), PersistentIndexOptions().unique(true))
+        db.collection(FCM_TOKENS).ensurePersistentIndex(listOf("userKey"), PersistentIndexOptions())
         db.collection(CHATS).ensurePersistentIndex(listOf("pairKey"), PersistentIndexOptions().unique(true).sparse(true))
         db.collection(CHATS).ensurePersistentIndex(listOf("lastMessageAt"), PersistentIndexOptions())
         db.collection(CHAT_MEMBERS).ensurePersistentIndex(listOf("chatKey", "userKey"), PersistentIndexOptions().unique(true))
@@ -3021,6 +3023,57 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         mapOf("userKey" to userId),
     ).map(::pushFrom)
 
+    override fun upsertFcmToken(record: FcmTokenRecord) {
+        val existing = first(
+            "FOR t IN $FCM_TOKENS FILTER t.token == @token LIMIT 1 RETURN t",
+            mapOf("token" to record.token),
+        )
+        if (existing != null) {
+            db.collection(FCM_TOKENS).replaceDocument(existing.key, fcmDocument(existing.key, record))
+            return
+        }
+        val doc = fcmDocument(null, record)
+        try {
+            db.collection(FCM_TOKENS).insertDocument(doc)
+        } catch (error: ArangoDBException) {
+            if (error.errorNum != 1210) throw error
+            val again = first(
+                "FOR t IN $FCM_TOKENS FILTER t.token == @token LIMIT 1 RETURN t",
+                mapOf("token" to record.token),
+            ) ?: throw error
+            db.collection(FCM_TOKENS).replaceDocument(again.key, fcmDocument(again.key, record))
+        }
+    }
+
+    override fun deleteFcmToken(userId: String, token: String) {
+        exec(
+            """
+            FOR t IN $FCM_TOKENS
+              FILTER t.userKey == @userKey AND t.token == @token
+              REMOVE t IN $FCM_TOKENS
+              RETURN OLD
+            """.trimIndent(),
+            mapOf("userKey" to userId, "token" to token),
+        )
+    }
+
+    override fun deleteFcmTokenByValue(token: String) {
+        exec(
+            """
+            FOR t IN $FCM_TOKENS
+              FILTER t.token == @token
+              REMOVE t IN $FCM_TOKENS
+              RETURN OLD
+            """.trimIndent(),
+            mapOf("token" to token),
+        )
+    }
+
+    override fun fcmTokensFor(userId: String): List<FcmTokenRecord> = queryList(
+        "FOR t IN $FCM_TOKENS FILTER t.userKey == @userKey RETURN t",
+        mapOf("userKey" to userId),
+    ).map(::fcmFrom)
+
     override fun insertChat(chat: ChatRecord): ChatRecord {
         val doc = chatDocument(null, chat)
         val key = db.collection(CHATS).insertDocument(doc).key
@@ -3423,6 +3476,22 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         userId = string(doc, "userKey"),
         p256dh = string(doc, "p256dh"),
         auth = string(doc, "auth"),
+        language = string(doc, "language").ifBlank { "en" },
+        createdAt = long(doc, "createdAt"),
+    )
+
+    private fun fcmDocument(key: String?, record: FcmTokenRecord): BaseDocument {
+        val doc = if (key == null) BaseDocument() else BaseDocument(key)
+        doc.addAttribute("userKey", record.userId)
+        doc.addAttribute("token", record.token)
+        doc.addAttribute("language", record.language)
+        doc.addAttribute("createdAt", record.createdAt)
+        return doc
+    }
+
+    private fun fcmFrom(doc: BaseDocument) = FcmTokenRecord(
+        token = string(doc, "token"),
+        userId = string(doc, "userKey"),
         language = string(doc, "language").ifBlank { "en" },
         createdAt = long(doc, "createdAt"),
     )
@@ -4145,6 +4214,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val COMMENT_WATCHES = "commentWatches"
         private const val NOTIFICATIONS = "notifications"
         private const val PUSH_SUBSCRIPTIONS = "pushSubscriptions"
+        private const val FCM_TOKENS = "fcmTokens"
         private const val ADMINS = "admins"
         private const val DAY_STATS = "dayStats"
         private const val COMMUNITIES = "communities"

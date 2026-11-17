@@ -1,5 +1,8 @@
 package quest.saigon.web
 
+import quest.saigon.shared.js.JsSharedHolder
+import quest.saigon.shared.js.launchAction
+import quest.saigon.shared.js.observeState
 import web.dom.ElementId
 import web.dom.document
 import web.navigator.navigator
@@ -17,23 +20,30 @@ fun main() {
     router.start()
     listenForTabResume()
     registerServiceWorker()
-    http("GET", "/api/me") { status, body ->
-        if (status == 200) {
-            try {
-                Town.me = meFrom(parseJson(body))
-                Town.applyLanguage()
-                NotifyInbox.connect()
-            } catch (_: Throwable) {
-            }
+
+    var initialRefreshed = false
+    observeState(JsSharedHolder.scope, JsSharedHolder.client.session.state) { sessionState ->
+        val wasSignedIn = Town.me != null
+        Town.syncFromShared(sessionState)
+        if (sessionState.isSignedIn && !wasSignedIn) {
+            NotifyInbox.connect()
+        } else if (!sessionState.isSignedIn && wasSignedIn) {
+            NotifyInbox.disconnect()
         }
-        Town.meKnown = true
-        refresh(router)
-        recordAppVisit()
+        if (sessionState.meKnown && !initialRefreshed) {
+            initialRefreshed = true
+            refresh(router)
+            recordAppVisit()
+        }
+    }
+    launchAction(JsSharedHolder.scope) {
+        JsSharedHolder.client.bootstrap()
     }
 }
 
 private fun listenForTabResume() {
     val resume = {
+        JsSharedHolder.client.onForeground()
         NotifyInbox.connect()
         resumeFeedOnVisible()
     }
