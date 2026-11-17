@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import quest.saigon.CheckIns
 import quest.saigon.Copy
@@ -52,6 +53,7 @@ fun CommentsSheet(
     post: PostCardDto,
     detailStore: PostDetailStore,
     viewerId: String?,
+    isAdmin: Boolean = false,
     language: Language,
     onRequireAuth: () -> Unit,
     onSelectPerson: (id: String, name: String, photoUrl: String?, location: String, intro: String) -> Unit,
@@ -62,6 +64,21 @@ fun CommentsSheet(
     val scope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
     var replyTarget by remember { mutableStateOf<CommentCardDto?>(null) }
+    var pendingDeleteComment by remember { mutableStateOf<CommentCardDto?>(null) }
+
+    val replies = remember(post.id, post.quickReplies, language) {
+        post.quickReplies.ifEmpty { Copy.quickReplies(language) }
+    }
+    var placeholderIndex by remember(post.id, replies) { mutableIntStateOf(0) }
+    LaunchedEffect(post.id, replies) {
+        if (replies.size > 1) {
+            while (true) {
+                delay(Limits.COMMENT_CYCLE_MILLIS.toLong())
+                placeholderIndex = (placeholderIndex + 1) % replies.size
+            }
+        }
+    }
+    val cyclingPlaceholder = replies.getOrElse(placeholderIndex) { Copy.text(language, "emptyComments") }
 
     LaunchedEffect(post.id) {
         detailStore.bindPost(post)
@@ -103,9 +120,10 @@ fun CommentsSheet(
                             .heightIn(min = 140.dp, max = 360.dp),
                     ) {
                         items(state.comments, key = { it.id }) { comment ->
+                            val canDelete = viewerId != null && (viewerId == comment.userId || viewerId == post.authorId || isAdmin)
                             CommentRow(
                                 comment = comment,
-                                canDelete = viewerId != null && (viewerId == comment.userId || viewerId == post.authorId),
+                                canDelete = canDelete,
                                 language = language,
                                 onAuthorClick = {
                                     if (comment.userId.isNotBlank()) {
@@ -119,7 +137,7 @@ fun CommentsSheet(
                                     }
                                 },
                                 onReply = { replyTarget = comment },
-                                onDelete = { scope.launch { detailStore.deleteComment(post.id, comment.id) } },
+                                onDelete = { pendingDeleteComment = comment },
                             )
                         }
                         if (state.commentsNextCursor != null) {
@@ -176,6 +194,35 @@ fun CommentsSheet(
                     )
                 }
 
+                if (replyTarget == null && replies.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 2.dp),
+                    ) {
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(replies) { reply ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(tokens.surface)
+                                        .border(1.dp, tokens.line, RoundedCornerShape(999.dp))
+                                        .clickable { inputText = reply }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                ) {
+                                    Text(
+                                        text = reply,
+                                        color = tokens.text,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -184,7 +231,7 @@ fun CommentsSheet(
                     SaigonTextField(
                         value = inputText,
                         onValueChange = { if (it.length <= Limits.COMMENT_MAX) inputText = it },
-                        placeholder = Copy.text(language, "emptyComments"),
+                        placeholder = cyclingPlaceholder,
                         containerColor = tokens.bg,
                         borderWidth = 1.dp,
                         cornerRadius = 12.dp,
@@ -218,13 +265,49 @@ fun CommentsSheet(
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Text(
-                            Copy.text(language, "send"),
+                            Copy.text(language, "sendComment"),
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp,
                         )
                     }
                 }
+            }
+        }
+    }
+
+    pendingDeleteComment?.let { target ->
+        SaigonDialog(onDismiss = { pendingDeleteComment = null }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    Copy.text(language, "deleteCommentAsk"),
+                    color = tokens.text,
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(end = 36.dp),
+                )
+                Text(
+                    Copy.text(language, "deleteCommentHint"),
+                    color = tokens.muted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SaigonPrimaryButton(
+                    text = Copy.text(language, "delete"),
+                    danger = true,
+                    loading = state.isMutating,
+                    onClick = {
+                        scope.launch {
+                            if (detailStore.deleteComment(post.id, target.id)) {
+                                pendingDeleteComment = null
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SaigonTextButton(
+                    text = Copy.text(language, "cancel"),
+                    onClick = { pendingDeleteComment = null },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -242,7 +325,11 @@ private fun CommentRow(
     val tokens = LocalSaigonTokens.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .then(if (canDelete) Modifier.clickable(onClick = onDelete) else Modifier)
+            .padding(vertical = 2.dp),
     ) {
         UserAvatar(
             photoUrl = comment.authorPhotoUrl,

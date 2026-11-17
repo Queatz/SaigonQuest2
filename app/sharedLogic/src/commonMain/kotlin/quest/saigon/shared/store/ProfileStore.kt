@@ -338,6 +338,24 @@ class ProfileStore(
         }
     }
 
+    fun loadMoreUserPosts(userId: String) {
+        val current = _state.value
+        val cursor = current.viewedUserPostsNextCursor ?: return
+        if (current.isLoading) return
+        scope.launch {
+            when (val res = api.getUserPosts(userId, cursor = cursor)) {
+                is ApiResult.Success -> _state.update { prev ->
+                    val seen = prev.viewedUserPosts.mapTo(HashSet()) { it.id }
+                    prev.copy(
+                        viewedUserPosts = prev.viewedUserPosts + res.value.posts.filter { seen.add(it.id) },
+                        viewedUserPostsNextCursor = res.value.nextCursor,
+                    )
+                }
+                is ApiResult.Failure -> _state.update { it.copy(error = res.message) }
+            }
+        }
+    }
+
     fun clearError() {
         _state.update { it.copy(error = null) }
     }

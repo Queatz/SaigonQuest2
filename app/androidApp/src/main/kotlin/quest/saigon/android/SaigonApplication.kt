@@ -78,6 +78,7 @@ class SaigonApplication : Application(), SingletonImageLoader.Factory {
                 val req = if (!token.isNullOrBlank()) {
                     chain.request().newBuilder()
                         .header("Authorization", "Bearer $token")
+                        .header("Cookie", "sq_session=$token")
                         .build()
                 } else {
                     chain.request()

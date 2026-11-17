@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -41,11 +42,14 @@ import quest.saigon.Copy
 import quest.saigon.Limits
 import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
+import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.SaigonCard
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
+import quest.saigon.android.ui.components.SaigonMapPlacePin
+import quest.saigon.android.ui.components.SaigonMapView
 import quest.saigon.android.ui.components.SaigonPageShell
 import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSecondaryButton
@@ -55,6 +59,7 @@ import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.dashedBorder
+import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.UpdateActivityRequest
 import quest.saigon.shared.store.ActivityStore
@@ -103,6 +108,14 @@ fun ActivityDetailScreen(
         },
         backContentDescription = Copy.text(lang, "back"),
         topActions = {
+            if (act != null) {
+                SaigonIconButton(
+                    onClick = { AndroidIntents.copyPathLink(context, "/activity/${act.id}", lang) },
+                    overlay = false,
+                ) {
+                    Icon(Icons.Default.Link, contentDescription = Copy.text(lang, "copyLink"), modifier = Modifier.size(18.dp))
+                }
+            }
             if (isCreator) {
                 SaigonIconButton(onClick = { showEdit = true }, overlay = false) {
                     Icon(Icons.Default.Edit, contentDescription = Copy.text(lang, "edit"), modifier = Modifier.size(18.dp))
@@ -131,9 +144,64 @@ fun ActivityDetailScreen(
                 modifier = Modifier.fillMaxSize().navigationBarsPadding(),
             ) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("${act.emoji} ${ActivityStore.localizedName(act, lang)}", color = tokens.text, style = MaterialTheme.typography.headlineSmall)
-                        Text(act.locationName, fontSize = 14.sp, fontWeight = FontWeight.Black, color = tokens.text)
+                        Text(
+                            text = "📍 ${act.locationName}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            color = tokens.text,
+                            modifier = Modifier.clickable {
+                                val token = openLocationDestination(
+                                    shared = shared,
+                                    name = act.locationName,
+                                    placeId = act.placeId,
+                                    locationId = act.locationId,
+                                    lat = act.lat,
+                                    lng = act.lng,
+                                )
+                                onNavigate(AppRoute.Location(token))
+                            },
+                        )
+                        val lat = act.lat
+                        val lng = act.lng
+                        if (lat != null && lng != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(160.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .border(1.dp, tokens.line, RoundedCornerShape(14.dp)),
+                            ) {
+                                SaigonMapView(
+                                    places = listOf(
+                                        SaigonMapPlacePin(
+                                            key = act.locationId ?: act.placeId ?: act.locationName,
+                                            name = act.locationName,
+                                            lat = lat,
+                                            lng = lng,
+                                            activityEmojis = listOf(act.emoji),
+                                            hasActivities = true,
+                                        ),
+                                    ),
+                                    mapsApiKey = sessionState.mapsKey,
+                                    centerLat = lat,
+                                    centerLng = lng,
+                                    initialZoom = 15.5f,
+                                    onPlaceClick = {
+                                        val token = openLocationDestination(
+                                            shared = shared,
+                                            name = act.locationName,
+                                            placeId = act.placeId,
+                                            locationId = act.locationId,
+                                            lat = lat,
+                                            lng = lng,
+                                        )
+                                        onNavigate(AppRoute.Location(token))
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
                         val desc = ActivityStore.localizedDescription(act, lang)
                         if (desc.isNotBlank()) {
                             Spacer(Modifier.height(4.dp))

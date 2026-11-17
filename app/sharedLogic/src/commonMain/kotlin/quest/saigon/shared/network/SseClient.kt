@@ -79,6 +79,7 @@ class SseClient(
                     header(HttpHeaders.CacheControl, "no-cache")
                     if (!token.isNullOrBlank()) {
                         header(HttpHeaders.Authorization, "Bearer $token")
+                        header(HttpHeaders.Cookie, "sq_session=$token")
                     }
                 }.execute { response ->
                     if (response.status == HttpStatusCode.Unauthorized) {

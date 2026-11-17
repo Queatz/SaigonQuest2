@@ -6,7 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -34,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
@@ -68,11 +75,17 @@ import quest.saigon.Language
 import quest.saigon.NotificationCopy
 import quest.saigon.PostAge
 import quest.saigon.TextLinks
+import quest.saigon.android.BuildConfig
 import quest.saigon.android.theme.LivvicFontFamily
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonBrushes
 import quest.saigon.android.theme.SaigonColors
+import quest.saigon.encodeLocationToken
+import quest.saigon.shared.TownSharedClient
+import quest.saigon.shared.model.MeDto
 import quest.saigon.shared.model.NotificationDto
+import quest.saigon.shared.model.PlaceSuggestionDto
+import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.NotificationStore
 
@@ -109,6 +122,56 @@ object AndroidIntents {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         cm.setPrimaryClip(ClipData.newPlainText(label, text))
     }
+
+    fun copyPathLink(context: Context, path: String, language: Language) {
+        val clean = if (path.startsWith("/")) path else "/$path"
+        val url = "${BuildConfig.SERVER_ORIGIN.trimEnd('/')}$clean"
+        copyToClipboard(context, "Saigon.Town", url)
+        android.widget.Toast.makeText(context, Copy.text(language, "linkCopied"), android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun formatVnd(amount: Long): String {
+    val digits = amount.toString()
+    val grouped = buildString {
+        digits.forEachIndexed { index, char ->
+            if (index > 0 && (digits.length - index) % 3 == 0) append('.')
+            append(char)
+        }
+    }
+    return "$grouped đ"
+}
+
+fun openLocationDestination(
+    shared: TownSharedClient,
+    name: String,
+    placeId: String? = null,
+    locationId: String? = null,
+    lat: Double? = null,
+    lng: Double? = null,
+    initialPlace: PlaceSuggestionDto? = null,
+): String {
+    val seedPlace = initialPlace ?: if (lat != null && lng != null) {
+        PlaceSuggestionDto(
+            id = locationId,
+            name = name,
+            placeId = placeId,
+            lat = lat,
+            lng = lng,
+            custom = !locationId.isNullOrBlank(),
+        )
+    } else {
+        null
+    }
+    shared.discover.openLocation(
+        name = name,
+        placeId = placeId,
+        locationId = locationId,
+        initialPlace = seedPlace,
+    )
+    return locationId?.takeIf { it.isNotBlank() }
+        ?: placeId?.takeIf { it.isNotBlank() }
+        ?: encodeLocationToken(name)
 }
 
 fun Modifier.dashedBorder(
@@ -1117,6 +1180,266 @@ fun MiniProfileDialog(
                             onOpenProfile()
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ViewerButton(
+    me: MeDto?,
+    language: Language,
+    toComposer: Boolean,
+    overlay: Boolean = true,
+    showSignedOutBubble: Boolean = toComposer,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    val ringColor = if (overlay) Color.White else tokens.line
+    val contentDesc = Copy.text(language, if (toComposer) "createPost" else "openProfile")
+
+    Box(modifier = modifier) {
+        if (me == null) {
+            // Signed out: animated sparkles + '+' button when toComposer, or person button otherwise
+            val pulse = rememberInfiniteTransition(label = "viewerSparkle")
+            val sparkAlpha by pulse.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+                label = "sparkAlpha",
+            )
+            val bubbleBob by pulse.animateFloat(
+                initialValue = 0f,
+                targetValue = 4f,
+                animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
+                label = "bubbleBob",
+            )
+            Box(contentAlignment = Alignment.Center) {
+                if (toComposer) {
+                    Text(
+                        "✦",
+                        color = Color(0xFFFFF6C8),
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .offset(x = (-22).dp, y = (-16).dp)
+                            .alpha(sparkAlpha),
+                    )
+                    Text(
+                        "✦",
+                        color = Color(0xFFFFF6C8),
+                        fontSize = 9.sp,
+                        modifier = Modifier
+                            .offset(x = 22.dp, y = 16.dp)
+                            .alpha(1.15f - sparkAlpha * 0.7f),
+                    )
+                }
+                SaigonIconButton(
+                    onClick = onClick,
+                    overlay = overlay,
+                    size = 44.dp,
+                ) {
+                    if (toComposer) {
+                        Text(
+                            "+",
+                            color = if (overlay) Color.White else tokens.text,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineHeight = 26.sp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = contentDesc,
+                            tint = if (overlay) Color.White else tokens.text,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+            if (toComposer && showSignedOutBubble) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(y = (50 + bubbleBob).dp)
+                        .widthIn(max = 190.dp)
+                        .clickable(onClick = onClick),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 16.dp)
+                            .size(9.dp)
+                            .rotate(45f)
+                            .background(Color.White, RoundedCornerShape(2.dp)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .offset(y = (-5).dp)
+                            .shadow(8.dp, RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = Copy.text(language, "createFirstPost"),
+                            color = SaigonColors.LightText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clickable(onClick = onClick),
+            ) {
+                UserAvatar(
+                    photoUrl = me.photoUrl,
+                    name = me.name,
+                    size = 44.dp,
+                    borderColor = ringColor,
+                    borderWidth = 2.dp,
+                )
+                if (toComposer) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 2.dp, y = 2.dp)
+                            .size(18.dp)
+                            .shadow(2.dp, CircleShape)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                    ) {
+                        Text(
+                            "+",
+                            color = SaigonColors.Ink,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineHeight = 13.sp,
+                        )
+                    }
+                } else {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 2.dp, y = 2.dp)
+                            .size(18.dp)
+                            .shadow(2.dp, CircleShape)
+                            .clip(CircleShape)
+                            .background(SaigonBrushes.primaryGradient),
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = contentDesc,
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PostGridRows(
+    posts: List<PostCardDto>,
+    showAuthor: Boolean,
+    onPostClick: (PostCardDto) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalSaigonTokens.current
+    val rows = posts.chunked(3)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        rows.forEach { rowPosts ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                rowPosts.forEach { post ->
+                    val thumb = post.allPhotoUrls().firstOrNull()
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(9f / 16f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(tokens.line)
+                            .clickable { onPostClick(post) },
+                    ) {
+                        if (!thumb.isNullOrBlank()) {
+                            AsyncImage(
+                                model = thumb,
+                                contentDescription = post.message,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .fillMaxHeight(0.48f)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, Color(0xB814100C)),
+                                    ),
+                                ),
+                        )
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                        ) {
+                            if (post.message.isNotBlank()) {
+                                Text(
+                                    text = post.message,
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 14.sp,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (showAuthor && post.authorName.isNotBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    UserAvatar(
+                                        photoUrl = post.authorPhotoUrl,
+                                        name = post.authorName,
+                                        size = 20.dp,
+                                        borderColor = Color.White.copy(alpha = 0.85f),
+                                        borderWidth = 1.dp,
+                                    )
+                                    Text(
+                                        text = post.authorName,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                repeat(3 - rowPosts.size) {
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }

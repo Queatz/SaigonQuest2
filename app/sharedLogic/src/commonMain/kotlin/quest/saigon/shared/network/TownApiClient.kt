@@ -136,29 +136,35 @@ class TownApiClient(
         get("/api/me", MeDto.serializer(), notifyOnUnauthorized = false).map(::normalizeMeUrls)
 
     suspend fun register(name: String, phone: String, password: String): ApiResult<MeDto> {
+        var cookieToken: String? = null
         val result = postJson(
             "/api/auth/register",
             MeDto.serializer(),
             RegisterRequest(name, phone, password),
             RegisterRequest.serializer(),
             notifyOnUnauthorized = false,
+            onResponse = { response -> cookieToken = extractSessionCookie(response) },
         )
         if (result is ApiResult.Success) {
-            result.value.token?.let { tokenStorage.writeSessionToken(it) }
+            val resolvedToken = result.value.token?.takeIf { it.isNotBlank() } ?: cookieToken
+            resolvedToken?.let { tokenStorage.writeSessionToken(it) }
         }
         return result.map(::normalizeMeUrls)
     }
 
     suspend fun login(phone: String, password: String): ApiResult<MeDto> {
+        var cookieToken: String? = null
         val result = postJson(
             "/api/auth/login",
             MeDto.serializer(),
             LoginRequest(phone, password),
             LoginRequest.serializer(),
             notifyOnUnauthorized = false,
+            onResponse = { response -> cookieToken = extractSessionCookie(response) },
         )
         if (result is ApiResult.Success) {
-            result.value.token?.let { tokenStorage.writeSessionToken(it) }
+            val resolvedToken = result.value.token?.takeIf { it.isNotBlank() } ?: cookieToken
+            resolvedToken?.let { tokenStorage.writeSessionToken(it) }
         }
         return result.map(::normalizeMeUrls)
     }
@@ -940,7 +946,8 @@ class TownApiClient(
         body: Req,
         serializer: SerializationStrategy<Req>,
         notifyOnUnauthorized: Boolean = true,
-    ): ApiResult<Res> = execute(deserializer, notifyOnUnauthorized) {
+        onResponse: (HttpResponse) -> Unit = {},
+    ): ApiResult<Res> = execute(deserializer, notifyOnUnauthorized, onResponse) {
         httpClient.post(resolveUrl(path)) {
             attachAuth()
             contentType(ContentType.Application.Json)
@@ -1037,12 +1044,24 @@ class TownApiClient(
         val token = tokenStorage.readSessionToken()
         if (!token.isNullOrBlank()) {
             header(HttpHeaders.Authorization, "Bearer $token")
+            header(HttpHeaders.Cookie, "sq_session=$token")
         }
+    }
+
+    private fun extractSessionCookie(response: HttpResponse): String? {
+        val cookies = response.headers.getAll(HttpHeaders.SetCookie) ?: return null
+        for (raw in cookies) {
+            val match = SESSION_COOKIE_REGEX.find(raw)
+            val value = match?.groupValues?.getOrNull(1)?.trim()
+            if (!value.isNullOrBlank()) return value
+        }
+        return null
     }
 
     private suspend fun <Res> execute(
         deserializer: DeserializationStrategy<Res>,
         notifyOnUnauthorized: Boolean,
+        onResponse: (HttpResponse) -> Unit = {},
         call: suspend () -> HttpResponse,
     ): ApiResult<Res> {
         val response = try {
@@ -1052,6 +1071,7 @@ class TownApiClient(
         } catch (_: Throwable) {
             return ApiErrorMapper.toFailure(0, "", languageProvider())
         }
+        onResponse(response)
         val text = try {
             response.bodyAsText()
         } catch (cancel: CancellationException) {
@@ -1083,5 +1103,9 @@ class TownApiClient(
     private object EmptySerializer : SerializationStrategy<Unit> {
         override val descriptor = OkResponse.serializer().descriptor
         override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: Unit) {}
+    }
+
+    private companion object {
+        val SESSION_COOKIE_REGEX = Regex("\\bsq_session=([^;\\s]+)")
     }
 }

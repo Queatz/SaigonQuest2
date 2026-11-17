@@ -243,4 +243,80 @@ class CoreStoresTest {
         assertEquals(0L, store.state.value.unreadCount)
         store.disconnect()
     }
+
+    @Test
+    fun sessionStoreFallsBackToSetCookieWhenTokenMissingAndAttachesBothHeaders() = runTest {
+        val storage = InMemoryTokenStorage()
+        var sawBearerAndCookie = false
+        val engine = MockEngine { request ->
+            val path = request.url.encodedPath
+            when {
+                path == "/api/auth/login" && request.method == HttpMethod.Post -> respond(
+                    content = """{"id":"u1","name":"An","phone":"+84901234567","language":"en"}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(
+                        HttpHeaders.ContentType to listOf(ContentType.Application.Json.toString()),
+                        HttpHeaders.SetCookie to listOf("sq_session=cookie-tok-42; Path=/; HttpOnly"),
+                    ),
+                )
+                path == "/api/me" -> {
+                    val auth = request.headers[HttpHeaders.Authorization]
+                    val cookie = request.headers[HttpHeaders.Cookie]
+                    if (auth == "Bearer cookie-tok-42" && cookie == "sq_session=cookie-tok-42") {
+                        sawBearerAndCookie = true
+                        respond("""{"id":"u1","name":"An","phone":"+84901234567","language":"en"}""", HttpStatusCode.OK, jsonHeaders)
+                    } else {
+                        respond("""{"error":"unauthorized"}""", HttpStatusCode.Unauthorized, jsonHeaders)
+                    }
+                }
+                else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+            }
+        }
+        val api = TownApiClient(engine = engine, tokenStorage = storage, serverOriginProvider = { "https://saigon.town" })
+        val sessionStore = TownSessionStore(api, backgroundScope) { "en-US" }
+
+        assertTrue(sessionStore.login("0901234567", "secretpass"))
+        assertEquals("cookie-tok-42", storage.readSessionToken())
+
+        val refreshed = sessionStore.refreshMe()
+        assertTrue(sawBearerAndCookie)
+        assertEquals("u1", refreshed?.id)
+    }
+
+    @Test
+    fun discoverStoreEnsureLocationOpenPreservesSeededPlaceAndFallsBackToServerPlace() = runTest {
+        val storage = InMemoryTokenStorage(initialToken = "tok")
+        var placeGetCalls = 0
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { request ->
+                val path = request.url.encodedPath
+                when {
+                    path == "/api/places/loc1" -> {
+                        placeGetCalls += 1
+                        respond("""{"id":"loc1","name":"Cafe Saigon","lat":10.77,"lng":106.70,"custom":true}""", HttpStatusCode.OK, jsonHeaders)
+                    }
+                    path == "/api/places/description" -> respond("""{"description":"Cozy spot"}""", HttpStatusCode.OK, jsonHeaders)
+                    path == "/api/places/photos" -> respond("""{"photos":[]}""", HttpStatusCode.OK, jsonHeaders)
+                    path == "/api/activities" -> respond("""{"activities":[]}""", HttpStatusCode.OK, jsonHeaders)
+                    path == "/api/places/posts" -> respond("""{"posts":[],"nextCursor":null,"count":0}""", HttpStatusCode.OK, jsonHeaders)
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = storage, serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val discover = quest.saigon.shared.store.DiscoverStore(api, storeScope)
+
+        discover.ensureLocationOpen("loc1")
+        advanceUntilIdle()
+        assertEquals("Cafe Saigon", discover.state.value.locationDetail?.name)
+        assertEquals(10.77, discover.state.value.locationDetail?.place?.lat)
+        assertEquals(1, placeGetCalls)
+
+        // Calling ensureLocationOpen again with same ID should not wipe or re-fetch
+        discover.ensureLocationOpen("loc1")
+        advanceUntilIdle()
+        assertEquals(1, placeGetCalls)
+    }
 }

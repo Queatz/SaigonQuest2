@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
@@ -53,8 +54,11 @@ import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonBrushes
 import quest.saigon.android.theme.SaigonColors
+import quest.saigon.android.ui.components.ActivityCard
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.LinkifiedText
+import quest.saigon.android.ui.components.PhotoViewerDialog
+import quest.saigon.android.ui.components.PostGridRows
 import quest.saigon.android.ui.components.SaigonCard
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
@@ -68,6 +72,8 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.formatVnd
+import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.UpdateMeRequest
 
@@ -104,6 +110,16 @@ fun ProfileScreen(
         title = Copy.text(lang, "profile"),
         onBack = onBack,
         backContentDescription = Copy.text(lang, "back"),
+        topActions = {
+            if (me != null) {
+                SaigonIconButton(
+                    onClick = { AndroidIntents.copyPathLink(context, "/u/${me.id}", lang) },
+                    overlay = false,
+                ) {
+                    Icon(Icons.Default.Link, contentDescription = Copy.text(lang, "copyLink"), modifier = Modifier.size(20.dp))
+                }
+            }
+        },
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -262,6 +278,7 @@ fun ProfileScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PublicUserProfileScreen(
     userId: String,
@@ -272,18 +289,33 @@ fun PublicUserProfileScreen(
 ) {
     val sessionState by shared.session.state.collectAsState()
     val profileState by shared.profile.state.collectAsState()
+    val activityState by shared.activity.state.collectAsState()
     val lang = sessionState.language
     val tokens = LocalSaigonTokens.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var zoomPhoto by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(userId) {
+    LaunchedEffect(userId, sessionState.me?.id) {
         shared.profile.loadUserProfile(userId)
     }
+
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     SaigonPageShell(
         title = profileState.viewedUser?.name ?: Copy.text(lang, "profile"),
         onBack = onBack,
         backContentDescription = Copy.text(lang, "back"),
+        topActions = {
+            profileState.viewedUser?.let { u ->
+                SaigonIconButton(
+                    onClick = { AndroidIntents.copyPathLink(context, "/u/${u.id}", lang) },
+                    overlay = false,
+                ) {
+                    Icon(Icons.Default.Link, contentDescription = Copy.text(lang, "copyLink"), modifier = Modifier.size(20.dp))
+                }
+            }
+        },
     ) {
         val user = profileState.viewedUser
         if (profileState.isLoading && user == null) {
@@ -292,9 +324,9 @@ fun PublicUserProfileScreen(
             }
         } else if (user != null) {
             LazyColumn(
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 28.dp + bottomInset),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 item {
                     Column(
@@ -302,7 +334,19 @@ fun PublicUserProfileScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        UserAvatar(photoUrl = user.photoUrl, name = user.name, size = 96.dp, borderWidth = 0.dp)
+                        UserAvatar(
+                            photoUrl = user.photoUrl,
+                            name = user.name,
+                            size = 96.dp,
+                            borderWidth = 0.dp,
+                            modifier = Modifier.then(
+                                if (!user.photoUrl.isNullOrBlank()) {
+                                    Modifier.clickable { zoomPhoto = user.photoUrl }
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                        )
                         Text(user.name, color = tokens.text, style = MaterialTheme.typography.titleLarge)
                         if (user.location.isNotBlank()) {
                             Text(user.location, color = tokens.muted, fontWeight = FontWeight.Bold)
@@ -310,60 +354,224 @@ fun PublicUserProfileScreen(
                         if (user.intro.isNotBlank()) {
                             LinkifiedText(text = user.intro, color = tokens.text)
                         }
-                        if (sessionState.me?.id != user.id) {
-                            Spacer(Modifier.height(6.dp))
-                            SaigonPrimaryButton(
-                                text = Copy.text(lang, "messageUser", mapOf("name" to user.name)),
-                                onClick = {
-                                    if (sessionState.me == null) {
-                                        onRequireAuth()
-                                    } else {
-                                        scope.launch {
-                                            val chat = shared.messages.openDirectChat(user.id)
-                                            if (chat != null) onNavigate(AppRoute.Chat(chat.id))
-                                        }
+                        if (profileState.viewedUserCommunities.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                            ) {
+                                profileState.viewedUserCommunities.forEach { comm ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(tokens.surface)
+                                            .border(1.dp, tokens.line, RoundedCornerShape(999.dp))
+                                            .clickable { onNavigate(AppRoute.Community(comm.id)) }
+                                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                                    ) {
+                                        Text(
+                                            text = "${comm.emoji} ${comm.name}".trim(),
+                                            color = tokens.text,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        )
                                     }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (sessionState.me?.id != user.id) {
+                                SaigonPrimaryButton(
+                                    text = Copy.text(lang, "messageUser", mapOf("name" to user.name)),
+                                    onClick = {
+                                        if (sessionState.me == null) {
+                                            onRequireAuth()
+                                        } else {
+                                            scope.launch {
+                                                val chat = shared.messages.openDirectChat(user.id)
+                                                if (chat != null) onNavigate(AppRoute.Chat(chat.id))
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SaigonIconButton(
+                                    onClick = { AndroidIntents.copyPathLink(context, "/u/${user.id}", lang) },
+                                    overlay = false,
+                                ) {
+                                    Icon(Icons.Default.Link, contentDescription = Copy.text(lang, "copyLink"), modifier = Modifier.size(20.dp))
+                                }
+                            } else {
+                                SaigonOutlinedPillButton(
+                                    text = Copy.text(lang, "copyLink"),
+                                    onClick = { AndroidIntents.copyPathLink(context, "/u/${user.id}", lang) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
                 }
 
-                if (profileState.viewedUserPosts.isNotEmpty()) {
-                    item { Text(Copy.text(lang, "yourPosts"), color = tokens.text, style = MaterialTheme.typography.titleMedium) }
-                    items(profileState.viewedUserPosts, key = { it.id }) { post ->
-                        SaigonCard(
-                            onClick = { onNavigate(AppRoute.Post(post.id)) },
-                            borderWidth = 2.dp,
-                            cornerRadius = 16.dp,
-                            contentPadding = PaddingValues(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                AsyncImage(
-                                    model = post.photoUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(width = 72.dp, height = 96.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(tokens.line),
+                // User's activities
+                if (profileState.viewedUserActivities.isNotEmpty()) {
+                    item {
+                        Text(Copy.text(lang, "activities"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(profileState.viewedUserActivities, key = { it.id }) { act ->
+                        ActivityCard(
+                            activity = act,
+                            language = lang,
+                            viewerId = sessionState.me?.id,
+                            showLocation = true,
+                            isMutating = activityState.isMutating,
+                            onOpen = { onNavigate(AppRoute.Activity(act.id)) },
+                            onToggleInterest = {
+                                if (sessionState.me == null) {
+                                    onRequireAuth()
+                                } else {
+                                    scope.launch {
+                                        if (shared.activity.toggleInterest(act.id, act.interested) != null) {
+                                            shared.profile.loadUserProfile(userId)
+                                        }
+                                    }
+                                }
+                            },
+                            onOpenLocation = {
+                                val token = openLocationDestination(
+                                    shared = shared,
+                                    name = act.locationName,
+                                    placeId = act.placeId,
+                                    locationId = act.locationId,
+                                    lat = act.lat,
+                                    lng = act.lng,
                                 )
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                                    Text(post.message, color = tokens.text, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                    Text(post.location, fontSize = 13.sp, color = tokens.muted)
+                                onNavigate(AppRoute.Location(token))
+                            },
+                            onOpenPhoto = { url -> zoomPhoto = url },
+                        )
+                    }
+                }
+
+                // User's products (.mini-product-row)
+                if (profileState.viewedUserProducts.isNotEmpty()) {
+                    item {
+                        Text(Copy.text(lang, "products"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                    }
+                    item {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                        ) {
+                            profileState.viewedUserProducts.forEach { product ->
+                                SaigonCard(
+                                    onClick = { onNavigate(AppRoute.Product(product.id)) },
+                                    borderWidth = 2.dp,
+                                    cornerRadius = 16.dp,
+                                    contentPadding = PaddingValues(10.dp),
+                                    modifier = Modifier.width(230.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        val photo = product.photoUrls.firstOrNull()
+                                        if (!photo.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = photo,
+                                                contentDescription = product.name,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(72.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(SaigonColors.Card),
+                                            )
+                                        } else {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .size(72.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(SaigonColors.Card),
+                                            ) {
+                                                Text("🛍️", fontSize = 24.sp)
+                                            }
+                                        }
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text(
+                                                product.name,
+                                                color = tokens.text,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 14.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                formatVnd(product.price),
+                                                color = tokens.accent,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 13.sp,
+                                            )
+                                            if (product.description.isNotBlank()) {
+                                                Text(
+                                                    product.description,
+                                                    color = tokens.muted,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // User's posts (3-column 9:16 grid, never "Your posts")
+                if (profileState.viewedUserPosts.isNotEmpty()) {
+                    item {
+                        val total = maxOf(profileState.viewedUserPostsCount, profileState.viewedUserPosts.size.toLong())
+                        Text(
+                            Copy.text(lang, "postCount", mapOf("count" to total.toString())),
+                            color = tokens.text,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                    item {
+                        PostGridRows(
+                            posts = profileState.viewedUserPosts,
+                            showAuthor = false,
+                            onPostClick = { onNavigate(AppRoute.Post(it.id)) },
+                        )
+                    }
+                    if (profileState.viewedUserPostsNextCursor != null) {
+                        item {
+                            SaigonTextButton(
+                                text = Copy.text(lang, "loadMore"),
+                                onClick = { shared.profile.loadMoreUserPosts(userId) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
             }
         }
     }
+
+    zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
 }
 
 @Composable

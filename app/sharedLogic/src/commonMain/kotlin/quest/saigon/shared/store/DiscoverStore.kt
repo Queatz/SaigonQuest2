@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import quest.saigon.decodeLocationToken
+import quest.saigon.encodeLocationToken
 import quest.saigon.shared.model.*
 import quest.saigon.shared.network.ApiResult
 import quest.saigon.shared.network.TownApiClient
@@ -106,6 +108,15 @@ class DiscoverStore(
         }
     }
 
+    fun loadSummary() {
+        scope.launch {
+            when (val res = api.getEventsSummary()) {
+                is ApiResult.Success -> _state.update { it.copy(summary = res.value) }
+                is ApiResult.Failure -> Unit
+            }
+        }
+    }
+
     fun searchCommunities(query: String) {
         scope.launch {
             _state.update { it.copy(communityQuery = query, isLoadingCommunities = true, error = null) }
@@ -197,6 +208,16 @@ class DiscoverStore(
         }
     }
 
+    fun ensureLocationOpen(idOrToken: String) {
+        val current = _state.value.locationDetail
+        if (current != null && (current.isLoading || current.name.isNotBlank())) {
+            val matchesId = current.locationId == idOrToken || current.placeId == idOrToken
+            val matchesToken = current.name.isNotBlank() && encodeLocationToken(current.name) == idOrToken
+            if (matchesId || matchesToken) return
+        }
+        openLocationByIdOrToken(idOrToken)
+    }
+
     fun openLocationByIdOrToken(idOrToken: String) {
         scope.launch {
             _state.update { it.copy(locationDetail = LocationDetailState(isLoading = true)) }
@@ -211,7 +232,12 @@ class DiscoverStore(
                     )
                 }
                 is ApiResult.Failure -> {
-                    _state.update { it.copy(locationDetail = LocationDetailState(isLoading = false, error = res.message)) }
+                    val decoded = decodeLocationToken(idOrToken)
+                    if (decoded != null) {
+                        openLocation(name = decoded)
+                    } else {
+                        _state.update { it.copy(locationDetail = LocationDetailState(isLoading = false, error = res.message)) }
+                    }
                 }
             }
         }
@@ -239,10 +265,12 @@ class DiscoverStore(
             val photosDef = scope.async { api.getPlacePhotos(name, placeId, locationId) }
             val activitiesDef = scope.async { api.getActivities(name, placeId, locationId) }
             val postsDef = scope.async { api.getPlacePosts(name, placeId, locationId) }
-            val placeDef = if (initialPlace == null && !placeId.isNullOrBlank()) {
-                scope.async { api.getPlaceDetails(placeId) }
-            } else {
-                null
+            val placeDef = when {
+                initialPlace != null -> null
+                !locationId.isNullOrBlank() -> scope.async { api.getPlace(locationId) }
+                !placeId.isNullOrBlank() -> scope.async { api.getPlaceDetails(placeId) }
+                name.isNotBlank() -> scope.async { api.getPlace(encodeLocationToken(name)) }
+                else -> null
             }
 
             val desc = (descDef.await() as? ApiResult.Success)?.value?.description.orEmpty()
@@ -256,8 +284,8 @@ class DiscoverStore(
                 prev.copy(
                     locationDetail = LocationDetailState(
                         name = name,
-                        placeId = placeId,
-                        locationId = locationId,
+                        placeId = placeId ?: resolvedPlace?.placeId,
+                        locationId = locationId ?: resolvedPlace?.takeIf { it.custom }?.id,
                         place = resolvedPlace,
                         description = desc,
                         photos = photos,

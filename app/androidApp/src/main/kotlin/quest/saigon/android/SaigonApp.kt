@@ -45,7 +45,7 @@ fun SaigonApp(
     var pendingProtectedRoute by remember { mutableStateOf<AppRoute?>(null) }
 
     fun navigateTo(route: AppRoute) {
-        if (RoutePaths.requiresAuth(route) && sessionState.me == null) {
+        if (RoutePaths.requiresAuth(route) && shared.session.state.value.me == null) {
             pendingProtectedRoute = route
             authPromptVisible = true
             return
@@ -343,6 +343,9 @@ fun SaigonApp(
             onSuccess = {
                 authPromptVisible = false
                 shared.onForeground()
+                shared.feed.refresh()
+                shared.discover.loadSummary()
+                shared.discover.refreshCheckIns()
                 val target = pendingProtectedRoute
                 pendingProtectedRoute = null
                 if (target != null) navigateTo(target)
