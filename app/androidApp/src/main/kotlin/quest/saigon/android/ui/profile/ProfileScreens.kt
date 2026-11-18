@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -80,10 +82,14 @@ import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.android.ui.components.rememberDirectMessageOpener
+import quest.saigon.android.ui.shop.ProductEditorDialog
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ActivityDto
 import quest.saigon.shared.model.FeatureSuggestionDto
+import quest.saigon.shared.model.MusicDto
+import quest.saigon.shared.model.OwnedPostDto
 import quest.saigon.shared.model.PlaceSuggestionDto
+import quest.saigon.shared.model.ProductDto
 import quest.saigon.shared.model.UpdateMeRequest
 
 @Composable
@@ -93,6 +99,7 @@ fun ProfileScreen(
     onBack: () -> Unit,
 ) {
     val sessionState by shared.session.state.collectAsState()
+    val profileState by shared.profile.state.collectAsState()
     val composerState by shared.composer.state.collectAsState()
     val me = sessionState.me
     val lang = sessionState.language
@@ -101,6 +108,7 @@ fun ProfileScreen(
     val scope = rememberCoroutineScope()
 
     var name by remember(me?.id, me?.name) { mutableStateOf(me?.name.orEmpty()) }
+    var phone by remember(me?.id, me?.phone) { mutableStateOf(me?.phone.orEmpty()) }
     var location by remember(me?.id, me?.location) { mutableStateOf(me?.location.orEmpty()) }
     var selectedPlace by remember(me?.id, me?.location, me?.placeId, me?.locationId, me?.lat, me?.lng) {
         mutableStateOf(
@@ -122,8 +130,11 @@ fun ProfileScreen(
     var savedMessage by remember { mutableStateOf<String?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(me?.id) {
         shared.composer.searchPlaces("")
+        if (me != null) {
+            shared.profile.loadMyOrders()
+        }
     }
 
     val avatarPicker = rememberLauncherForActivityResult(
@@ -199,9 +210,6 @@ fun ProfileScreen(
                     }
                 }
                 Text(me?.name.orEmpty(), color = tokens.text, style = MaterialTheme.typography.titleLarge)
-                if (me != null && me.phone.isNotBlank()) {
-                    Text(me.phone, fontSize = 13.sp, color = tokens.muted)
-                }
             }
 
             val hasCoordinates = selectedPlace?.lat != null &&
@@ -209,6 +217,7 @@ fun ProfileScreen(
                 (selectedPlace?.name ?: location).isNotBlank()
             val hasEdits = me != null && (
                 name.trim() != me.name.trim() ||
+                    phone.trim() != me.phone.trim() ||
                     location.trim() != me.location.trim() ||
                     intro.trim() != me.intro.trim() ||
                     selectedPlace?.placeId != me.placeId ||
@@ -219,13 +228,22 @@ fun ProfileScreen(
 
             SaigonTextField(
                 value = name,
-                onValueChange = { if (it.length <= Limits.NAME_MAX) { name = it; savedMessage = null } },
-                label = Copy.text(lang, "name"),
+                onValueChange = { if (it.length <= Limits.NAME_MAX) { name = it; savedMessage = null; shared.session.clearError() } },
+                label = Copy.text(lang, "yourName"),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SaigonTextField(
+                value = phone,
+                onValueChange = { phone = it; savedMessage = null; shared.session.clearError() },
+                label = Copy.text(lang, "phone"),
+                placeholder = Copy.text(lang, "phoneHint"),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             LocationInputRow(
-                label = Copy.text(lang, "location"),
+                label = Copy.text(lang, "yourLocation"),
                 value = location,
                 onValueChange = { typed ->
                     location = typed
@@ -233,6 +251,7 @@ fun ProfileScreen(
                         selectedPlace = null
                     }
                     savedMessage = null
+                    shared.session.clearError()
                 },
                 hasCoordinates = hasCoordinates,
                 language = lang,
@@ -241,8 +260,9 @@ fun ProfileScreen(
             )
             SaigonTextField(
                 value = intro,
-                onValueChange = { if (it.length <= Limits.INTRO_MAX) { intro = it; savedMessage = null } },
+                onValueChange = { if (it.length <= Limits.INTRO_MAX) { intro = it; savedMessage = null; shared.session.clearError() } },
                 label = Copy.text(lang, "introduceYourself"),
+                placeholder = Copy.text(lang, "introduceYourselfHint"),
                 singleLine = false,
                 minLines = 2,
                 maxLines = 4,
@@ -260,6 +280,7 @@ fun ProfileScreen(
                             val ok = shared.session.updateProfile(
                                 UpdateMeRequest(
                                     name = name.trim(),
+                                    phone = phone.trim().takeIf { it != me.phone.trim() },
                                     location = location.trim(),
                                     placeId = selectedPlace?.placeId,
                                     locationId = selectedPlace?.id,
@@ -298,13 +319,18 @@ fun ProfileScreen(
 
             HorizontalDivider(color = tokens.line, thickness = 1.dp)
 
+            val ordersLabel = if (profileState.openOrdersCount > 0) {
+                Copy.text(lang, "productOrdersCount", mapOf("count" to profileState.openOrdersCount.toString()))
+            } else {
+                Copy.text(lang, "productOrders")
+            }
             val links = buildList {
                 add(Copy.text(lang, "yourPosts") to AppRoute.MyPosts)
                 add(Copy.text(lang, "communities") to AppRoute.MyCommunities)
                 add(Copy.text(lang, "yourMusic") to AppRoute.MyMusic)
                 add(Copy.text(lang, "products") to AppRoute.MyProducts)
                 add(Copy.text(lang, "myActivities") to AppRoute.MyActivities)
-                add(Copy.text(lang, "productOrders") to AppRoute.MyOrders)
+                add(ordersLabel to AppRoute.MyOrders)
                 add(Copy.text(lang, "allFeatures") to AppRoute.FeatureSuggestions)
                 add(Copy.text(lang, "stats") to AppRoute.Stats)
                 if (me?.admin == true) add(Copy.text(lang, "admin") to AppRoute.Admin)
@@ -650,6 +676,7 @@ fun MyPostsScreen(
     val scope = rememberCoroutineScope()
     var editingId by remember { mutableStateOf<String?>(null) }
     var editingText by remember { mutableStateOf("") }
+    var pendingDeletePost by remember { mutableStateOf<OwnedPostDto?>(null) }
 
     LaunchedEffect(Unit) { shared.profile.loadMyPosts() }
 
@@ -657,63 +684,98 @@ fun MyPostsScreen(
         title = Copy.text(lang, "yourPosts"),
         onBack = onBack,
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-        ) {
-            items(state.myPosts, key = { it.id }) { post ->
-                SaigonCard(
-                    onClick = { onNavigate(AppRoute.Post(post.id)) },
-                    borderWidth = 2.dp,
-                    cornerRadius = 16.dp,
-                    contentPadding = PaddingValues(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        if (state.isLoading && state.myPosts.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                SaigonSpinner()
+            }
+        } else if (state.myPosts.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(Copy.text(lang, "noPosts"), color = tokens.muted)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            ) {
+                items(state.myPosts, key = { it.id }) { post ->
+                    SaigonCard(
+                        onClick = { onNavigate(AppRoute.Post(post.id)) },
+                        borderWidth = 2.dp,
+                        cornerRadius = 16.dp,
+                        contentPadding = PaddingValues(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        AsyncImage(
-                            model = post.photoUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(width = 72.dp, height = 96.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(tokens.line),
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                            Text(post.message, color = tokens.text, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                text = buildAnnotatedString {
-                                    withStyle(SpanStyle(color = tokens.text, fontWeight = FontWeight.ExtraBold)) { append("${post.views}") }
-                                    append(" 👁 · ")
-                                    withStyle(SpanStyle(color = tokens.text, fontWeight = FontWeight.ExtraBold)) { append("${post.replyClicks}") }
-                                    append(" 💬 · ")
-                                    withStyle(SpanStyle(color = tokens.text, fontWeight = FontWeight.ExtraBold)) { append("${post.shareClicks}") }
-                                    append(" ↗")
-                                },
-                                fontSize = 13.sp,
-                                color = tokens.muted,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            AsyncImage(
+                                model = post.photoUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(width = 72.dp, height = 96.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(tokens.line),
                             )
-                        }
-                        IconButton(onClick = { editingId = post.id; editingText = post.message }) {
-                            Icon(Icons.Default.Edit, contentDescription = null, tint = tokens.accent)
-                        }
-                        IconButton(onClick = { scope.launch { shared.profile.deleteMyPost(post.id) } }) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = tokens.danger)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+                                Text(post.message, color = tokens.text, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                if (post.location.isNotBlank()) {
+                                    Text("📍 ${post.location}", fontSize = 13.sp, color = tokens.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                if (!post.communityId.isNullOrBlank() && !post.communityName.isNullOrBlank()) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        SaigonTinyPill(
+                                            label = "${post.communityEmoji ?: "✨"} ${post.communityName}".trim(),
+                                            onClick = { onNavigate(AppRoute.Community(post.communityId!!)) },
+                                        )
+                                        if (post.communityOnly) {
+                                            Text(Copy.text(lang, "communityOnly"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = tokens.muted)
+                                        }
+                                    }
+                                }
+                                if (!post.musicName.isNullOrBlank()) {
+                                    Text("🎵 ${post.musicName}", fontSize = 13.sp, color = tokens.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Text(
+                                    text = buildAnnotatedString {
+                                        withStyle(SpanStyle(color = tokens.text, fontWeight = FontWeight.ExtraBold)) { append("${post.views}") }
+                                        append(" ${Copy.text(lang, "views")} · ")
+                                        withStyle(SpanStyle(color = tokens.text, fontWeight = FontWeight.ExtraBold)) { append("${post.replyClicks}") }
+                                        append(" ${Copy.text(lang, "repliesClicked")} · ")
+                                        withStyle(SpanStyle(color = tokens.text, fontWeight = FontWeight.ExtraBold)) { append("${post.shareClicks}") }
+                                        append(" ${Copy.text(lang, "shareClicked")}")
+                                    },
+                                    fontSize = 12.sp,
+                                    color = tokens.muted,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, "edit"),
+                                        onClick = { editingId = post.id; editingText = post.message },
+                                    )
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, "delete"),
+                                        danger = true,
+                                        onClick = { pendingDeletePost = post },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
-            if (state.myPostsNextCursor != null) {
-                item {
-                    SaigonTextButton(
-                        text = Copy.text(lang, "loadMore"),
-                        onClick = { shared.profile.loadMyPosts(loadMore = true) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                if (state.myPostsNextCursor != null) {
+                    item {
+                        SaigonTextButton(
+                            text = Copy.text(lang, "loadMore"),
+                            onClick = { shared.profile.loadMyPosts(loadMore = true) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }
@@ -743,6 +805,24 @@ fun MyPostsScreen(
             }
         }
     }
+
+    pendingDeletePost?.let { target ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deletePostAsk"),
+            hint = Copy.text(lang, "deletePostHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = state.isMutating,
+            onConfirm = {
+                scope.launch {
+                    if (shared.profile.deleteMyPost(target.id)) {
+                        pendingDeletePost = null
+                    }
+                }
+            },
+            onDismiss = { pendingDeletePost = null },
+        )
+    }
 }
 
 @Composable
@@ -762,27 +842,38 @@ fun MyCommunitiesScreen(
         title = Copy.text(lang, "communities"),
         onBack = onBack,
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-        ) {
-            items(state.myCommunities, key = { it.id }) { comm ->
-                SaigonCard(
-                    onClick = { onNavigate(AppRoute.Community(comm.id)) },
-                    borderWidth = 1.dp,
-                    cornerRadius = 14.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("${comm.emoji} ${comm.name}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                            Text("${comm.memberCount} ${Copy.text(lang, "communityMembers")}", fontSize = 12.sp, color = tokens.muted)
+        if (state.isLoading && state.myCommunities.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                SaigonSpinner()
+            }
+        } else if (state.myCommunities.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(Copy.text(lang, "noCommunities"), color = tokens.muted)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            ) {
+                items(state.myCommunities, key = { it.id }) { comm ->
+                    SaigonCard(
+                        onClick = { onNavigate(AppRoute.Community(comm.id)) },
+                        borderWidth = 1.dp,
+                        cornerRadius = 14.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${comm.emoji} ${comm.name}", color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                                Text("${comm.memberCount} ${Copy.text(lang, "communityMembers")}", fontSize = 12.sp, color = tokens.muted)
+                            }
+                            SaigonTinyPill(
+                                label = Copy.text(lang, "leaveCommunity"),
+                                danger = true,
+                                onClick = { scope.launch { shared.profile.leaveMyCommunity(comm.id) } },
+                            )
                         }
-                        SaigonTinyPill(
-                            label = Copy.text(lang, "leaveCommunity"),
-                            onClick = { scope.launch { shared.profile.leaveMyCommunity(comm.id) } },
-                        )
                     }
                 }
             }
@@ -790,6 +881,7 @@ fun MyCommunitiesScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MyMusicScreen(
     shared: TownSharedClient,
@@ -802,6 +894,10 @@ fun MyMusicScreen(
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    var renamingTrack by remember { mutableStateOf<MusicDto?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var renameError by remember { mutableStateOf<String?>(null) }
+    var expandedLyricsIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     LaunchedEffect(Unit) { shared.profile.loadMyMusic() }
 
@@ -809,40 +905,171 @@ fun MyMusicScreen(
         title = Copy.text(lang, "yourMusic"),
         onBack = onBack,
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-        ) {
-            items(state.myMusic, key = { it.id }) { track ->
-                SaigonCard(
-                    borderWidth = 2.dp,
-                    cornerRadius = 16.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (!track.audioUrl.isNullOrBlank()) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(tokens.bg)
-                                    .clickable { audioPlayer.toggle(track.audioUrl) },
-                            ) {
-                                val playing = audioState.isPlaying && audioState.currentUrl == track.audioUrl
-                                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = tokens.text)
+        if (state.isLoading && state.myMusic.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                SaigonSpinner()
+            }
+        } else if (state.myMusic.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(Copy.text(lang, "noMusicYet"), color = tokens.muted)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            ) {
+                items(state.myMusic, key = { it.id }) { track ->
+                    val lyricsText = track.lyrics.orEmpty()
+                    val showLyrics = track.id in expandedLyricsIds
+                    SaigonCard(
+                        borderWidth = 2.dp,
+                        cornerRadius = 16.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "🎵 ${track.name.ifBlank { track.prompt }}",
+                                color = tokens.text,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                            when (track.status) {
+                                "failed" -> {
+                                    val errText = track.error?.takeIf { it.isNotBlank() }?.let {
+                                        Copy.text(lang, "musicFailedDetail", mapOf("reason" to it))
+                                    } ?: Copy.text(lang, "musicFailed")
+                                    Text(errText, fontSize = 12.sp, color = tokens.danger)
+                                }
+                                "generating" -> {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        SaigonSpinner(size = 18.dp)
+                                        Text(Copy.text(lang, "generatingMusic"), fontSize = 12.sp, color = tokens.muted)
+                                    }
+                                }
+                                else -> {
+                                    if (track.prompt.isNotBlank()) {
+                                        Text(track.prompt, fontSize = 12.sp, color = tokens.muted)
+                                    }
+                                }
                             }
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(track.name.ifBlank { track.prompt }, color = tokens.text, fontWeight = FontWeight.Bold)
-                            Text(track.status, fontSize = 12.sp, color = tokens.muted)
-                        }
-                        IconButton(onClick = { pendingDeleteId = track.id }) {
-                            Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "delete"), tint = tokens.danger)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                val audioUrl = track.audioUrl
+                                if (track.status == "ready" && !audioUrl.isNullOrBlank()) {
+                                    val playing = audioState.isPlaying && audioState.currentUrl == audioUrl
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, if (playing) "pause" else "preview"),
+                                        selected = playing,
+                                        onClick = { audioPlayer.toggle(audioUrl) },
+                                    )
+                                }
+                                if (track.status != "generating") {
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, "rename"),
+                                        onClick = {
+                                            renamingTrack = track
+                                            renameText = track.name
+                                            renameError = null
+                                        },
+                                    )
+                                }
+                                if (lyricsText.isNotBlank()) {
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, "lyrics"),
+                                        selected = showLyrics,
+                                        onClick = {
+                                            expandedLyricsIds = if (showLyrics) {
+                                                expandedLyricsIds - track.id
+                                            } else {
+                                                expandedLyricsIds + track.id
+                                            }
+                                        },
+                                    )
+                                }
+                                if (track.status == "failed") {
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, "retry"),
+                                        onClick = {
+                                            scope.launch {
+                                                shared.profile.retryMyMusic(track.id)
+                                            }
+                                        },
+                                    )
+                                }
+                                if (track.status != "generating") {
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, "delete"),
+                                        danger = true,
+                                        onClick = { pendingDeleteId = track.id },
+                                    )
+                                }
+                            }
+                            if (showLyrics && lyricsText.isNotBlank()) {
+                                Text(
+                                    lyricsText,
+                                    color = tokens.muted,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                )
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+
+    renamingTrack?.let { target ->
+        SaigonDialog(onDismiss = { renamingTrack = null }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    Copy.text(lang, "rename"),
+                    color = tokens.text,
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(end = 36.dp),
+                )
+                SaigonTextField(
+                    value = renameText,
+                    onValueChange = {
+                        if (it.length <= Limits.MUSIC_NAME_MAX) {
+                            renameText = it
+                            renameError = null
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                (renameError ?: state.error)?.let {
+                    Text(it, color = tokens.danger, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                SaigonPrimaryButton(
+                    text = Copy.text(lang, "save"),
+                    enabled = !state.isMutating,
+                    loading = state.isMutating,
+                    onClick = {
+                        val clean = renameText.trim()
+                        if (clean.isEmpty()) {
+                            renameError = Copy.text(lang, "invalidMusicName")
+                            return@SaigonPrimaryButton
+                        }
+                        scope.launch {
+                            if (shared.profile.renameMyMusic(target.id, clean) != null) {
+                                renamingTrack = null
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SaigonTextButton(
+                    text = Copy.text(lang, "cancel"),
+                    onClick = { renamingTrack = null },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -853,11 +1080,12 @@ fun MyMusicScreen(
             hint = Copy.text(lang, "dismissMusicHint"),
             confirmLabel = Copy.text(lang, "delete"),
             cancelLabel = Copy.text(lang, "cancel"),
+            loading = state.isMutating,
             onConfirm = {
                 scope.launch {
-                    shared.composer.deleteMusic(targetId)
-                    shared.profile.loadMyMusic()
-                    pendingDeleteId = null
+                    if (shared.profile.deleteMyMusic(targetId)) {
+                        pendingDeleteId = null
+                    }
                 }
             },
             onDismiss = { pendingDeleteId = null },
@@ -873,8 +1101,12 @@ fun MyProductsScreen(
 ) {
     val lang = shared.session.state.collectAsState().value.language
     val state by shared.profile.state.collectAsState()
+    val shopState by shared.shop.state.collectAsState()
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var editingProduct by remember { mutableStateOf<ProductDto?>(null) }
+    var pendingDeleteProduct by remember { mutableStateOf<ProductDto?>(null) }
 
     LaunchedEffect(Unit) { shared.profile.loadMyProducts() }
 
@@ -882,50 +1114,136 @@ fun MyProductsScreen(
         title = Copy.text(lang, "products"),
         onBack = onBack,
         topActions = {
-            SaigonIconButton(onClick = { onNavigate(AppRoute.Shop) }, overlay = false) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+            SaigonIconButton(onClick = { showCreateDialog = true }, overlay = false) {
+                Icon(Icons.Default.Add, contentDescription = Copy.text(lang, "createProduct"), modifier = Modifier.size(20.dp))
             }
         },
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-        ) {
-            items(state.myProducts, key = { it.id }) { product ->
-                SaigonCard(
-                    onClick = { onNavigate(AppRoute.Product(product.id)) },
-                    borderWidth = 2.dp,
-                    cornerRadius = 16.dp,
-                    contentPadding = PaddingValues(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        AsyncImage(
-                            model = product.photoUrls.firstOrNull(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(68.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(SaigonColors.Card),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(product.name, color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                            Text("${product.price} đ", color = tokens.accent, fontWeight = FontWeight.ExtraBold)
-                        }
-                        IconButton(onClick = {
-                            scope.launch {
-                                shared.shop.deleteProduct(product.id)
-                                shared.profile.loadMyProducts()
+        if (state.isLoading && state.myProducts.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                SaigonSpinner()
+            }
+        } else if (state.myProducts.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(Copy.text(lang, "noProducts"), color = tokens.muted)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            ) {
+                items(state.myProducts, key = { it.id }) { product ->
+                    SaigonCard(
+                        onClick = { onNavigate(AppRoute.Product(product.id)) },
+                        borderWidth = 2.dp,
+                        cornerRadius = 16.dp,
+                        contentPadding = PaddingValues(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                val photo = product.photoUrls.firstOrNull()
+                                if (!photo.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = photo,
+                                        contentDescription = product.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(84.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(SaigonColors.Card),
+                                    )
+                                } else {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(84.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(SaigonColors.Card),
+                                    ) {
+                                        Text("🛍️", fontSize = 26.sp)
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
+                                    Text(product.name, color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                                    Text(formatVnd(product.price), color = tokens.accent, fontWeight = FontWeight.ExtraBold)
+                                    if (product.description.isNotBlank()) {
+                                        Text(
+                                            product.description,
+                                            color = tokens.muted,
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
                             }
-                        }) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = tokens.danger)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SaigonTinyPill(
+                                    label = Copy.text(lang, "edit"),
+                                    onClick = { editingProduct = product },
+                                )
+                                SaigonTinyPill(
+                                    label = Copy.text(lang, "delete"),
+                                    danger = true,
+                                    onClick = { pendingDeleteProduct = product },
+                                )
+                            }
                         }
+                    }
+                }
+                if (state.myProductsNextCursor != null) {
+                    item {
+                        SaigonTextButton(
+                            text = Copy.text(lang, "loadMore"),
+                            onClick = { shared.profile.loadMyProducts(loadMore = true) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
         }
+    }
+
+    if (showCreateDialog) {
+        ProductEditorDialog(
+            existing = null,
+            shared = shared,
+            language = lang,
+            onSaved = { shared.profile.loadMyProducts() },
+            onDismiss = { showCreateDialog = false },
+        )
+    }
+
+    editingProduct?.let { target ->
+        ProductEditorDialog(
+            existing = target,
+            shared = shared,
+            language = lang,
+            onSaved = { shared.profile.loadMyProducts() },
+            onDismiss = { editingProduct = null },
+        )
+    }
+
+    pendingDeleteProduct?.let { target ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deleteProductAsk"),
+            hint = Copy.text(lang, "deleteProductHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = shopState.isSubmitting,
+            onConfirm = {
+                scope.launch {
+                    if (shared.shop.deleteProduct(target.id)) {
+                        pendingDeleteProduct = null
+                        shared.profile.loadMyProducts()
+                    }
+                }
+            },
+            onDismiss = { pendingDeleteProduct = null },
+        )
     }
 }
 
@@ -1072,54 +1390,73 @@ fun MyOrdersScreen(
         title = Copy.text(lang, "productOrdersCount", mapOf("count" to state.openOrdersCount.toString())),
         onBack = onBack,
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-        ) {
-            items(state.myOrders, key = { it.id }) { order ->
-                SaigonCard(
-                    borderColor = if (!order.resolved) tokens.accent else tokens.line,
-                    borderWidth = 2.dp,
-                    cornerRadius = 16.dp,
-                    contentPadding = PaddingValues(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .alpha(if (order.resolved) 0.75f else 1f),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(order.productName, color = tokens.text, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                            Text("${order.price} đ", color = tokens.accent, fontWeight = FontWeight.ExtraBold)
-                        }
-                        Text(
-                            "${order.buyerName.orEmpty()} · ${order.buyerPhone.orEmpty()}".uppercase(),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = tokens.muted,
-                        )
-                        if (order.message.isNotBlank()) Text(order.message, color = tokens.text)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            order.contactChatId?.let { chatId ->
-                                SaigonOutlinedPillButton(
-                                    text = Copy.text(lang, "openChat"),
-                                    onClick = { onNavigate(AppRoute.Chat(chatId)) },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                                )
+        if (state.isLoading && state.myOrders.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                SaigonSpinner()
+            }
+        } else if (state.myOrders.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(Copy.text(lang, "noProductOrders"), color = tokens.muted)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            ) {
+                items(state.myOrders, key = { it.id }) { order ->
+                    SaigonCard(
+                        borderColor = if (!order.resolved) tokens.accent else tokens.line,
+                        borderWidth = 2.dp,
+                        cornerRadius = 16.dp,
+                        contentPadding = PaddingValues(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .alpha(if (order.resolved) 0.75f else 1f),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(order.productName, color = tokens.text, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                                Text(formatVnd(order.price), color = tokens.accent, fontWeight = FontWeight.ExtraBold)
                             }
-                            if (order.contactMethod == "zalo" && !order.buyerPhone.isNullOrBlank()) {
-                                SaigonOutlinedPillButton(
-                                    text = "Zalo",
-                                    onClick = { AndroidIntents.openExternalUrl(context, "https://zalo.me/${order.buyerPhone}") },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                                )
-                            }
-                            SaigonSecondaryButton(
-                                text = Copy.text(lang, if (order.resolved) "markUnresolved" else "markResolved"),
-                                onClick = { scope.launch { shared.profile.resolveOrder(order.id, !order.resolved) } },
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            Text(
+                                "${order.buyerName.orEmpty()} · ${order.buyerPhone.orEmpty()}".uppercase(),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = tokens.muted,
                             )
+                            if (order.message.isNotBlank()) Text(order.message, color = tokens.text)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                order.contactChatId?.let { chatId ->
+                                    SaigonOutlinedPillButton(
+                                        text = Copy.text(lang, "openChat"),
+                                        onClick = { onNavigate(AppRoute.Chat(chatId)) },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    )
+                                }
+                                if (order.contactMethod == "zalo" && !order.buyerPhone.isNullOrBlank()) {
+                                    SaigonOutlinedPillButton(
+                                        text = "Zalo",
+                                        onClick = { AndroidIntents.openExternalUrl(context, "https://zalo.me/${order.buyerPhone}") },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    )
+                                }
+                                SaigonSecondaryButton(
+                                    text = Copy.text(lang, if (order.resolved) "markUnresolved" else "markResolved"),
+                                    onClick = { scope.launch { shared.profile.resolveOrder(order.id, !order.resolved) } },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                )
+                            }
                         }
+                    }
+                }
+                if (state.myOrdersNextCursor != null) {
+                    item {
+                        SaigonTextButton(
+                            text = Copy.text(lang, "loadMore"),
+                            onClick = { shared.profile.loadMyOrders(loadMore = true) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -1127,6 +1464,7 @@ fun MyOrdersScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FeatureSuggestionsScreen(
     shared: TownSharedClient,
@@ -1151,12 +1489,12 @@ fun FeatureSuggestionsScreen(
                 SaigonTextField(
                     value = input,
                     onValueChange = { if (it.length <= Limits.FEATURE_MAX) input = it },
-                    placeholder = Copy.text(lang, "suggestFeature"),
+                    placeholder = Copy.text(lang, "suggestFeatureHint"),
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
                 SaigonPrimaryButton(
-                    text = Copy.text(lang, "send"),
+                    text = Copy.text(lang, "submitFeature"),
                     enabled = input.isNotBlank() && !state.isMutating,
                     dimWhenDisabled = false,
                     onClick = {
@@ -1169,38 +1507,66 @@ fun FeatureSuggestionsScreen(
                 )
             }
             Spacer(Modifier.height(12.dp))
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.navigationBarsPadding(),
-            ) {
-                items(state.features, key = { it.id }) { feat ->
-                    SaigonCard(
-                        borderWidth = 2.dp,
-                        cornerRadius = 14.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .alpha(if (feat.resolved) 0.72f else 1f),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+            if (state.isLoading && state.features.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    SaigonSpinner()
+                }
+            } else if (state.features.isEmpty()) {
+                Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Text(Copy.text(lang, "noFeatures"), color = tokens.muted)
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.navigationBarsPadding(),
+                ) {
+                    items(state.features, key = { it.id }) { feat ->
+                        SaigonCard(
+                            borderWidth = 2.dp,
+                            cornerRadius = 14.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .alpha(if (feat.resolved) 0.72f else 1f),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(feat.text, color = tokens.text, fontWeight = FontWeight.Medium)
-                                if (feat.resolved) {
-                                    Text(
-                                        Copy.text(lang, "resolved").uppercase(),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = tokens.accent,
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    itemVerticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (feat.resolved) {
+                                        Text(
+                                            Copy.text(lang, "featureResolved").uppercase(),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = tokens.accent,
+                                        )
+                                    }
+                                    SaigonTinyPill(
+                                        label = Copy.text(lang, if (feat.voted) "voted" else "vote"),
+                                        selected = feat.voted,
+                                        onClick = { scope.launch { shared.profile.voteFeature(feat.id) } },
                                     )
-                                }
-                            }
-                            SaigonTinyPill(
-                                label = "👍 ${feat.voteCount}",
-                                selected = feat.voted,
-                                onClick = { scope.launch { shared.profile.voteFeature(feat.id) } },
-                            )
-                            if (sessionState.me?.admin == true) {
-                                IconButton(onClick = { pendingDeleteFeature = feat }) {
-                                    Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "delete"), tint = tokens.danger)
+                                    Text(
+                                        Copy.text(lang, "votes", mapOf("count" to feat.voteCount.toString())),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = tokens.muted,
+                                    )
+                                    if (sessionState.me?.admin == true) {
+                                        if (!feat.resolved) {
+                                            SaigonTinyPill(
+                                                label = Copy.text(lang, "resolveFeature"),
+                                                onClick = { scope.launch { shared.profile.resolveFeature(feat.id) } },
+                                            )
+                                        }
+                                        SaigonTinyPill(
+                                            label = Copy.text(lang, "delete"),
+                                            danger = true,
+                                            onClick = { pendingDeleteFeature = feat },
+                                        )
+                                    }
                                 }
                             }
                         }

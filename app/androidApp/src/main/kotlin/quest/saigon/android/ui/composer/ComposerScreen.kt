@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -46,14 +48,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,6 +75,7 @@ import quest.saigon.Language
 import quest.saigon.Limits
 import quest.saigon.android.media.AudioPreviewPlayer
 import quest.saigon.android.media.ImagePreparer
+import quest.saigon.android.theme.LivvicFontFamily
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.ui.components.LocationInputRow
 import quest.saigon.android.ui.components.LocationPickerDialog
@@ -186,7 +193,9 @@ fun ComposerScreen(
     var selectedOpenChatGroup by remember { mutableStateOf<ChatDto?>(null) }
     var openChatName by remember { mutableStateOf("") }
     var openChatHours by remember { mutableIntStateOf(Limits.OPEN_CHAT_HOURS_DEFAULT) }
+    var openChatHoursText by remember { mutableStateOf(Limits.OPEN_CHAT_HOURS_DEFAULT.toString()) }
     var openChatRemaining by remember { mutableStateOf<Int?>(null) }
+    var openChatRemainingText by remember { mutableStateOf("") }
 
     var checkInMinutes by remember { mutableStateOf<Int?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
@@ -349,6 +358,12 @@ fun ComposerScreen(
                 }
             }
             if (enableOpenChat) {
+                val resolvedHours = openChatHoursText.trim().toIntOrNull()
+                    ?.coerceIn(Limits.OPEN_CHAT_HOURS_MIN, Limits.OPEN_CHAT_HOURS_MAX)
+                    ?: openChatHours.coerceIn(Limits.OPEN_CHAT_HOURS_MIN, Limits.OPEN_CHAT_HOURS_MAX)
+                val resolvedRemaining = openChatRemainingText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+                    ?.coerceIn(Limits.OPEN_CHAT_REMAINING_MIN, Limits.OPEN_CHAT_REMAINING_MAX)
+                    ?: openChatRemaining
                 put("addOpenChat", "true")
                 put("openChatNew", if (openChatCreateNew) "true" else "false")
                 if (openChatCreateNew) {
@@ -356,8 +371,8 @@ fun ComposerScreen(
                 } else {
                     selectedOpenChatGroup?.id?.let { put("openChatId", it) }
                 }
-                put("openChatHours", openChatHours.toString())
-                openChatRemaining?.let { put("openChatRemaining", it.toString()) }
+                put("openChatHours", resolvedHours.toString())
+                resolvedRemaining?.let { put("openChatRemaining", it.toString()) }
             }
         }
         scope.launch {
@@ -441,16 +456,6 @@ fun ComposerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            SaigonTextField(
-                value = firstComment,
-                onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
-                label = "💭 ${Copy.text(lang, "firstComment")}",
-                singleLine = false,
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
             // Location input + map picker button (.location-input-row)
             LocationInputRow(
                 label = "📍 ${Copy.text(lang, "location")}",
@@ -465,6 +470,16 @@ fun ComposerScreen(
                 hasCoordinates = hasCoordinates,
                 language = lang,
                 onOpenMapPicker = { showLocationDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SaigonTextField(
+                value = firstComment,
+                onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
+                label = "💭 ${Copy.text(lang, "firstComment")}",
+                singleLine = false,
+                minLines = 2,
+                maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -648,6 +663,7 @@ fun ComposerScreen(
                             },
                             label = Copy.text(lang, "eventPrice"),
                             placeholder = Copy.text(lang, "eventPriceHint"),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -815,65 +831,86 @@ fun ComposerScreen(
                             )
                         }
 
-                        // Available for (hours stepper)
-                        Text(Copy.text(lang, "openChatExpiration"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            StepperButton("−", enabled = openChatHours > Limits.OPEN_CHAT_HOURS_MIN) {
-                                openChatHours = (openChatHours - 1).coerceAtLeast(Limits.OPEN_CHAT_HOURS_MIN)
-                            }
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .defaultMinSize(minHeight = 44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(tokens.surface)
-                                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) {
-                                Text("$openChatHours ${Copy.text(lang, "hoursUnit")}", color = tokens.text, fontWeight = FontWeight.Bold)
-                            }
-                            StepperButton("+", enabled = openChatHours < Limits.OPEN_CHAT_HOURS_MAX) {
-                                openChatHours = (openChatHours + 1).coerceAtMost(Limits.OPEN_CHAT_HOURS_MAX)
-                            }
-                        }
+                        // Available for (editable numeric input + stepper + suffix)
+                        OpenChatNumberField(
+                            label = Copy.text(lang, "openChatExpiration"),
+                            text = openChatHoursText,
+                            min = Limits.OPEN_CHAT_HOURS_MIN,
+                            max = Limits.OPEN_CHAT_HOURS_MAX,
+                            optional = false,
+                            suffix = Copy.text(lang, "hoursUnit"),
+                            onTextChange = { raw ->
+                                val digits = raw.filter(Char::isDigit)
+                                openChatHoursText = digits
+                                digits.toIntOrNull()?.takeIf { it in Limits.OPEN_CHAT_HOURS_MIN..Limits.OPEN_CHAT_HOURS_MAX }?.let {
+                                    openChatHours = it
+                                }
+                            },
+                            onNormalize = {
+                                val bounded = (openChatHoursText.toIntOrNull() ?: Limits.OPEN_CHAT_HOURS_MIN)
+                                    .coerceIn(Limits.OPEN_CHAT_HOURS_MIN, Limits.OPEN_CHAT_HOURS_MAX)
+                                openChatHours = bounded
+                                openChatHoursText = bounded.toString()
+                            },
+                            onStep = { delta ->
+                                val base = openChatHoursText.toIntOrNull() ?: openChatHours
+                                val bounded = (base + delta).coerceIn(Limits.OPEN_CHAT_HOURS_MIN, Limits.OPEN_CHAT_HOURS_MAX)
+                                openChatHours = bounded
+                                openChatHoursText = bounded.toString()
+                            },
+                            decreaseEnabled = (openChatHoursText.toIntOrNull() ?: openChatHours) > Limits.OPEN_CHAT_HOURS_MIN,
+                            increaseEnabled = (openChatHoursText.toIntOrNull() ?: openChatHours) < Limits.OPEN_CHAT_HOURS_MAX,
+                        )
 
-                        // Total join slots (optional stepper)
-                        Text(Copy.text(lang, "openChatRemaining"), color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            StepperButton("−", enabled = openChatRemaining != null) {
-                                val cur = openChatRemaining ?: return@StepperButton
-                                openChatRemaining = if (cur <= Limits.OPEN_CHAT_REMAINING_MIN) null else cur - 1
-                            }
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .defaultMinSize(minHeight = 44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(tokens.surface)
-                                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) {
-                                Text(
-                                    openChatRemaining?.toString() ?: Copy.text(lang, "unlimitedOpenChatJoins"),
-                                    color = if (openChatRemaining == null) tokens.muted else tokens.text,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            StepperButton("+", enabled = (openChatRemaining ?: 0) < Limits.OPEN_CHAT_REMAINING_MAX) {
-                                val next = (openChatRemaining ?: 0) + 1
-                                openChatRemaining = next.coerceIn(Limits.OPEN_CHAT_REMAINING_MIN, Limits.OPEN_CHAT_REMAINING_MAX)
-                            }
-                        }
+                        // Total join slots (optional editable numeric input + stepper)
+                        OpenChatNumberField(
+                            label = Copy.text(lang, "openChatRemaining"),
+                            text = openChatRemainingText,
+                            min = Limits.OPEN_CHAT_REMAINING_MIN,
+                            max = Limits.OPEN_CHAT_REMAINING_MAX,
+                            optional = true,
+                            placeholder = Copy.text(lang, "unlimitedOpenChatJoins"),
+                            onTextChange = { raw ->
+                                val digits = raw.filter(Char::isDigit)
+                                openChatRemainingText = digits
+                                if (digits.isEmpty()) {
+                                    openChatRemaining = null
+                                } else {
+                                    digits.toIntOrNull()?.takeIf { it in Limits.OPEN_CHAT_REMAINING_MIN..Limits.OPEN_CHAT_REMAINING_MAX }?.let {
+                                        openChatRemaining = it
+                                    }
+                                }
+                            },
+                            onNormalize = {
+                                if (openChatRemainingText.isBlank()) {
+                                    openChatRemaining = null
+                                    openChatRemainingText = ""
+                                } else {
+                                    val bounded = (openChatRemainingText.toIntOrNull() ?: Limits.OPEN_CHAT_REMAINING_MIN)
+                                        .coerceIn(Limits.OPEN_CHAT_REMAINING_MIN, Limits.OPEN_CHAT_REMAINING_MAX)
+                                    openChatRemaining = bounded
+                                    openChatRemainingText = bounded.toString()
+                                }
+                            },
+                            onStep = { delta ->
+                                val cur = if (openChatRemainingText.isBlank()) null else (openChatRemainingText.toIntOrNull() ?: openChatRemaining)
+                                if (cur == null) {
+                                    if (delta > 0) {
+                                        openChatRemaining = Limits.OPEN_CHAT_REMAINING_MIN
+                                        openChatRemainingText = Limits.OPEN_CHAT_REMAINING_MIN.toString()
+                                    }
+                                } else if (delta < 0 && cur <= Limits.OPEN_CHAT_REMAINING_MIN) {
+                                    openChatRemaining = null
+                                    openChatRemainingText = ""
+                                } else {
+                                    val bounded = (cur + delta).coerceIn(Limits.OPEN_CHAT_REMAINING_MIN, Limits.OPEN_CHAT_REMAINING_MAX)
+                                    openChatRemaining = bounded
+                                    openChatRemainingText = bounded.toString()
+                                }
+                            },
+                            decreaseEnabled = openChatRemainingText.isNotBlank() || openChatRemaining != null,
+                            increaseEnabled = (openChatRemainingText.toIntOrNull() ?: openChatRemaining ?: 0) < Limits.OPEN_CHAT_REMAINING_MAX,
+                        )
                     }
                 }
             }
@@ -1103,6 +1140,95 @@ private fun SelectorRowButton(
             modifier = Modifier.weight(1f),
         )
         Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = tokens.muted)
+    }
+}
+
+@Composable
+private fun OpenChatNumberField(
+    label: String,
+    text: String,
+    min: Int,
+    max: Int,
+    optional: Boolean,
+    placeholder: String = "",
+    suffix: String? = null,
+    onTextChange: (String) -> Unit,
+    onNormalize: () -> Unit,
+    onStep: (Int) -> Unit,
+    decreaseEnabled: Boolean,
+    increaseEnabled: Boolean,
+) {
+    val tokens = LocalSaigonTokens.current
+    var hadFocus by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = tokens.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            StepperButton("−", enabled = decreaseEnabled) { onStep(-1) }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(tokens.surface)
+                    .border(1.dp, tokens.line, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            ) {
+                if (text.isEmpty() && placeholder.isNotEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = tokens.muted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                BasicTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = LivvicFontFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = tokens.text,
+                        textAlign = TextAlign.Center,
+                    ),
+                    cursorBrush = SolidColor(tokens.accent),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                hadFocus = true
+                            } else if (hadFocus) {
+                                hadFocus = false
+                                val parsed = text.toIntOrNull()
+                                if ((!optional && (parsed == null || parsed !in min..max)) ||
+                                    (optional && text.isNotBlank() && (parsed == null || parsed !in min..max))
+                                ) {
+                                    onNormalize()
+                                } else if (!optional && parsed != null) {
+                                    onNormalize()
+                                }
+                            }
+                        },
+                )
+            }
+            StepperButton("+", enabled = increaseEnabled) { onStep(1) }
+            if (!suffix.isNullOrBlank()) {
+                Text(
+                    text = suffix,
+                    color = tokens.muted,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
     }
 }
 

@@ -133,6 +133,65 @@ class ProfileStore(
         }
     }
 
+    suspend fun renameMyMusic(id: String, name: String): MusicDto? {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.renameMusic(id, name)) {
+            is ApiResult.Success -> {
+                val updated = res.value
+                _state.update { prev ->
+                    prev.copy(
+                        myMusic = prev.myMusic.map { if (it.id == updated.id) updated else it },
+                        isMutating = false,
+                    )
+                }
+                updated
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                null
+            }
+        }
+    }
+
+    suspend fun retryMyMusic(id: String): MusicDto? {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.retryMusic(id)) {
+            is ApiResult.Success -> {
+                val updated = res.value
+                _state.update { prev ->
+                    prev.copy(
+                        myMusic = prev.myMusic.map { if (it.id == updated.id) updated else it },
+                        isMutating = false,
+                    )
+                }
+                updated
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                null
+            }
+        }
+    }
+
+    suspend fun deleteMyMusic(id: String): Boolean {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.deleteMusic(id)) {
+            is ApiResult.Success -> {
+                _state.update { prev ->
+                    prev.copy(
+                        myMusic = prev.myMusic.filterNot { it.id == id },
+                        isMutating = false,
+                    )
+                }
+                true
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                false
+            }
+        }
+    }
+
     fun loadMyProducts(loadMore: Boolean = false) {
         val current = _state.value
         val cursor = if (loadMore) current.myProductsNextCursor ?: return else null

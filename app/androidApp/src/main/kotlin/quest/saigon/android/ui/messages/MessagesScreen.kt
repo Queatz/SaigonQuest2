@@ -64,6 +64,7 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ChatDto
 import quest.saigon.shared.model.ChatMessageDto
@@ -293,6 +294,7 @@ fun ChatScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
     var confirmDeleteGroup by remember { mutableStateOf(false) }
+    var pendingDeleteMessage by remember { mutableStateOf<ChatMessageDto?>(null) }
     var reactTargetMessage by remember { mutableStateOf<ChatMessageDto?>(null) }
     var zoomUrl by remember { mutableStateOf<String?>(null) }
 
@@ -476,9 +478,7 @@ fun ChatScreen(
                         scope.launch { shared.messages.toggleReaction(chatId, msg.id, emoji, mine) }
                     },
                     onLongPress = { reactTargetMessage = msg },
-                    onDelete = {
-                        scope.launch { shared.messages.deleteMessage(chatId, msg.id) }
-                    },
+                    onDelete = { pendingDeleteMessage = msg },
                 )
             }
             if (msgState.nextMessagesCursor != null) {
@@ -566,6 +566,23 @@ fun ChatScreen(
                 }
             },
             onDismiss = { confirmDeleteGroup = false },
+        )
+    }
+
+    pendingDeleteMessage?.let { target ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "confirmRemoveMessage"),
+            hint = "",
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            onConfirm = {
+                scope.launch {
+                    if (shared.messages.deleteMessage(chatId, target.id)) {
+                        pendingDeleteMessage = null
+                    }
+                }
+            },
+            onDismiss = { pendingDeleteMessage = null },
         )
     }
 
@@ -680,7 +697,7 @@ private fun ChatMessageBubble(
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text(att.productName.orEmpty(), color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                                att.price?.let { Text("$it đ", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = tokens.accent) }
+                                att.price?.let { Text(formatVnd(it), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = tokens.accent) }
                             }
                         }
                     } else if (att.type == "activity" && !att.activityId.isNullOrBlank()) {

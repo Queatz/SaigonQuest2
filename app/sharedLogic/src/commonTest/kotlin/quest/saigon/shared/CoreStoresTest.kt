@@ -449,4 +449,63 @@ class CoreStoresTest {
         assertEquals(10.7812, discover.state.value.mapCameraLat)
         assertEquals(16.5f, discover.state.value.mapCameraZoom)
     }
+
+    @Test
+    fun profileStoreRenamesMusicResolvesFeatureAndTracksOpenOrders() = runTest {
+        val storage = InMemoryTokenStorage(initialToken = "tok")
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { request ->
+                val path = request.url.encodedPath
+                when {
+                    path == "/api/me/music" -> respond(
+                        """{"music":[{"id":"m1","name":"Old Name","prompt":"rain","status":"ready","createdAt":1}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/music/m1" && request.method == HttpMethod.Patch -> respond(
+                        """{"id":"m1","name":"Rainy Cafe","prompt":"rain","status":"ready","createdAt":1}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/features" -> respond(
+                        """{"features":[{"id":"f1","text":"Dark theme","voteCount":2,"voted":false,"resolved":false}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/features/f1/resolve" && request.method == HttpMethod.Post -> respond(
+                        """{"id":"f1","text":"Dark theme","voteCount":2,"voted":false,"resolved":true}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/me/orders" -> respond(
+                        """{"orders":[{"id":"o1","productId":"p1","productName":"Coffee","price":50000,"resolved":false}],"openCount":3}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = storage, serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val profile = quest.saigon.shared.store.ProfileStore(api, storeScope)
+
+        profile.loadMyMusic()
+        profile.loadFeatures()
+        profile.loadMyOrders()
+        advanceUntilIdle()
+
+        assertEquals(3L, profile.state.value.openOrdersCount)
+        assertEquals("Old Name", profile.state.value.myMusic.single().name)
+        assertFalse(profile.state.value.features.single().resolved)
+
+        val renamed = profile.renameMyMusic("m1", "Rainy Cafe")
+        assertEquals("Rainy Cafe", renamed?.name)
+        assertEquals("Rainy Cafe", profile.state.value.myMusic.single().name)
+
+        val resolved = profile.resolveFeature("f1")
+        assertEquals(true, resolved?.resolved)
+        assertTrue(profile.state.value.features.single().resolved)
+    }
 }

@@ -2,6 +2,7 @@ package quest.saigon.android.ui.shop
 
 import android.content.ActivityNotFoundException
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,6 +54,7 @@ import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.PhotoViewerDialog
 import quest.saigon.android.ui.components.PickedPhotoItem
 import quest.saigon.android.ui.components.SaigonCard
+import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonDialog
 import quest.saigon.android.ui.components.SaigonIconButton
 import quest.saigon.android.ui.components.SaigonOutlinedPillButton
@@ -64,6 +67,7 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ProductDto
 
@@ -172,7 +176,7 @@ fun ShopScreen(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(
-                                            "${product.price} đ",
+                                            formatVnd(product.price),
                                             color = tokens.accent,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 14.sp,
@@ -236,6 +240,7 @@ fun ProductDetailScreen(
 
     var showOrderDialog by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     var zoomUrl by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(productId) {
@@ -250,16 +255,20 @@ fun ProductDetailScreen(
         onBack = onBack,
         backContentDescription = Copy.text(lang, "back"),
         topActions = {
+            if (product != null) {
+                SaigonIconButton(
+                    onClick = { AndroidIntents.copyPathLink(context, "/product/${product.id}", lang) },
+                    overlay = false,
+                ) {
+                    Icon(Icons.Default.Link, contentDescription = Copy.text(lang, "copyLink"), modifier = Modifier.size(18.dp))
+                }
+            }
             if (isOwner) {
                 SaigonIconButton(onClick = { showEditor = true }, overlay = false) {
                     Icon(Icons.Default.Edit, contentDescription = Copy.text(lang, "edit"), modifier = Modifier.size(18.dp))
                 }
                 SaigonIconButton(
-                    onClick = {
-                        scope.launch {
-                            if (shared.shop.deleteProduct(product.id)) onBack()
-                        }
-                    },
+                    onClick = { confirmDelete = true },
                     overlay = false,
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = Copy.text(lang, "delete"), tint = tokens.danger, modifier = Modifier.size(18.dp))
@@ -324,7 +333,7 @@ fun ProductDetailScreen(
                 }
                 Text(product.name, color = tokens.text, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "${product.price} đ",
+                    formatVnd(product.price),
                     color = tokens.accent,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -362,21 +371,21 @@ fun ProductDetailScreen(
     }
 
     if (showOrderDialog && product != null) {
-        var method by remember { mutableStateOf(ProductContactMethod.MESSAGES) }
+        var method by remember { mutableStateOf(ProductContactMethod.ZALO) }
         var message by remember { mutableStateOf("") }
         SaigonDialog(onDismiss = { showOrderDialog = false }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(Copy.text(lang, "howToContactSeller"), color = tokens.text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 36.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SaigonPillChip(
-                        selected = method == ProductContactMethod.MESSAGES,
-                        onClick = { method = ProductContactMethod.MESSAGES },
-                        label = Copy.text(lang, "saigonMessages"),
-                    )
-                    SaigonPillChip(
                         selected = method == ProductContactMethod.ZALO,
                         onClick = { method = ProductContactMethod.ZALO },
                         label = Copy.text(lang, "zaloMessages"),
+                    )
+                    SaigonPillChip(
+                        selected = method == ProductContactMethod.MESSAGES,
+                        onClick = { method = ProductContactMethod.MESSAGES },
+                        label = Copy.text(lang, "saigonMessages"),
                     )
                 }
                 SaigonTextField(
@@ -401,7 +410,7 @@ fun ProductDetailScreen(
                                 if (!chatId.isNullOrBlank()) {
                                     onNavigate(AppRoute.Chat(chatId))
                                 } else {
-                                    AndroidIntents.shareText(context, "${product.name}: ${message.trim()}")
+                                    Toast.makeText(context, Copy.text(lang, "purchaseConfirmed"), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -411,6 +420,25 @@ fun ProductDetailScreen(
                 SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { showOrderDialog = false }, modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+
+    if (confirmDelete && product != null) {
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deleteProductAsk"),
+            hint = Copy.text(lang, "deleteProductHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = shopState.isSubmitting,
+            onConfirm = {
+                scope.launch {
+                    if (shared.shop.deleteProduct(product.id)) {
+                        confirmDelete = false
+                        onBack()
+                    }
+                }
+            },
+            onDismiss = { confirmDelete = false },
+        )
     }
 
     if (showEditor && product != null) {
@@ -426,10 +454,11 @@ fun ProductDetailScreen(
 }
 
 @Composable
-private fun ProductEditorDialog(
+internal fun ProductEditorDialog(
     existing: ProductDto?,
     shared: TownSharedClient,
     language: Language,
+    onSaved: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val shopState by shared.shop.state.collectAsState()
@@ -593,7 +622,10 @@ private fun ProductEditorDialog(
                         } else {
                             shared.shop.updateProduct(existing.id, name.trim(), price.trim(), category.trim(), description.trim(), photoOrderJson, newBytes)
                         }
-                        if (saved != null) onDismiss()
+                        if (saved != null) {
+                            onSaved()
+                            onDismiss()
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),

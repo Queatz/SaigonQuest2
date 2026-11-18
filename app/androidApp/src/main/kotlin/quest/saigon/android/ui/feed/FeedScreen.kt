@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -653,7 +654,7 @@ fun FeedScreen(
                                             overlay = true,
                                         ) {
                                             Icon(
-                                                Icons.AutoMirrored.Filled.Chat,
+                                                Icons.AutoMirrored.Outlined.Chat,
                                                 contentDescription = Copy.text(lang, "openMessages"),
                                                 modifier = Modifier.size(20.dp),
                                             )
