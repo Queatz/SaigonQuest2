@@ -1,5 +1,6 @@
 package quest.saigon.android.ui.feed
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -131,6 +132,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 import kotlin.math.ceil
 
 private data class SelectedPersonModal(
@@ -272,6 +274,19 @@ fun FeedScreen(
                     initialPage = initialIndex,
                     pageCount = { feedState.posts.size },
                 )
+
+                val isNotAtTopOfFeed = pagerState.currentPage > 0 ||
+                    pagerState.settledPage > 0 ||
+                    abs(pagerState.currentPageOffsetFraction) > 0.01f
+                BackHandler(enabled = isNotAtTopOfFeed) {
+                    scope.launch {
+                        pagerState.animateScrollToPage(0)
+                    }
+                    shared.feed.refresh()
+                    if (communityId.isNullOrBlank()) {
+                        shared.discover.refreshCheckIns()
+                    }
+                }
 
                 LaunchedEffect(pagerState.isScrollInProgress) {
                     feedScrolling = pagerState.isScrollInProgress

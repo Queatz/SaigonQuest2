@@ -161,6 +161,7 @@ fun ComposerScreen(
     }
     var selectedCommunity by remember { mutableStateOf<CommunityDto?>(null) }
     var communityOnly by remember { mutableStateOf(false) }
+    var creatingSuggestedCommunity by remember { mutableStateOf(false) }
 
     var showLocationDialog by remember { mutableStateOf(false) }
     var showCommunitySheet by remember { mutableStateOf(false) }
@@ -203,6 +204,16 @@ fun ComposerScreen(
 
     LaunchedEffect(Unit) {
         shared.composer.loadInitial()
+    }
+
+    LaunchedEffect(message) {
+        val trimmed = message.trim()
+        if (trimmed.length < 8) {
+            shared.composer.clearCommunitySuggestion()
+            return@LaunchedEffect
+        }
+        delay(700L)
+        shared.composer.suggestCommunity(trimmed)
     }
 
     val hasCoordinates = selectedPlace?.lat != null &&
@@ -560,6 +571,60 @@ fun ComposerScreen(
                         color = tokens.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
+            val suggestion = composerState.communitySuggestion
+            if (message.trim().length >= 8 &&
+                suggestion != null &&
+                suggestion.name.isNotBlank() &&
+                (selectedCommunity == null || selectedCommunity?.id != suggestion.communityId)
+            ) {
+                val suggestedEmoji = suggestion.emoji.ifBlank { "✨" }
+                val label = if (creatingSuggestedCommunity) {
+                    Copy.text(lang, "creatingCommunity")
+                } else {
+                    "${Copy.text(lang, "suggestCommunity")}: $suggestedEmoji ${suggestion.name}"
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .dashedBorder(
+                            color = tokens.accent,
+                            strokeWidth = 1.5.dp,
+                            cornerRadius = 999.dp,
+                        )
+                        .clickable(enabled = !creatingSuggestedCommunity) {
+                            val existingId = suggestion.communityId?.takeIf { it.isNotBlank() }
+                            if (existingId != null) {
+                                selectedCommunity = composerState.communities.firstOrNull { it.id == existingId }
+                                    ?: CommunityDto(
+                                        id = existingId,
+                                        name = suggestion.name,
+                                        emoji = suggestedEmoji,
+                                        joined = true,
+                                    )
+                            } else {
+                                scope.launch {
+                                    creatingSuggestedCommunity = true
+                                    val created = shared.composer.createCommunity(suggestion.name, suggestedEmoji)
+                                    creatingSuggestedCommunity = false
+                                    if (created != null) {
+                                        selectedCommunity = created
+                                    }
+                                }
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = label,
+                        color = tokens.text,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1038,6 +1103,7 @@ fun ComposerScreen(
             },
             onSelect = {
                 selectedCommunity = it
+                if (it == null) communityOnly = false
                 showCommunitySheet = false
             },
             onDismiss = { showCommunitySheet = false },

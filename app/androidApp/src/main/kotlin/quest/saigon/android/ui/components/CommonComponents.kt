@@ -2438,7 +2438,6 @@ fun CheckInBubbleItem(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CheckInDetailDialog(
     checkIn: CheckInDto,

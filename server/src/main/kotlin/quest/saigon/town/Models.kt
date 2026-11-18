@@ -688,6 +688,11 @@ data class ActivityView(
     val host: EventAttendee? = null,
     val interestedPeople: List<EventAttendee> = emptyList(),
     val photoPaths: List<String> = emptyList(),
+    val postCount: Long = 0,
+    val activityCount: Long = 0,
+    val activityEmojis: List<String> = emptyList(),
+    val hasActivities: Boolean = false,
+    val locationPhotoPath: String? = null,
 )
 
 data class ActivityPage(

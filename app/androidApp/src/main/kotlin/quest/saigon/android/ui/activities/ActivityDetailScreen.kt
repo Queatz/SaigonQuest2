@@ -76,6 +76,7 @@ fun ActivityDetailScreen(
 ) {
     val sessionState by shared.session.state.collectAsState()
     val activityState by shared.activity.state.collectAsState()
+    val discoverState by shared.discover.state.collectAsState()
     val lang = sessionState.language
     val tokens = LocalSaigonTokens.current
     val context = LocalContext.current
@@ -294,6 +295,20 @@ fun ActivityDetailScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (lat != null && lng != null) {
+                                val matchedPlace = remember(act.locationId, act.placeId, act.locationName, discoverState.locations) {
+                                    discoverState.locations.firstOrNull { place ->
+                                        when {
+                                            !act.locationId.isNullOrBlank() -> place.id == act.locationId
+                                            !act.placeId.isNullOrBlank() -> place.placeId == act.placeId
+                                            else -> place.name == act.locationName && place.placeId.isNullOrBlank() && place.id.isNullOrBlank()
+                                        }
+                                    }
+                                }
+                                val pinPostCount = if (act.postCount > 0L) act.postCount else (matchedPlace?.postCount ?: 0L)
+                                val pinActivityCount = if (act.activityCount > 0L) act.activityCount else (matchedPlace?.activityCount ?: 1L)
+                                val pinActivityEmojis = act.activityEmojis.ifEmpty { matchedPlace?.activityEmojis.orEmpty() }.ifEmpty { listOf(act.emoji) }
+                                val pinHasActivities = act.hasActivities || pinActivityCount > 0L || (matchedPlace?.hasActivities == true)
+                                val pinPhotoUrl = act.locationPhotoUrl ?: matchedPlace?.photoUrl
                                 Box(
                                     modifier = Modifier
                                         .size(160.dp)
@@ -308,8 +323,11 @@ fun ActivityDetailScreen(
                                                 name = act.locationName,
                                                 lat = lat,
                                                 lng = lng,
-                                                activityEmojis = listOf(act.emoji),
-                                                hasActivities = true,
+                                                postCount = pinPostCount,
+                                                activityCount = pinActivityCount,
+                                                activityEmojis = pinActivityEmojis,
+                                                hasActivities = pinHasActivities,
+                                                photoUrl = pinPhotoUrl,
                                             ),
                                         ),
                                         mapsApiKey = sessionState.mapsKey,

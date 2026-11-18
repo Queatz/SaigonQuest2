@@ -318,4 +318,50 @@ class FeatureStoresTest {
         assertTrue(admin.setUserPaused("u2", true))
         assertTrue(admin.state.value.users.first().paused)
     }
+
+    @Test
+    fun composerStoreHandlesCommunitySuggestionAndCreation() = runTest {
+        var failSuggest = false
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { req ->
+                val path = req.url.encodedPath
+                when {
+                    path == "/api/communities/suggest" -> if (failSuggest) {
+                        respond("""{"error":"unavailable"}""", HttpStatusCode.ServiceUnavailable, jsonHeaders)
+                    } else {
+                        respond("""{"emoji":"☕","name":"Specialty Coffee","communityId":null}""", HttpStatusCode.OK, jsonHeaders)
+                    }
+                    path == "/api/communities" && req.method == HttpMethod.Post -> respond(
+                        """{"id":"c9","name":"Specialty Coffee","emoji":"☕","memberCount":1,"joined":true}""",
+                        HttpStatusCode.Created,
+                        jsonHeaders,
+                    )
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = InMemoryTokenStorage("tok"), serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val feed = FeedStore(api, storeScope)
+        val composer = ComposerStore(api, feed, storeScope)
+
+        val suggested = composer.suggestCommunity("Great espresso bar in District 1")
+        assertNotNull(suggested)
+        assertEquals("Specialty Coffee", composer.state.value.communitySuggestion?.name)
+        assertNull(composer.state.value.communitySuggestion?.communityId)
+        assertNull(composer.state.value.error)
+
+        failSuggest = true
+        assertNull(composer.suggestCommunity("Another long message text"))
+        assertNull(composer.state.value.error)
+
+        val created = composer.createCommunity("Specialty Coffee", "☕")
+        assertNotNull(created)
+        assertEquals("c9", created.id)
+        assertEquals("c9", composer.state.value.communitySuggestion?.communityId)
+
+        composer.clearCommunitySuggestion()
+        assertNull(composer.state.value.communitySuggestion)
+    }
 }

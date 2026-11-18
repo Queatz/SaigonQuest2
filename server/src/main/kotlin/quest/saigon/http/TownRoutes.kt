@@ -2449,6 +2449,11 @@ private fun activityPayload(view: ActivityView): Map<String, Any?> {
             attendeePayload(person, includePhone = false) + mapOf("host" to (hostId != null && person.id == hostId))
         },
         "photoUrls" to view.photoPaths.map { "/media/$it" },
+        "postCount" to view.postCount,
+        "activityCount" to view.activityCount,
+        "activityEmojis" to view.activityEmojis,
+        "hasActivities" to view.hasActivities,
+        "locationPhotoUrl" to view.locationPhotoPath?.let { "/media/$it" },
         "createdAt" to activity.createdAt,
     )
     val translations = activity.translations ?: return payload

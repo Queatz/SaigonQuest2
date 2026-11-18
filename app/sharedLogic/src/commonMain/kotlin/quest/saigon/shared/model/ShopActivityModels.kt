@@ -96,6 +96,11 @@ data class ActivityDto(
     val interested: Boolean = false,
     val interestedPeople: List<EventPersonDto> = emptyList(),
     val photoUrls: List<String> = emptyList(),
+    val postCount: Long = 0L,
+    val activityCount: Long = 0L,
+    val activityEmojis: List<String> = emptyList(),
+    val hasActivities: Boolean = false,
+    val locationPhotoUrl: String? = null,
     val createdAt: Long = 0L,
     val translations: ActivityTranslationsDto? = null,
 )

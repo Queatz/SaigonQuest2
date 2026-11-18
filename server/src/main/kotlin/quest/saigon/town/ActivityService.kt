@@ -118,17 +118,20 @@ class ActivityService(
         } else {
             repo.searchActivities(cursor, pageLimit)
         }
-        return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false) } to page.nextCursor
+        val flags = repo.activityLocationFlags()
+        return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false, flags = flags) } to page.nextCursor
     }
 
     fun mine(actor: UserRecord, cursor: String?, limit: Int): Pair<List<ActivityView>, String?> {
         val page = repo.activitiesByUser(actor.id, cursor, limit.coerceIn(1, 50))
-        return page.items.map { view(ensureTranslations(it), actor.id, includePeople = false) } to page.nextCursor
+        val flags = repo.activityLocationFlags()
+        return page.items.map { view(ensureTranslations(it), actor.id, includePeople = false, flags = flags) } to page.nextCursor
     }
 
     fun interestedByUser(userId: String, viewerId: String?, cursor: String?, limit: Int): Pair<List<ActivityView>, String?> {
         val page = repo.activitiesInterestedByUser(userId, cursor, limit.coerceIn(1, 50))
-        return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false) } to page.nextCursor
+        val flags = repo.activityLocationFlags()
+        return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false, flags = flags) } to page.nextCursor
     }
 
     fun interest(actor: UserRecord, id: String): ActivityView {
@@ -178,7 +181,12 @@ class ActivityService(
         }
     }
 
-    private fun view(activity: ActivityRecord, viewerId: String?, includePeople: Boolean): ActivityView {
+    private fun view(
+        activity: ActivityRecord,
+        viewerId: String?,
+        includePeople: Boolean,
+        flags: ActivityLocationFlags? = null,
+    ): ActivityView {
         val interested = viewerId != null && repo.isActivityInterested(activity.id, viewerId)
         val host = activity.hostUserId?.let(::attendeeFor)
         val interestedPeople = repo.activityInterested(
@@ -192,7 +200,36 @@ class ActivityService(
             interestedPeople
         }
         val photos = repo.userPhotosForActivity(activity.id, Limits.ACTIVITY_CARD_PHOTO_LIMIT).map { it.photoPath }
-        return ActivityView(activity, interested, host, people, photos)
+        val locationName = activity.locationId?.let { repo.findUserLocation(it)?.name } ?: activity.locationName
+        val postCount = repo.countPostsAtPlace(locationName, activity.placeId, viewerId, activity.locationId)
+        val locationPhotoPath = repo.latestPostPhotoAtPlace(locationName, activity.placeId, viewerId, activity.locationId)
+        val flagSummary = when {
+            !activity.locationId.isNullOrBlank() -> flags?.locationActivities?.get(activity.locationId)
+            !activity.placeId.isNullOrBlank() -> flags?.placeActivities?.get(activity.placeId)
+            else -> null
+        }
+        val matching = if (flagSummary == null) {
+            repo.activitiesForLocation(locationName, activity.placeId, activity.locationId, null, 50).items
+        } else {
+            emptyList()
+        }
+        val activityCount = flagSummary?.count ?: maxOf(matching.size.toLong(), 1L)
+        val activityEmojis = (flagSummary?.emojis ?: matching.map { it.emoji })
+            .ifEmpty { listOf(activity.emoji) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        return ActivityView(
+            activity = activity,
+            interested = interested,
+            host = host,
+            interestedPeople = people,
+            photoPaths = photos,
+            postCount = postCount,
+            activityCount = activityCount,
+            activityEmojis = activityEmojis,
+            hasActivities = activityCount > 0L,
+            locationPhotoPath = locationPhotoPath,
+        )
     }
 
     private fun ensureTranslations(activity: ActivityRecord): ActivityRecord {

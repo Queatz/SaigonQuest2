@@ -47,7 +47,7 @@ class ComposerStore(
     private var musicPollJob: Job? = null
 
     fun loadInitial() {
-        _state.update { it.copy(selectedAvatarId = null, selectedMusic = null, error = null) }
+        _state.update { it.copy(selectedAvatarId = null, selectedMusic = null, communitySuggestion = null, error = null) }
         loadAvatars()
         loadMyMusic()
         loadCommunities()
@@ -226,16 +226,17 @@ class ComposerStore(
         }
     }
 
+    fun clearCommunitySuggestion() {
+        _state.update { it.copy(communitySuggestion = null) }
+    }
+
     suspend fun suggestCommunity(text: String): CommunitySuggestResponse? {
         return when (val res = api.suggestCommunity(text)) {
             is ApiResult.Success -> {
                 _state.update { it.copy(communitySuggestion = res.value) }
                 res.value
             }
-            is ApiResult.Failure -> {
-                _state.update { it.copy(error = res.message) }
-                null
-            }
+            is ApiResult.Failure -> null
         }
     }
 
@@ -244,7 +245,17 @@ class ComposerStore(
             is ApiResult.Success -> {
                 val created = res.value
                 _state.update { prev ->
-                    prev.copy(communities = listOf(created) + prev.communities.filterNot { it.id == created.id })
+                    val updatedSuggestion = prev.communitySuggestion?.let { suggestion ->
+                        if (suggestion.communityId == null && suggestion.name.equals(created.name, ignoreCase = true)) {
+                            suggestion.copy(communityId = created.id)
+                        } else {
+                            suggestion
+                        }
+                    }
+                    prev.copy(
+                        communities = listOf(created) + prev.communities.filterNot { it.id == created.id },
+                        communitySuggestion = updatedSuggestion,
+                    )
                 }
                 created
             }

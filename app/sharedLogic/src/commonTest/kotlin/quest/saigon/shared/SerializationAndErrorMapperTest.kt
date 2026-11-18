@@ -137,4 +137,30 @@ class SerializationAndErrorMapperTest {
         assertTrue(checkIn.hasActivities)
         assertEquals("/media/posts/gym.jpg", checkIn.photoUrl)
     }
+
+    @Test
+    fun deserializesActivityPlaceStatsAndLocationPhotoUrl() {
+        val payload = """
+            {
+              "id": "a1",
+              "emoji": "🧗",
+              "name": "Bouldering",
+              "locationName": "Climbing Gym",
+              "locationId": "loc1",
+              "lat": 10.77,
+              "lng": 106.70,
+              "postCount": 4,
+              "activityCount": 2,
+              "activityEmojis": ["🧗", "☕"],
+              "hasActivities": true,
+              "locationPhotoUrl": "/media/posts/gym.jpg"
+            }
+        """.trimIndent()
+        val activity = json.decodeFromString(ActivityDto.serializer(), payload)
+        assertEquals(4L, activity.postCount)
+        assertEquals(2L, activity.activityCount)
+        assertEquals(listOf("🧗", "☕"), activity.activityEmojis)
+        assertTrue(activity.hasActivities)
+        assertEquals("/media/posts/gym.jpg", activity.locationPhotoUrl)
+    }
 }

@@ -19,6 +19,7 @@ import quest.saigon.town.AvatarService
 import quest.saigon.town.ChatType
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
+import quest.saigon.town.PostRecord
 import quest.saigon.town.TownServices
 import quest.saigon.town.UserPhotoRecord
 import java.io.File
@@ -265,6 +266,77 @@ class ActivityBehaviorTest {
             listOf("🧗", "☕"),
             (0 until gym.path("activityEmojis").size()).map { gym.path("activityEmojis").path(it).asText() },
         )
+    }
+
+    @Test
+    fun activityViewsIncludePlacePostAndActivityCountsAndPhoto() = testApplication {
+        var now = 1_700_000_000_000L
+        val services = services({ now })
+        application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        register(linh, "Linh", "0905550206")
+        val linhId = mapper.readTree(linh.get("/api/me").bodyAsText()).path("id").asText()
+        val location = services.repo.insertUserLocation("Climbing Gym", 10.77, 106.70, linhId, now)
+
+        services.repo.insertPost(
+            PostRecord(
+                id = "",
+                userId = linhId,
+                photoPath = "posts/gym1.jpg",
+                message = "Bouldering tonight",
+                location = "Climbing Gym",
+                locationId = location.id,
+                lat = 10.77,
+                lng = 106.70,
+                createdAt = now,
+            ),
+        )
+        now += 1
+        services.repo.insertPost(
+            PostRecord(
+                id = "",
+                userId = linhId,
+                photoPath = "posts/gym2.jpg",
+                message = "Warmup",
+                location = "Climbing Gym",
+                locationId = location.id,
+                lat = 10.77,
+                lng = 106.70,
+                createdAt = now,
+            ),
+        )
+
+        suspend fun createActivity(emoji: String, name: String): String {
+            now += 1
+            val response = linh.post("/api/activities") {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    """{"emoji":"$emoji","name":"$name","locationName":"Climbing Gym","locationId":"${location.id}","interested":true}""",
+                )
+            }
+            assertEquals(HttpStatusCode.Created, response.status)
+            return mapper.readTree(response.bodyAsText()).path("id").asText()
+        }
+
+        val firstId = createActivity("🧗", "Climb")
+        createActivity("☕", "Coffee")
+
+        val detail = mapper.readTree(linh.get("/api/activities/$firstId").bodyAsText())
+        assertEquals(2, detail.path("postCount").asInt())
+        assertEquals(2, detail.path("activityCount").asInt())
+        assertTrue(detail.path("hasActivities").asBoolean())
+        assertEquals("/media/posts/gym2.jpg", detail.path("locationPhotoUrl").asText())
+        assertEquals(
+            listOf("☕", "🧗"),
+            (0 until detail.path("activityEmojis").size()).map { detail.path("activityEmojis").path(it).asText() },
+        )
+
+        val listed = mapper.readTree(linh.get("/api/activities").bodyAsText()).path("activities")
+        assertEquals(2, listed.size())
+        assertEquals(2, listed.path(0).path("postCount").asInt())
+        assertEquals(2, listed.path(0).path("activityCount").asInt())
+        assertTrue(listed.path(0).path("hasActivities").asBoolean())
+        assertEquals("/media/posts/gym2.jpg", listed.path(0).path("locationPhotoUrl").asText())
     }
 
     private suspend fun register(client: io.ktor.client.HttpClient, name: String, phone: String) {

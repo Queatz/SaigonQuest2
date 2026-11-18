@@ -924,6 +924,7 @@ class TownApiClient(
         host = activity.host?.let(::normalizePersonUrls),
         interestedPeople = activity.interestedPeople.map(::normalizePersonUrls),
         photoUrls = activity.photoUrls.map(::resolveUrl),
+        locationPhotoUrl = activity.locationPhotoUrl?.let(::resolveUrl),
     )
 
     private fun normalizeChatUrls(chat: ChatDto): ChatDto = chat.copy(
