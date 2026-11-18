@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.googleServices)
+    alias(libs.plugins.firebaseCrashlytics)
 }
 
 val localProps = Properties().apply {
@@ -80,6 +82,8 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.maps.compose)
     implementation(libs.play.services.maps)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.messaging)
     implementation(libs.kotlinx.coroutinesAndroid)
     implementation(libs.kotlinx.serializationJson)

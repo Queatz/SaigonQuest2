@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:name=".SaigonApplication"
+        android:name="quest.saigon.android.SaigonApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -18,7 +18,7 @@
             android:value="${MAPS_API_KEY}" />
 
         <activity
-            android:name=".MainActivity"
+            android:name="quest.saigon.android.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
@@ -43,7 +43,7 @@
         </activity>
 
         <service
-            android:name=".push.SaigonFirebaseMessagingService"
+            android:name="quest.saigon.android.push.SaigonFirebaseMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

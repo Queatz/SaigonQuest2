@@ -12,6 +12,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import quest.saigon.AppRoute
+import quest.saigon.android.diagnostics.CrashReporter
 import quest.saigon.android.media.AudioPreviewPlayer
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.ui.activities.ActivityDetailScreen
@@ -51,6 +52,7 @@ fun SaigonApp(
             return
         }
         val path = RoutePaths.toPath(route)
+        CrashReporter.log("Navigate: $path")
         navController.navigate(path) {
             launchSingleTop = true
         }

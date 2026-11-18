@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1003910225034",
+    "project_id": "saigon-town-3e607",
+    "storage_bucket": "saigon-town-3e607.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1003910225034:android:ed7d0f054089bae4552173",
+        "android_client_info": {
+          "package_name": "town.saigon"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAE-nA5lo6MQvSRYaDayZCjtwn7Xsz_7lY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

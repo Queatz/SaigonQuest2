@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toDrawable
+import quest.saigon.android.diagnostics.CrashReporter
 import quest.saigon.android.theme.SaigonTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReporter.log("MainActivity onCreate")
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
@@ -74,6 +76,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        CrashReporter.log("MainActivity onNewIntent")
         setIntent(intent)
         RoutePaths.resolveRouteFromIntent(intent)?.let { route ->
             pendingRoutePath = RoutePaths.toPath(route)

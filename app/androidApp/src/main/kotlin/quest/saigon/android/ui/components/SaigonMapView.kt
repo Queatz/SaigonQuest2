@@ -1,8 +1,12 @@
 package quest.saigon.android.ui.components
 
 import android.annotation.SuppressLint
+import android.os.Build
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
@@ -69,6 +73,7 @@ import kotlinx.serialization.json.Json
 import quest.saigon.Copy
 import quest.saigon.Language
 import town.saigon.BuildConfig
+import quest.saigon.android.diagnostics.CrashReporter
 import quest.saigon.android.theme.LivvicFontFamily
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonColors
@@ -188,6 +193,9 @@ fun SaigonMapView(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalSaigonTokens.current
+    LaunchedEffect(BuildConfig.MAPS_CONFIGURED) {
+        CrashReporter.log("SaigonMapView mode=${if (BuildConfig.MAPS_CONFIGURED) "native" else "web"}")
+    }
     if (BuildConfig.MAPS_CONFIGURED) {
         NativeGoogleMapView(
             events = events,
@@ -1150,6 +1158,28 @@ private fun WebSaigonMapView(
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             view?.evaluateJavascript("if (window.__setSaigonMarkers) window.__setSaigonMarkers($markersJson);", null)
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?,
+                        ) {
+                            if (request?.isForMainFrame == true) {
+                                CrashReporter.log("WebSaigonMapView error: ${error?.errorCode} ${error?.description}")
+                            }
+                        }
+
+                        override fun onRenderProcessGone(
+                            view: WebView?,
+                            detail: RenderProcessGoneDetail?,
+                        ): Boolean {
+                            val didCrash = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) detail?.didCrash() else null
+                            CrashReporter.recordException(
+                                IllegalStateException("WebView render process gone (didCrash=$didCrash)"),
+                                "WebSaigonMapView render process gone",
+                            )
+                            return false
                         }
                     }
                     loadDataWithBaseURL(

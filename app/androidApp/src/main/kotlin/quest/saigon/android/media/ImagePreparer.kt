@@ -8,9 +8,11 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import androidx.exifinterface.media.ExifInterface
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import quest.saigon.Limits
+import quest.saigon.android.diagnostics.CrashReporter
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.min
@@ -90,6 +92,9 @@ object ImagePreparer {
             scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
             scaled.recycle()
             out.toByteArray()
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
+            CrashReporter.recordException(error, "ImagePreparer failed for targetAspect=$targetAspect")
         }.getOrNull()
     }
 

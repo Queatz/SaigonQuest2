@@ -14,7 +14,9 @@ arangodb = "7.28.0"
 coil = "3.6.3"
 compose-bom = "2026.09.00"
 coroutines = "1.11.0"
-firebase-messaging = "26.0.2"
+firebase-bom = "35.2.0"
+firebase-crashlytics-gradle = "3.0.8"
+google-services = "4.6.0"
 junit = "4.13.2"
 kotlin = "2.4.20"
 kotlin-wrappers = "2026.9.2"
@@ -71,12 +73,16 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 maps-compose = { module = "com.google.maps.android:maps-compose", version.ref = "maps-compose" }
 play-services-maps = { module = "com.google.android.gms:play-services-maps", version.ref = "play-services-maps" }
-firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebase-messaging" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
+firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
 androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+firebaseCrashlytics = { id = "com.google.firebase.crashlytics", version.ref = "firebase-crashlytics-gradle" }
+googleServices = { id = "com.google.gms.google-services", version.ref = "google-services" }
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

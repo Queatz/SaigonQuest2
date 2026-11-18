@@ -12,12 +12,16 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import quest.saigon.android.diagnostics.CrashReporter
 import quest.saigon.android.media.AudioPreviewPlayer
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.platform.AndroidPlatformContext
@@ -35,6 +39,7 @@ class SaigonApplication : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         AndroidPlatformContext.init(this)
+        CrashReporter.init(this)
         createNotificationChannel()
         shared = TownSharedClient(
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -45,10 +50,12 @@ class SaigonApplication : Application(), SingletonImageLoader.Factory {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
+                    CrashReporter.log("Lifecycle: foreground")
                     shared.onForeground()
                 }
 
                 override fun onStop(owner: LifecycleOwner) {
+                    CrashReporter.log("Lifecycle: background")
                     shared.onBackground()
                     audioPlayer.pause()
                 }
@@ -56,19 +63,42 @@ class SaigonApplication : Application(), SingletonImageLoader.Factory {
         )
 
         appScope.launch {
-            shared.bootstrap()
-            shared.api.recordVisit()
+            shared.session.state
+                .map { it.me?.id to it.isSignedIn }
+                .distinctUntilChanged()
+                .collect { (userId, isSignedIn) ->
+                    CrashReporter.setUser(userId = userId, isSignedIn = isSignedIn)
+                }
+        }
+
+        appScope.launch {
+            try {
+                CrashReporter.log("App bootstrap started")
+                shared.bootstrap()
+                shared.api.recordVisit()
+                CrashReporter.log("App bootstrap complete")
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                CrashReporter.recordException(error, "App bootstrap failed")
+                throw error
+            }
             refreshFcmTokenSafely()
         }
     }
 
     fun refreshFcmTokenSafely() {
         runCatching {
-            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                if (!token.isNullOrBlank()) {
-                    appScope.launch { shared.session.syncFcmToken(token) }
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    if (!token.isNullOrBlank()) {
+                        appScope.launch { shared.session.syncFcmToken(token) }
+                    }
                 }
-            }
+                .addOnFailureListener { error ->
+                    CrashReporter.recordException(error, "FCM token fetch failed")
+                }
+        }.onFailure { error ->
+            CrashReporter.recordException(error, "FirebaseMessaging unavailable")
         }
     }
 
