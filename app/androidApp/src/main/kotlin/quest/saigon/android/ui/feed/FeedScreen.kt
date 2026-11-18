@@ -69,7 +69,7 @@ import quest.saigon.Copy
 import quest.saigon.Language
 import quest.saigon.Limits
 import quest.saigon.PostAge
-import quest.saigon.android.BuildConfig
+import town.saigon.BuildConfig
 import quest.saigon.android.media.AudioPreviewPlayer
 import quest.saigon.android.theme.LivvicFontFamily
 import quest.saigon.android.theme.LocalSaigonTokens

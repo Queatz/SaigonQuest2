@@ -68,7 +68,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import quest.saigon.Copy
 import quest.saigon.Language
-import quest.saigon.android.BuildConfig
+import town.saigon.BuildConfig
 import quest.saigon.android.theme.LivvicFontFamily
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonColors

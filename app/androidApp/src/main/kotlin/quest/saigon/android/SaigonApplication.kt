@@ -21,6 +21,7 @@ import okhttp3.OkHttpClient
 import quest.saigon.android.media.AudioPreviewPlayer
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.platform.AndroidPlatformContext
+import town.saigon.BuildConfig
 
 class SaigonApplication : Application(), SingletonImageLoader.Factory {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)

@@ -21,7 +21,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import quest.saigon.android.R
+import town.saigon.R
 
 val LivvicFontFamily = FontFamily(
     Font(R.font.livvic_regular, FontWeight.Normal, FontStyle.Normal),

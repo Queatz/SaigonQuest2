@@ -101,7 +101,7 @@ import quest.saigon.Limits
 import quest.saigon.NotificationCopy
 import quest.saigon.PostAge
 import quest.saigon.TextLinks
-import quest.saigon.android.BuildConfig
+import town.saigon.BuildConfig
 import quest.saigon.android.theme.LivvicFontFamily
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonBrushes

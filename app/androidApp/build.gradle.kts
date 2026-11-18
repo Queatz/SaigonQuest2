@@ -28,11 +28,11 @@ val serverOrigin: String = localProps.getProperty("SAIGON_SERVER_ORIGIN")
     ?: "https://saigon.town"
 
 extensions.configure<ApplicationExtension> {
-    namespace = "quest.saigon.android"
+    namespace = "town.saigon"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "quest.saigon.android"
+        applicationId = "town.saigon"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
