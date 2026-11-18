@@ -534,7 +534,6 @@ internal fun ProductEditorDialog(
     SaigonDialog(onDismiss = onDismiss) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.verticalScroll(rememberScrollState()),
         ) {
             Text(
                 Copy.text(language, if (existing == null) "createProduct" else "editProduct"),

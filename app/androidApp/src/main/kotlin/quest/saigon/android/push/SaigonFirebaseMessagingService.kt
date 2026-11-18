@@ -11,10 +11,13 @@ import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.launch
+import quest.saigon.AppRoute
 import quest.saigon.NotificationCopy
 import quest.saigon.android.MainActivity
 import quest.saigon.android.RoutePaths
 import quest.saigon.android.SaigonApplication
+import quest.saigon.matchAppRoute
+import town.saigon.R
 
 class SaigonFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
@@ -28,11 +31,13 @@ class SaigonFirebaseMessagingService : FirebaseMessagingService() {
         val data = message.data
         val title = message.notification?.title ?: data["title"] ?: "Saigon.Town"
         val body = message.notification?.body ?: data["body"].orEmpty()
-        val url = data["url"]?.takeIf { it.isNotBlank() } ?: NotificationCopy.path(
+        val rawUrl = data["url"]?.takeIf { it.isNotBlank() } ?: NotificationCopy.path(
             type = data["type"].orEmpty(),
             postId = data["postId"].orEmpty(),
             chatId = data["chatId"].orEmpty(),
         )
+        val parsedPath = RoutePaths.parsePathFromUriString(rawUrl)
+        val url = if (parsedPath != null && matchAppRoute(parsedPath) !is AppRoute.NotFound) parsedPath else "/"
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -46,7 +51,8 @@ class SaigonFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val notification = NotificationCompat.Builder(this, SaigonApplication.NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(this, R.color.saigon_notification_accent))
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)

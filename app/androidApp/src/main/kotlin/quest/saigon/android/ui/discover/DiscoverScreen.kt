@@ -222,6 +222,7 @@ fun DiscoverScreen(
                 language = lang,
                 toComposer = false,
                 overlay = false,
+                showSignedOutBubble = false,
                 onClick = { onNavigate(AppRoute.Profile) },
             )
         },
@@ -741,7 +742,11 @@ fun DiscoverScreen(
 
     if (showAddPlace) {
         var placeName by remember { mutableStateOf("") }
-        SaigonDialog(onDismiss = { showAddPlace = false }) {
+        var addPlaceMapTouched by remember { mutableStateOf(false) }
+        SaigonDialog(
+            onDismiss = { showAddPlace = false },
+            scrollEnabled = !addPlaceMapTouched,
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(Copy.text(lang, "createLocation"), color = tokens.text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(end = 36.dp))
                 Text(Copy.text(lang, "tapMapToPlace"), fontSize = 12.sp, color = tokens.muted)
@@ -771,6 +776,7 @@ fun DiscoverScreen(
                             newPlaceLat = lat
                             newPlaceLng = lng
                         },
+                        onMapTouchChange = { addPlaceMapTouched = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

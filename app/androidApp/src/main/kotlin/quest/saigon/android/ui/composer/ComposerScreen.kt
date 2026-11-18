@@ -473,59 +473,6 @@ fun ComposerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            SaigonTextField(
-                value = firstComment,
-                onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
-                label = "💭 ${Copy.text(lang, "firstComment")}",
-                singleLine = false,
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // Community, Avatar, Music quick pickers
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                SaigonOutlinedPillButton(
-                    text = selectedCommunity?.let { "${it.emoji} ${it.name}" } ?: Copy.text(lang, "community"),
-                    onClick = { showCommunitySheet = true },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                )
-                SaigonOutlinedPillButton(
-                    text = "🙆 ${Copy.text(lang, "selectAvatar")}",
-                    onClick = { showAvatarSheet = true },
-                    contentColor = if (composerState.selectedAvatarId != null) tokens.accent else tokens.text,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                )
-                SaigonOutlinedPillButton(
-                    text = "🎵 ${composerState.selectedMusic?.name?.takeIf { it.isNotBlank() } ?: Copy.text(lang, "selectMusic")}",
-                    onClick = { showMusicSheet = true },
-                    contentColor = if (composerState.selectedMusic != null) tokens.accent else tokens.text,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                )
-            }
-
-            if (selectedCommunity != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(vertical = 2.dp),
-                ) {
-                    SaigonSwitch(checked = communityOnly, onCheckedChange = { communityOnly = it })
-                    Text(
-                        Copy.text(lang, "communityOnly"),
-                        color = tokens.text,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-
             // Check-in duration selector: revealed ONLY when selected location has lat/lng (same as web)
             if (hasCoordinates) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -564,6 +511,56 @@ fun ComposerScreen(
                             )
                         }
                     }
+                }
+            }
+
+            SaigonTextField(
+                value = firstComment,
+                onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
+                label = "💭 ${Copy.text(lang, "firstComment")}",
+                singleLine = false,
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // Community, Avatar, Music quick pickers
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                SaigonOutlinedPillButton(
+                    text = selectedCommunity?.let { "${it.emoji} ${it.name}" } ?: Copy.text(lang, "community"),
+                    onClick = { showCommunitySheet = true },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                )
+                SaigonOutlinedPillButton(
+                    text = "🙆 ${Copy.text(lang, "selectAvatar")}",
+                    onClick = { showAvatarSheet = true },
+                    contentColor = if (composerState.selectedAvatarId != null) tokens.accent else tokens.text,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                )
+                SaigonOutlinedPillButton(
+                    text = "🎵 ${composerState.selectedMusic?.name?.takeIf { it.isNotBlank() } ?: Copy.text(lang, "selectMusic")}",
+                    onClick = { showMusicSheet = true },
+                    contentColor = if (composerState.selectedMusic != null) tokens.accent else tokens.text,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+
+            if (selectedCommunity != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(vertical = 2.dp),
+                ) {
+                    SaigonSwitch(checked = communityOnly, onCheckedChange = { communityOnly = it })
+                    Text(
+                        Copy.text(lang, "communityOnly"),
+                        color = tokens.text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
 

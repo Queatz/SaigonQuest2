@@ -6,6 +6,7 @@ import quest.saigon.matchAppRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RoutePathsTest {
@@ -54,6 +55,7 @@ class RoutePathsTest {
     @Test
     fun parsesDeepLinksAndNotificationPaths() {
         assertEquals("/p/abc123", RoutePaths.parsePathFromUriString("https://saigon.town/p/abc123"))
+        assertEquals("/p/abc123", RoutePaths.parsePathFromUriString("https://saigon.town/p/abc123?utm_source=share#top"))
         assertEquals("/messages/ch9", RoutePaths.parsePathFromUriString("https://saigon.town/messages/ch9"))
         assertEquals("/", RoutePaths.parsePathFromUriString("https://saigon.town"))
         assertEquals(
@@ -64,5 +66,35 @@ class RoutePathsTest {
             AppRoute.Chat("c9"),
             matchAppRoute(NotificationCopy.path("chat_message", postId = "", chatId = "c9")),
         )
+    }
+
+    @Test
+    fun resolvesBackgroundFcmAndAppLinkIntents() {
+        assertEquals(
+            AppRoute.Post("p42"),
+            RoutePaths.resolveRouteFromValues(fcmUrl = "/p/p42"),
+        )
+        assertEquals(
+            AppRoute.Chat("c12"),
+            RoutePaths.resolveRouteFromValues(fcmUrl = "https://saigon.town/messages/c12?ref=push"),
+        )
+        assertEquals(
+            AppRoute.MyOrders,
+            RoutePaths.resolveRouteFromValues(fcmType = "product_order"),
+        )
+        assertEquals(
+            AppRoute.Chat("c88"),
+            RoutePaths.resolveRouteFromValues(fcmType = "chat_message", fcmChatId = "c88"),
+        )
+        assertEquals(
+            AppRoute.Post("p99"),
+            RoutePaths.resolveRouteFromValues(fcmType = "event_joined", fcmPostId = "p99"),
+        )
+        assertEquals(
+            AppRoute.Location("loc5"),
+            RoutePaths.resolveRouteFromValues(dataUri = "https://saigon.town/l/loc5"),
+        )
+        assertNull(RoutePaths.resolveRouteFromValues(fcmType = "unknown_type", fcmPostId = ""))
+        assertNull(RoutePaths.resolveRouteFromValues())
     }
 }

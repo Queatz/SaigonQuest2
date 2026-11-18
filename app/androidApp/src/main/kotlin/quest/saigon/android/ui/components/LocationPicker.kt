@@ -111,13 +111,17 @@ fun LocationPickerDialog(
     var resolving by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var hintText by remember { mutableStateOf<String?>(null) }
+    var mapTouched by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {
         delay(200)
         onSearch(query)
     }
 
-    SaigonDialog(onDismiss = onDismiss) {
+    SaigonDialog(
+        onDismiss = onDismiss,
+        scrollEnabled = !mapTouched,
+    ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth(),
@@ -267,6 +271,7 @@ fun LocationPickerDialog(
                         }
                     }
                 },
+                onMapTouchChange = { mapTouched = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(190.dp)

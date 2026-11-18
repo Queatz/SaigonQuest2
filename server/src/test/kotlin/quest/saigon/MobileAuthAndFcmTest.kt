@@ -287,6 +287,36 @@ class MobileAuthAndFcmTest {
     }
 
     @Test
+    fun appConfigLoadsFcmFromEnvFileAndParsesRsaKey() {
+        val keyPair = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val pkcs8Base64 = java.util.Base64.getEncoder().encodeToString(keyPair.private.encoded)
+        val pem = "-----BEGIN PRIVATE KEY-----\n$pkcs8Base64\n-----END PRIVATE KEY-----\n"
+        val jsonFile = File.createTempFile("fcm-sa-real", ".json").apply {
+            deleteOnExit()
+            writeText(
+                mapper.writeValueAsString(
+                    mapOf(
+                        "project_id" to "saigon-town-3e607",
+                        "client_email" to "firebase-adminsdk@saigon-town-3e607.iam.gserviceaccount.com",
+                        "private_key" to pem,
+                    ),
+                ),
+            )
+        }
+        val envFile = File.createTempFile("saigon-test", ".env").apply {
+            deleteOnExit()
+            writeText("FCM_SERVICE_ACCOUNT_JSON=${jsonFile.absolutePath}\n")
+        }
+        val config = AppConfig.load(env = { null }, envFile = envFile)
+        assertTrue(config.fcmConfigured)
+        assertEquals("saigon-town-3e607", config.fcmProjectId)
+        val delivery = quest.saigon.town.HttpFcmDelivery.fromConfig(config)
+        // Verify key parsed and configured (would fail at network/JWT call only if invoked; non-skipped config is active)
+        assertTrue(config.fcmPrivateKey?.contains("BEGIN PRIVATE KEY") == true)
+        assertEquals(quest.saigon.town.HttpFcmDelivery::class, delivery::class)
+    }
+
+    @Test
     fun multipartPhotoPostUploadMatchesClientFormData() = testApplication {
         val repo = InMemoryTownRepository()
         val services = testServices(repo = repo, clock = { 1_700_000_000_000L })

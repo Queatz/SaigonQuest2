@@ -147,6 +147,11 @@ data class CheckInView(
     val lat: Double,
     val lng: Double,
     val untilAt: Long,
+    val postCount: Long = 0,
+    val activityCount: Long = 0,
+    val activityEmojis: List<String> = emptyList(),
+    val hasActivities: Boolean = false,
+    val photoPath: String? = null,
 )
 
 data class FeedItem(

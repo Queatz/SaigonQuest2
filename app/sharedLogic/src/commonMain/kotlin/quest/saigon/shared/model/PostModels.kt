@@ -179,6 +179,11 @@ data class CheckInDto(
     val lat: Double? = null,
     val lng: Double? = null,
     val untilAt: Long = 0L,
+    val postCount: Long = 0L,
+    val activityCount: Long = 0L,
+    val activityEmojis: List<String> = emptyList(),
+    val hasActivities: Boolean = false,
+    val photoUrl: String? = null,
 )
 
 @Serializable

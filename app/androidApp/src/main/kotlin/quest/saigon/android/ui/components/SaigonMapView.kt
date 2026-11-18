@@ -1,7 +1,11 @@
 package quest.saigon.android.ui.components
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -9,6 +13,9 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.UiComposable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -36,6 +44,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -46,12 +55,16 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.applyCanvas
+import androidx.core.graphics.createBitmap
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.BitmapDescriptor
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
@@ -59,9 +72,10 @@ import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapEffect
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.MapsComposeExperimentalApi
-import com.google.maps.android.compose.MarkerComposable
+import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -168,6 +182,39 @@ private data class MeasuredPlaceLabel(
     val labelWidthPx: Float,
     val labelHeightPx: Float,
 )
+
+private sealed interface AnimatedMarkerPayload {
+    val key: String
+    val zIndex: Float
+
+    data class Dot(
+        override val key: String,
+        val place: SaigonMapPlacePin,
+        val labelOnLeft: Boolean,
+        override val zIndex: Float,
+    ) : AnimatedMarkerPayload
+
+    data class PlaceBubble(
+        override val key: String,
+        val place: SaigonMapPlacePin,
+        override val zIndex: Float,
+    ) : AnimatedMarkerPayload
+
+    data class EventBubble(
+        override val key: String,
+        val event: SaigonMapEventPin,
+        override val zIndex: Float,
+    ) : AnimatedMarkerPayload
+}
+
+private class AnimatedMarkerEntry(
+    val key: String,
+    initialPayload: AnimatedMarkerPayload,
+    initialTargetVisible: Boolean,
+) {
+    var payload by mutableStateOf(initialPayload)
+    var targetVisible by mutableStateOf(initialTargetVisible)
+}
 
 private fun isValidLatLng(lat: Double, lng: Double): Boolean =
     lat.isFinite() && lng.isFinite() && lat in -90.0..90.0 && lng in -180.0..180.0
@@ -607,6 +654,44 @@ private fun NativeGoogleMapView(
         }
     }
 
+    val animatedEntries = remember { mutableStateMapOf<String, AnimatedMarkerEntry>() }
+    LaunchedEffect(layoutResult) {
+        val nextPayloads = LinkedHashMap<String, AnimatedMarkerPayload>()
+        layoutResult.visiblePlaceDots.forEach { (place, labelOnLeft, z) ->
+            val k = "dot_${place.key}"
+            nextPayloads[k] = AnimatedMarkerPayload.Dot(k, place, labelOnLeft, z)
+        }
+        layoutResult.visiblePlaceBubbles.forEach { (place, z) ->
+            val k = "pb_${place.key}"
+            nextPayloads[k] = AnimatedMarkerPayload.PlaceBubble(k, place, z)
+        }
+        layoutResult.visibleEvents.forEach { (ev, z) ->
+            val k = "ev_${ev.postId}"
+            nextPayloads[k] = AnimatedMarkerPayload.EventBubble(k, ev, z)
+        }
+
+        val existingKeys = animatedEntries.keys.toList()
+        existingKeys.forEach { k ->
+            val entry = animatedEntries[k] ?: return@forEach
+            val next = nextPayloads[k]
+            if (next != null) {
+                entry.payload = next
+                entry.targetVisible = true
+            } else {
+                entry.targetVisible = false
+            }
+        }
+        nextPayloads.forEach { (k, payload) ->
+            if (!animatedEntries.containsKey(k)) {
+                animatedEntries[k] = AnimatedMarkerEntry(
+                    key = k,
+                    initialPayload = payload,
+                    initialTargetVisible = true,
+                )
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .onSizeChanged { mapSize = it }
@@ -635,177 +720,291 @@ private fun NativeGoogleMapView(
             MapEffect(Unit) {
                 mapReady = true
             }
-            layoutResult.visiblePlaceDots.forEach { (place, labelOnLeft, z) ->
-                key("dot_${place.key}") {
-                    val dotBoxSize = 28.dp
-                    val gap = 6.dp
-                    val labelText = place.name
-                    val emojiText = place.activityEmojis.joinToString(" ")
-                    val labelW = measuredLabels[place.key]?.labelWidthPx ?: 0f
-                    val dotPx = with(density) { dotBoxSize.toPx() }
-                    val gapPx = with(density) { gap.toPx() }
-                    val hasLabel = labelW > 0f
-                    val totalW = if (hasLabel) labelW + gapPx + dotPx else dotPx
-                    val anchorX = when {
-                        !hasLabel -> 0.5f
-                        labelOnLeft -> (labelW + gapPx + dotPx / 2f) / totalW
-                        else -> (dotPx / 2f) / totalW
-                    }.coerceIn(0.05f, 0.95f)
-                    val placeBitmap = place.photoUrl?.let { placeBitmaps[it] }
-                    val markerState = rememberUpdatedMarkerState(position = LatLng(place.lat, place.lng))
-
-                    MarkerComposable(
-                        "dot",
-                        place.key,
-                        place.name,
-                        place.postCount,
-                        place.hasActivities,
-                        labelOnLeft,
-                        emojiText,
-                        placeBitmap != null,
-                        state = markerState,
-                        anchor = Offset(anchorX, 0.5f),
-                        zIndex = z,
-                        onClick = {
-                            onPlaceClick(place.key)
-                            true
-                        },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(gap),
-                            modifier = Modifier.defaultMinSize(minWidth = dotBoxSize, minHeight = dotBoxSize),
-                        ) {
-                            if (hasLabel && labelOnLeft) {
-                                PlaceDotLabel(
-                                    title = labelText,
-                                    emojiText = emojiText,
-                                    alignEnd = true,
-                                    titleStyle = labelTitleStyle,
-                                    emojiStyle = labelEmojiStyle,
-                                )
-                            }
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(dotBoxSize),
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .shadow(4.dp, CircleShape)
-                                        .clip(CircleShape)
-                                        .background(SaigonColors.Accent)
-                                        .border(2.dp, Color.White, CircleShape),
-                                ) {
-                                    if (placeBitmap != null) {
-                                        Image(
-                                            bitmap = placeBitmap,
-                                            contentDescription = place.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                    Text(
-                                        text = place.postCount.coerceIn(0, 99).toString(),
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        style = TextStyle(
-                                            shadow = Shadow(
-                                                color = Color.Black,
-                                                offset = Offset(0f, 0f),
-                                                blurRadius = 3f,
-                                            ),
-                                        ),
-                                    )
-                                }
-                                if (place.hasActivities) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .size(9.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFF5C518))
-                                            .border(1.dp, Color.White, CircleShape),
-                                    )
-                                }
-                            }
-                            if (hasLabel && !labelOnLeft) {
-                                PlaceDotLabel(
-                                    title = labelText,
-                                    emojiText = emojiText,
-                                    alignEnd = false,
-                                    titleStyle = labelTitleStyle,
-                                    emojiStyle = labelEmojiStyle,
-                                )
-                            }
+            animatedEntries.values.toList().forEach { entry ->
+                key(entry.key) {
+                    val scaleAnim = remember { Animatable(0f) }
+                    LaunchedEffect(entry.targetVisible) {
+                        scaleAnim.animateTo(
+                            targetValue = if (entry.targetVisible) 1f else 0f,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        )
+                        if (!entry.targetVisible && scaleAnim.value <= 0.01f) {
+                            animatedEntries.remove(entry.key)
                         }
                     }
-                }
-            }
+                    val rawScale = scaleAnim.value
+                    val step = (rawScale * 24f).roundToInt().coerceIn(0, 24)
 
-            layoutResult.visiblePlaceBubbles.forEach { (place, z) ->
-                key("pb_${place.key}") {
-                    val placeBitmap = place.photoUrl?.let { placeBitmaps[it] }
-                    val markerState = rememberUpdatedMarkerState(position = LatLng(place.lat, place.lng))
-                    MarkerComposable(
-                        "placeBubble",
-                        place.key,
-                        place.name,
-                        place.postCount,
-                        place.activityCount,
-                        place.hasActivities,
-                        placeBitmap != null,
-                        state = markerState,
-                        anchor = Offset(0.5f, 1.0f),
-                        zIndex = z,
-                        onClick = {
-                            onPlaceClick(place.key)
-                            true
-                        },
-                    ) {
-                        Box(modifier = Modifier.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)) {
-                            MapBubbleContainer(
-                                fillColor = tokens.surface,
-                                borderColor = tokens.line,
+                    when (val payload = entry.payload) {
+                        is AnimatedMarkerPayload.Dot -> {
+                            val place = payload.place
+                            val labelOnLeft = payload.labelOnLeft
+                            val z = payload.zIndex
+                            val dotBoxSize = 28.dp
+                            val gap = 6.dp
+                            val labelText = place.name
+                            val emojiText = place.activityEmojis.joinToString(" ")
+                            val labelW = measuredLabels[place.key]?.labelWidthPx ?: 0f
+                            val dotPx = with(density) { dotBoxSize.toPx() }
+                            val gapPx = with(density) { gap.toPx() }
+                            val hasLabel = labelW > 0f
+                            val totalW = if (hasLabel) labelW + gapPx + dotPx else dotPx
+                            val anchorX = when {
+                                !hasLabel -> 0.5f
+                                labelOnLeft -> (labelW + gapPx + dotPx / 2f) / totalW
+                                else -> (dotPx / 2f) / totalW
+                            }.coerceIn(0.05f, 0.95f)
+                            val anchor = Offset(anchorX, 0.5f)
+                            val placeBitmap = place.photoUrl?.let { placeBitmaps[it] }
+                            val markerState = rememberUpdatedMarkerState(position = LatLng(place.lat, place.lng))
+                            val baseBitmap = rememberComposeBitmap(
+                                "dot",
+                                place.key,
+                                place.name,
+                                place.postCount,
+                                place.hasActivities,
+                                labelOnLeft,
+                                emojiText,
+                                placeBitmap != null,
+                                tokens.isDark,
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.widthIn(max = 168.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(gap),
+                                    modifier = Modifier.defaultMinSize(minWidth = dotBoxSize, minHeight = dotBoxSize),
                                 ) {
-                                    if (placeBitmap != null) {
-                                        Image(
-                                            bitmap = placeBitmap,
-                                            contentDescription = place.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(RoundedCornerShape(10.dp)),
+                                    if (hasLabel && labelOnLeft) {
+                                        PlaceDotLabel(
+                                            title = labelText,
+                                            emojiText = emojiText,
+                                            alignEnd = true,
+                                            titleStyle = labelTitleStyle,
+                                            emojiStyle = labelEmojiStyle,
                                         )
                                     }
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.size(dotBoxSize),
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .shadow(4.dp, CircleShape)
+                                                .clip(CircleShape)
+                                                .background(SaigonColors.Accent)
+                                                .border(2.dp, Color.White, CircleShape),
+                                        ) {
+                                            if (placeBitmap != null) {
+                                                Image(
+                                                    bitmap = placeBitmap,
+                                                    contentDescription = place.name,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                            Text(
+                                                text = place.postCount.coerceIn(0, 99).toString(),
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                style = TextStyle(
+                                                    shadow = Shadow(
+                                                        color = Color.Black,
+                                                        offset = Offset(0f, 0f),
+                                                        blurRadius = 3f,
+                                                    ),
+                                                ),
+                                            )
+                                        }
+                                        if (place.hasActivities) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .size(9.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFF5C518))
+                                                    .border(1.dp, Color.White, CircleShape),
+                                            )
+                                        }
+                                    }
+                                    if (hasLabel && !labelOnLeft) {
+                                        PlaceDotLabel(
+                                            title = labelText,
+                                            emojiText = emojiText,
+                                            alignEnd = false,
+                                            titleStyle = labelTitleStyle,
+                                            emojiStyle = labelEmojiStyle,
+                                        )
+                                    }
+                                }
+                            }
+                            val icon = rememberScaledBitmapDescriptor(baseBitmap, step, anchor.x, anchor.y)
+                            Marker(
+                                state = markerState,
+                                icon = icon,
+                                alpha = rawScale.coerceIn(0f, 1f),
+                                visible = step > 0,
+                                anchor = anchor,
+                                zIndex = z,
+                                onClick = {
+                                    if (entry.targetVisible) {
+                                        onPlaceClick(place.key)
+                                    }
+                                    true
+                                },
+                            )
+                        }
+
+                        is AnimatedMarkerPayload.PlaceBubble -> {
+                            val place = payload.place
+                            val z = payload.zIndex
+                            val anchor = Offset(0.5f, 1.0f)
+                            val placeBitmap = place.photoUrl?.let { placeBitmaps[it] }
+                            val markerState = rememberUpdatedMarkerState(position = LatLng(place.lat, place.lng))
+                            val baseBitmap = rememberComposeBitmap(
+                                "placeBubble",
+                                place.key,
+                                place.name,
+                                place.postCount,
+                                place.activityCount,
+                                place.hasActivities,
+                                place.activityEmojis,
+                                placeBitmap != null,
+                                tokens.isDark,
+                                language,
+                            ) {
+                                Box(modifier = Modifier.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)) {
+                                    MapBubbleContainer(
+                                        fillColor = tokens.surface,
+                                        borderColor = tokens.line,
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.widthIn(max = 168.dp),
+                                        ) {
+                                            if (placeBitmap != null) {
+                                                Image(
+                                                    bitmap = placeBitmap,
+                                                    contentDescription = place.name,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(RoundedCornerShape(10.dp)),
+                                                )
+                                            }
+                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(
+                                                    text = "📍 ${place.name}",
+                                                    color = tokens.text,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                val emojiPart = place.activityEmojis.joinToString(" ")
+                                                val counts = buildList {
+                                                    if (place.activityCount > 0) {
+                                                        add(Copy.text(language, "activityCountShort", mapOf("count" to place.activityCount.toString())))
+                                                    }
+                                                    if (place.postCount > 0 || place.activityCount == 0L) {
+                                                        add(Copy.text(language, "postCount", mapOf("count" to place.postCount.coerceAtLeast(0).toString())))
+                                                    }
+                                                }.joinToString(", ")
+                                                if (emojiPart.isNotBlank() || counts.isNotBlank()) {
+                                                    Text(
+                                                        text = listOfNotNull(emojiPart.takeIf { it.isNotBlank() }, counts.takeIf { it.isNotBlank() }).joinToString(" "),
+                                                        color = tokens.muted,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (place.hasActivities) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .size(11.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFF5C518))
+                                                .border(1.dp, Color.White, CircleShape),
+                                        )
+                                    }
+                                }
+                            }
+                            val icon = rememberScaledBitmapDescriptor(baseBitmap, step, anchor.x, anchor.y)
+                            Marker(
+                                state = markerState,
+                                icon = icon,
+                                alpha = rawScale.coerceIn(0f, 1f),
+                                visible = step > 0,
+                                anchor = anchor,
+                                zIndex = z,
+                                onClick = {
+                                    if (entry.targetVisible) {
+                                        onPlaceClick(place.key)
+                                    }
+                                    true
+                                },
+                            )
+                        }
+
+                        is AnimatedMarkerPayload.EventBubble -> {
+                            val ev = payload.event
+                            val z = payload.zIndex
+                            val anchor = Offset(0.5f, 1.0f)
+                            val markerState = rememberUpdatedMarkerState(position = LatLng(ev.lat, ev.lng))
+                            val baseBitmap = rememberComposeBitmap(
+                                "event",
+                                ev.postId,
+                                ev.title,
+                                ev.emoji,
+                                ev.location,
+                                ev.eventPrice ?: -1L,
+                                ev.eventStartAt ?: -1L,
+                                ev.attendeeCount,
+                                ev.attendees.size,
+                                tokens.isDark,
+                                language,
+                            ) {
+                                MapBubbleContainer(
+                                    fillColor = tokens.surface,
+                                    borderColor = tokens.line,
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                                        modifier = Modifier
+                                            .defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)
+                                            .widthIn(max = 168.dp),
+                                    ) {
                                         Text(
-                                            text = "📍 ${place.name}",
+                                            text = "${ev.emoji} ${ev.title}",
                                             color = tokens.text,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.ExtraBold,
+                                            lineHeight = 15.sp,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                         )
-                                        val emojiPart = place.activityEmojis.joinToString(" ")
-                                        val counts = buildList {
-                                            if (place.activityCount > 0) {
-                                                add(Copy.text(language, "activityCountShort", mapOf("count" to place.activityCount.toString())))
-                                            }
-                                            if (place.postCount > 0 || place.activityCount == 0L) {
-                                                add(Copy.text(language, "postCount", mapOf("count" to place.postCount.coerceAtLeast(0).toString())))
-                                            }
-                                        }.joinToString(", ")
-                                        if (emojiPart.isNotBlank() || counts.isNotBlank()) {
+                                        val priceText = ev.eventPrice?.takeIf { it > 0L }?.let(::formatVnd) ?: Copy.text(language, "free")
+                                        val clock = ev.eventStartAt?.let(::formatBubbleClock)
+                                        val metaLine = listOfNotNull(clock, "💰 $priceText").joinToString(" · ")
+                                        Text(
+                                            text = metaLine,
+                                            color = tokens.muted,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (ev.location.isNotBlank()) {
                                             Text(
-                                                text = listOfNotNull(emojiPart.takeIf { it.isNotBlank() }, counts.takeIf { it.isNotBlank() }).joinToString(" "),
+                                                text = "📍 ${ev.location}",
                                                 color = tokens.muted,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -813,121 +1012,120 @@ private fun NativeGoogleMapView(
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                         }
-                                    }
-                                }
-                            }
-                            if (place.hasActivities) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .size(11.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFF5C518))
-                                        .border(1.dp, Color.White, CircleShape),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            layoutResult.visibleEvents.forEach { (ev, z) ->
-                key("ev_${ev.postId}") {
-                    val markerState = rememberUpdatedMarkerState(position = LatLng(ev.lat, ev.lng))
-                    MarkerComposable(
-                        "event",
-                        ev.postId,
-                        ev.title,
-                        ev.attendeeCount,
-                        state = markerState,
-                        anchor = Offset(0.5f, 1.0f),
-                        zIndex = z,
-                        onClick = {
-                            onEventClick(ev.postId)
-                            true
-                        },
-                    ) {
-                        MapBubbleContainer(
-                            fillColor = tokens.surface,
-                            borderColor = tokens.line,
-                        ) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                                modifier = Modifier
-                                    .defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)
-                                    .widthIn(max = 168.dp),
-                            ) {
-                                Text(
-                                    text = "${ev.emoji} ${ev.title}",
-                                    color = tokens.text,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    lineHeight = 15.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                val priceText = ev.eventPrice?.takeIf { it > 0L }?.let(::formatVnd) ?: Copy.text(language, "free")
-                                val clock = ev.eventStartAt?.let(::formatBubbleClock)
-                                val metaLine = listOfNotNull(clock, "💰 $priceText").joinToString(" · ")
-                                Text(
-                                    text = metaLine,
-                                    color = tokens.muted,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                if (ev.location.isNotBlank()) {
-                                    Text(
-                                        text = "📍 ${ev.location}",
-                                        color = tokens.muted,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                val shownFaces = ev.attendees.take(4)
-                                val count = ev.attendeeCount.coerceAtLeast(shownFaces.size)
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    if (shownFaces.isNotEmpty()) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
-                                            shownFaces.forEach { person ->
-                                                Box(
-                                                    contentAlignment = Alignment.Center,
-                                                    modifier = Modifier
-                                                        .size(16.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color(0xFFD9D0C6))
-                                                        .border(1.dp, tokens.surface, CircleShape),
-                                                ) {
-                                                    Text(
-                                                        text = person.name.take(1).uppercase(),
-                                                        color = SaigonColors.Ink,
-                                                        fontSize = 8.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                    )
+                                        val shownFaces = ev.attendees.take(4)
+                                        val count = ev.attendeeCount.coerceAtLeast(shownFaces.size)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            if (shownFaces.isNotEmpty()) {
+                                                Row(horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
+                                                    shownFaces.forEach { person ->
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
+                                                            modifier = Modifier
+                                                                .size(16.dp)
+                                                                .clip(CircleShape)
+                                                                .background(Color(0xFFD9D0C6))
+                                                                .border(1.dp, tokens.surface, CircleShape),
+                                                        ) {
+                                                            Text(
+                                                                text = person.name.take(1).uppercase(),
+                                                                color = SaigonColors.Ink,
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.ExtraBold,
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
+                                            Text(
+                                                text = if (count > 0) "${Copy.text(language, "attendees")} · $count" else Copy.text(language, "attendees"),
+                                                color = tokens.muted,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                            )
                                         }
                                     }
-                                    Text(
-                                        text = if (count > 0) "${Copy.text(language, "attendees")} · $count" else Copy.text(language, "attendees"),
-                                        color = tokens.muted,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                    )
                                 }
                             }
+                            val icon = rememberScaledBitmapDescriptor(baseBitmap, step, anchor.x, anchor.y)
+                            Marker(
+                                state = markerState,
+                                icon = icon,
+                                alpha = rawScale.coerceIn(0f, 1f),
+                                visible = step > 0,
+                                anchor = anchor,
+                                zIndex = z,
+                                onClick = {
+                                    if (entry.targetVisible) {
+                                        onEventClick(ev.postId)
+                                    }
+                                    true
+                                },
+                            )
                         }
                     }
                 }
             }
         }
+    }
+}
+
+private val markerMeasureSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+
+@Composable
+private fun rememberComposeBitmap(
+    vararg keys: Any,
+    content: @Composable @UiComposable () -> Unit,
+): Bitmap {
+    val parent = LocalView.current as ViewGroup
+    val compositionContext = rememberCompositionContext()
+    val latestContent = rememberUpdatedState(content)
+    return remember(parent, compositionContext, *keys) {
+        val host = parent.rootView as? ViewGroup ?: parent
+        val canvasOfHolding = Canvas()
+        val composeView = androidx.compose.ui.platform.ComposeView(host.context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            setParentCompositionContext(compositionContext)
+            setContent { latestContent.value() }
+        }.also(host::addView)
+        try {
+            composeView.draw(canvasOfHolding)
+            composeView.measure(markerMeasureSpec, markerMeasureSpec)
+            val w = composeView.measuredWidth.coerceAtLeast(1)
+            val h = composeView.measuredHeight.coerceAtLeast(1)
+            composeView.layout(0, 0, w, h)
+            createBitmap(w, h).applyCanvas { composeView.draw(this) }
+        } finally {
+            host.removeView(composeView)
+        }
+    }
+}
+
+@Composable
+private fun rememberScaledBitmapDescriptor(
+    base: Bitmap,
+    step: Int,
+    pivotFractionX: Float,
+    pivotFractionY: Float,
+): BitmapDescriptor = remember(base, step, pivotFractionX, pivotFractionY) {
+    if (step <= 0 || step >= 24) {
+        BitmapDescriptorFactory.fromBitmap(base)
+    } else {
+        val s = step / 24f
+        val out = createBitmap(base.width, base.height)
+        out.applyCanvas {
+            save()
+            scale(s, s, base.width * pivotFractionX, base.height * pivotFractionY)
+            drawBitmap(base, 0f, 0f, null)
+            restore()
+        }
+        BitmapDescriptorFactory.fromBitmap(out)
     }
 }
 
@@ -1233,7 +1431,9 @@ private fun buildMapHtml(
     padding: 8px 11px; font-size: 12px; font-weight: 800; line-height: 1.25;
     box-shadow: 0 10px 24px rgba(36,31,26,0.18); white-space: nowrap; max-width: 168px;
     cursor: pointer; position: relative;
+    transform: scale(0); transform-origin: center bottom; transition: transform 220ms ease;
   }
+  .sq-bubble.is-shown { transform: scale(1); }
   .sq-bubble::after {
     content: ""; position: absolute; left: 50%; bottom: -5px; width: 10px; height: 10px;
     background: $bg; border-right: 1px solid $line; border-bottom: 1px solid $line;
@@ -1244,7 +1444,9 @@ private fun buildMapHtml(
     border: 2px solid #fff; font-size: 9px; font-weight: 800;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 2px 8px rgba(0,0,0,0.35); cursor: pointer; position: relative;
+    transform: scale(0); transform-origin: center; transition: transform 220ms ease;
   }
+  .sq-dot.is-shown { transform: scale(1); }
   .sq-dot .act-dot, .sq-bubble .act-dot {
     position: absolute; top: -2px; right: -2px; width: 9px; height: 9px;
     border-radius: 50%; background: #f5c518; border: 1px solid #fff;
@@ -1291,6 +1493,7 @@ private fun buildMapHtml(
         }
       };
       wrap.appendChild(b);
+      requestAnimationFrame(function() { requestAnimationFrame(function() { b.classList.add('is-shown'); }); });
     } else {
       var d = document.createElement('div');
       d.className = 'sq-dot';
@@ -1305,6 +1508,7 @@ private fun buildMapHtml(
       lbl.textContent = m.title + (m.activityEmojis ? ' ' + m.activityEmojis : '');
       wrap.appendChild(d);
       wrap.appendChild(lbl);
+      requestAnimationFrame(function() { requestAnimationFrame(function() { d.classList.add('is-shown'); }); });
       wrap.onclick = function(e) { e.stopPropagation(); if (window.SaigonMapBridge) SaigonMapBridge.openPlace(m.id); };
     }
     return wrap;

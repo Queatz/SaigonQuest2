@@ -16,6 +16,15 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/saigon_notification_accent" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="saigon_town_updates" />
 
         <activity
             android:name="quest.saigon.android.MainActivity"
@@ -30,6 +39,11 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="saigon.town" android:path="/" />
+                <data android:scheme="https" android:host="saigon.town" android:path="/new" />
+                <data android:scheme="https" android:host="saigon.town" android:pathPrefix="/profile" />
+                <data android:scheme="https" android:host="saigon.town" android:path="/stats" />
+                <data android:scheme="https" android:host="saigon.town" android:path="/admin" />
                 <data android:scheme="https" android:host="saigon.town" android:pathPrefix="/p/" />
                 <data android:scheme="https" android:host="saigon.town" android:pathPrefix="/c/" />
                 <data android:scheme="https" android:host="saigon.town" android:pathPrefix="/u/" />

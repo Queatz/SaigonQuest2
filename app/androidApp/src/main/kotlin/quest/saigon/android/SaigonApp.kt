@@ -51,7 +51,8 @@ fun SaigonApp(
             authPromptVisible = true
             return
         }
-        val path = RoutePaths.toPath(route)
+        val target = if (route is AppRoute.NotFound) AppRoute.Home else route
+        val path = RoutePaths.toPath(target)
         CrashReporter.log("Navigate: $path")
         navController.navigate(path) {
             launchSingleTop = true

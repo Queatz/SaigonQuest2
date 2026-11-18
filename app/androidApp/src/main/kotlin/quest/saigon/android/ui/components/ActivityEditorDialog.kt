@@ -140,10 +140,7 @@ fun ActivityEditorDialog(
     SaigonDialog(onDismiss = onDismiss) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 580.dp)
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
                 Copy.text(language, if (existing == null) "createActivity" else "editActivity"),

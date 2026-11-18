@@ -41,6 +41,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -71,6 +72,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -249,7 +251,7 @@ fun SaigonPageShell(
                     .fillMaxWidth()
                     .background(tokens.bg)
                     .statusBarsPadding()
-                    .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
             ) {
                 if (onBack != null) {
                     SaigonIconButton(
@@ -818,6 +820,8 @@ fun SaigonFab(
 fun SaigonDialog(
     onDismiss: () -> Unit,
     showCloseButton: Boolean = true,
+    scrollable: Boolean = true,
+    scrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -836,6 +840,7 @@ fun SaigonDialog(
                     indication = null,
                     onClick = onDismiss,
                 )
+                .systemBarsPadding()
                 .imePadding()
                 .padding(20.dp),
         ) {
@@ -856,6 +861,13 @@ fun SaigonDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(
+                                if (scrollable) {
+                                    Modifier.verticalScroll(rememberScrollState(), enabled = scrollEnabled)
+                                } else {
+                                    Modifier
+                                },
+                            )
                             .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 14.dp),
                         content = content,
                     )
@@ -1325,7 +1337,7 @@ fun ViewerButton(
     val ringColor = if (overlay) Color.White else tokens.line
     val contentDesc = Copy.text(language, if (toComposer) "createPost" else "openProfile")
 
-    Box(modifier = modifier) {
+    Box(contentAlignment = Alignment.TopEnd, modifier = modifier) {
         if (me == null) {
             // Signed out: animated sparkles + '+' button when toComposer, or person button otherwise
             val pulse = rememberInfiniteTransition(label = "viewerSparkle")
@@ -2375,10 +2387,13 @@ fun CheckInBubbleItem(
     modifier: Modifier = Modifier,
 ) {
     val summary = formatCheckInBubbleSummary(checkIn, language)
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val maxBubbleWidth = (screenWidth * 0.80f).coerceAtMost(460.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         modifier = modifier
+            .widthIn(max = maxBubbleWidth)
             .clip(RoundedCornerShape(28.dp))
             .clickable(enabled = enabled, onClick = onClick),
     ) {
@@ -2394,11 +2409,10 @@ fun CheckInBubbleItem(
             color = Color.White.copy(alpha = 0.96f),
             shape = RoundedCornerShape(18.dp),
             shadowElevation = 6.dp,
+            modifier = Modifier.weight(1f, fill = false),
         ) {
             Column(
-                modifier = Modifier
-                    .widthIn(max = 268.dp)
-                    .padding(horizontal = 15.dp, vertical = 11.dp),
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
             ) {
                 Text(
                     text = summary,
@@ -2414,6 +2428,8 @@ fun CheckInBubbleItem(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         lineHeight = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 3.dp),
                     )
                 }
@@ -2434,6 +2450,7 @@ fun CheckInDetailDialog(
     onDismiss: () -> Unit,
 ) {
     val sessionState by shared.session.state.collectAsState()
+    val discoverState by shared.discover.state.collectAsState()
     val tokens = LocalSaigonTokens.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2442,11 +2459,15 @@ fun CheckInDetailDialog(
     var messageDraft by remember(checkIn.postId) { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var mapTouched by remember { mutableStateOf(false) }
 
     val isSelf = sessionState.me?.id == currentCheckIn.authorId
     val summary = formatCheckInBubbleSummary(currentCheckIn, language)
 
-    SaigonDialog(onDismiss = onDismiss) {
+    SaigonDialog(
+        onDismiss = onDismiss,
+        scrollEnabled = !mapTouched,
+    ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth(),
@@ -2531,6 +2552,20 @@ fun CheckInDetailDialog(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (checkInLat != null && checkInLng != null) {
+                    val matchedPlace = remember(currentCheckIn, discoverState.locations) {
+                        discoverState.locations.firstOrNull { place ->
+                            when {
+                                !currentCheckIn.locationId.isNullOrBlank() -> place.id == currentCheckIn.locationId
+                                !currentCheckIn.placeId.isNullOrBlank() -> place.placeId == currentCheckIn.placeId
+                                else -> place.name == currentCheckIn.location && place.placeId.isNullOrBlank() && place.id.isNullOrBlank()
+                            }
+                        }
+                    }
+                    val pinPostCount = if (currentCheckIn.postCount > 0L) currentCheckIn.postCount else (matchedPlace?.postCount ?: 0L)
+                    val pinActivityCount = if (currentCheckIn.activityCount > 0L) currentCheckIn.activityCount else (matchedPlace?.activityCount ?: 0L)
+                    val pinActivityEmojis = currentCheckIn.activityEmojis.ifEmpty { matchedPlace?.activityEmojis.orEmpty() }
+                    val pinHasActivities = currentCheckIn.hasActivities || pinActivityCount > 0L || (matchedPlace?.hasActivities == true)
+                    val pinPhotoUrl = currentCheckIn.photoUrl ?: matchedPlace?.photoUrl
                     Box(
                         modifier = Modifier
                             .size(136.dp)
@@ -2545,6 +2580,11 @@ fun CheckInDetailDialog(
                                     name = currentCheckIn.location,
                                     lat = checkInLat,
                                     lng = checkInLng,
+                                    postCount = pinPostCount,
+                                    activityCount = pinActivityCount,
+                                    activityEmojis = pinActivityEmojis,
+                                    hasActivities = pinHasActivities,
+                                    photoUrl = pinPhotoUrl,
                                 ),
                             ),
                             mapsApiKey = sessionState.mapsKey,
@@ -2557,6 +2597,7 @@ fun CheckInDetailDialog(
                                 onDismiss()
                                 onNavigate(AppRoute.Location(locationToken))
                             },
+                            onMapTouchChange = { mapTouched = it },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Sun disc -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18.5,5.5m-2.2,0a2.2,2.2 0,1 1,4.4 0a2.2,2.2 0,1 1,-4.4 0" />
+    <!-- Curved Ba Son bridge pylon -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.4,17.2C10.9,12.7 12.1,7.8 13.7,4.2C13.9,3.7 14.5,3.7 14.7,4.1C14.9,4.5 14.7,5.2 14.4,6.1C13.3,9.5 12.7,13.4 12.6,17.2Z" />
+    <!-- Left stay cables -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="0.95"
+        android:strokeLineCap="round"
+        android:pathData="M13.5,5.6L3.2,17.0 M13.1,7.4L5.6,17.0 M12.7,9.5L8.0,17.0 M12.3,11.8L9.8,17.0" />
+    <!-- Right stay cables -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="0.95"
+        android:strokeLineCap="round"
+        android:pathData="M14.0,6.2L20.8,17.0 M13.6,8.2L18.5,17.0 M13.3,10.4L16.3,17.0 M13.0,12.6L14.5,17.0" />
+    <!-- Bridge deck -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2.2,16.8L21.8,16.8L21.8,18.4L2.2,18.4Z" />
+    <!-- River reflection bars -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.0,20.0L18.0,20.0L18.0,21.0L6.0,21.0Z M9.0,22.0L15.0,22.0L15.0,22.9L9.0,22.9Z" />
+</vector>

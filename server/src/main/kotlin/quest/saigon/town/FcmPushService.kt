@@ -146,9 +146,17 @@ class HttpFcmDelivery(
             in 200..299 -> FcmPushResult.SENT
             404 -> FcmPushResult.UNREGISTERED
             400, 403, 410 -> {
-                if (response.body().contains("UNREGISTERED")) FcmPushResult.UNREGISTERED else FcmPushResult.FAILED
+                if (response.body().contains("UNREGISTERED")) {
+                    FcmPushResult.UNREGISTERED
+                } else {
+                    log.warn("FCM delivery returned HTTP {}: {}", response.statusCode(), response.body())
+                    FcmPushResult.FAILED
+                }
             }
-            else -> FcmPushResult.FAILED
+            else -> {
+                log.warn("FCM delivery returned HTTP {}: {}", response.statusCode(), response.body())
+                FcmPushResult.FAILED
+            }
         }
     }
 
@@ -208,7 +216,15 @@ class HttpFcmDelivery(
             .build()
 
         fun fromConfig(config: AppConfig, clock: () -> Long = System::currentTimeMillis): HttpFcmDelivery {
+            val log = LoggerFactory.getLogger(HttpFcmDelivery::class.java)
             val key = parsePrivateKey(config.fcmPrivateKey)
+            if (config.fcmConfigured && key != null) {
+                log.info("FCM push enabled for project {}", config.fcmProjectId)
+            } else if (config.fcmConfigured) {
+                log.warn("FCM push private key could not be parsed for project {}; FCM delivery disabled", config.fcmProjectId)
+            } else {
+                log.info("FCM push disabled (credentials not configured)")
+            }
             return HttpFcmDelivery(
                 projectId = config.fcmProjectId,
                 clientEmail = config.fcmClientEmail,

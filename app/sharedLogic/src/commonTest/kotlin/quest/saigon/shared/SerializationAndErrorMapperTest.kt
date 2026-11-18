@@ -102,4 +102,39 @@ class SerializationAndErrorMapperTest {
         val unknown = ApiErrorMapper.toFailure(500, "unexpected", Language.EN)
         assertEquals("errorGeneric", unknown.copyKey)
     }
+
+    @Test
+    fun deserializesCheckInPlaceStatsAndPhotoUrl() {
+        val payload = """
+            {
+              "checkIns": [
+                {
+                  "postId": "p1",
+                  "message": "Here now",
+                  "authorId": "u1",
+                  "authorName": "Linh",
+                  "authorPhotoUrl": "/api/users/u1/photo",
+                  "location": "Climbing Gym",
+                  "locationId": "loc1",
+                  "lat": 10.77,
+                  "lng": 106.70,
+                  "untilAt": 1700003600000,
+                  "postCount": 4,
+                  "activityCount": 2,
+                  "activityEmojis": ["🧗", "☕"],
+                  "hasActivities": true,
+                  "photoUrl": "/media/posts/gym.jpg"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsed = json.decodeFromString(CheckInsResponse.serializer(), payload)
+        assertEquals(1, parsed.checkIns.size)
+        val checkIn = parsed.checkIns.first()
+        assertEquals(4L, checkIn.postCount)
+        assertEquals(2L, checkIn.activityCount)
+        assertEquals(listOf("🧗", "☕"), checkIn.activityEmojis)
+        assertTrue(checkIn.hasActivities)
+        assertEquals("/media/posts/gym.jpg", checkIn.photoUrl)
+    }
 }

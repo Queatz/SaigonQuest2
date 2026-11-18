@@ -187,6 +187,74 @@ class CheckInBehaviorTest {
         assertEquals(HttpStatusCode.BadRequest, owner.delete("/api/posts/$expiringPostId/checkin").status)
     }
 
+    @Test
+    fun checkInsIncludePlaceCountsActivitiesAndPhoto() = testApplication {
+        var now = 1_700_000_000_000L
+        val repo = InMemoryTownRepository()
+        val services = services({ now }, repo)
+        application { module(databaseHealth = { HealthStatus(true, "saigonquest", "3") }, services) }
+        val client = createClient { install(HttpCookies) }
+        client.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0905550305","password":"secretpass"}""")
+        }
+        val linhId = mapper.readTree(client.get("/api/me").bodyAsText()).path("id").asText()
+        val location = repo.insertUserLocation("Climbing Gym", 10.77, 106.70, linhId, now)
+
+        assertEquals(
+            HttpStatusCode.Created,
+            client.post("/api/activities") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"emoji":"🧗","name":"Climb","locationName":"Climbing Gym","locationId":"${location.id}","interested":true}""")
+            }.status,
+        )
+        now += 1
+        assertEquals(
+            HttpStatusCode.Created,
+            client.post("/api/activities") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"emoji":"☕","name":"Coffee","locationName":"Climbing Gym","locationId":"${location.id}","interested":false}""")
+            }.status,
+        )
+        now += 1
+
+        val checkInPost = client.post("/api/posts") {
+            setBody(
+                MultiPartFormDataContent(
+                    formData {
+                        append(
+                            "photo",
+                            ImageOps().writeJpeg(solid(12, 16, Color(40, 120, 80)), 0.85f),
+                            Headers.build {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
+                            },
+                        )
+                        append("message", "Climbing now")
+                        append("location", "Climbing Gym")
+                        append("locationId", location.id)
+                        append("checkInMinutes", "60")
+                        append("lat", "10.77")
+                        append("lng", "106.70")
+                    },
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, checkInPost.status)
+
+        val checkIns = mapper.readTree(client.get("/api/checkins").bodyAsText()).path("checkIns")
+        assertEquals(1, checkIns.size())
+        val item = checkIns[0]
+        assertEquals(1, item.path("postCount").asInt())
+        assertEquals(2, item.path("activityCount").asInt())
+        assertTrue(item.path("hasActivities").asBoolean())
+        assertEquals(
+            listOf("🧗", "☕"),
+            (0 until item.path("activityEmojis").size()).map { item.path("activityEmojis").path(it).asText() },
+        )
+        assertTrue(item.path("photoUrl").asText().startsWith("/media/"))
+    }
+
     private suspend fun post(
         client: io.ktor.client.HttpClient,
         durationMinutes: Int?,

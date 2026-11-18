@@ -304,6 +304,47 @@ install -d -o saigonquest -g saigonquest -m 750 /opt/saigonquest /opt/saigonques
 install -o saigonquest -g saigonquest -m 640 "$JAR_TMP" /opt/saigonquest/saigonquest-server.jar
 install -o saigonquest -g saigonquest -m 640 "$ENV_TMP" /opt/saigonquest/.env
 rm -f "$JAR_TMP" "$ENV_TMP"
+
+fcm_env_key=""
+fcm_env_val=""
+for candidate_key in FCM_SERVICE_ACCOUNT_JSON GOOGLE_APPLICATION_CREDENTIALS; do
+  raw_line=$(grep -E "^${candidate_key}=" /opt/saigonquest/.env | tail -n 1 || true)
+  if [[ -n "$raw_line" ]]; then
+    val=${raw_line#*=}
+    val=${val#\"}
+    val=${val%\"}
+    val=${val#\'}
+    val=${val%\'}
+    if [[ -n "$val" ]]; then
+      fcm_env_key="$candidate_key"
+      fcm_env_val="$val"
+      break
+    fi
+  fi
+done
+if [[ -n "$fcm_env_val" && "$fcm_env_val" != \{* ]]; then
+  fcm_name=$(basename "$fcm_env_val")
+  fcm_dest="/opt/saigonquest/${fcm_name}"
+  if [[ -f "/root/${fcm_name}" ]]; then
+    install -o saigonquest -g saigonquest -m 640 "/root/${fcm_name}" "$fcm_dest"
+    if [[ "$fcm_env_val" == /root/* ]]; then
+      tmp_env=$(mktemp)
+      grep -v -E "^${fcm_env_key}=" /opt/saigonquest/.env > "$tmp_env" || true
+      printf '%s=%s\n' "$fcm_env_key" "$fcm_dest" >> "$tmp_env"
+      install -o saigonquest -g saigonquest -m 640 "$tmp_env" /opt/saigonquest/.env
+      rm -f "$tmp_env"
+    fi
+    log "Installed FCM service account JSON to ${fcm_dest}"
+  elif [[ -f "$fcm_env_val" ]]; then
+    if [[ "$fcm_env_val" == /opt/saigonquest/* ]]; then
+      chown saigonquest:saigonquest "$fcm_env_val"
+      chmod 640 "$fcm_env_val"
+    fi
+  else
+    log "warning: FCM credentials file not found at ${fcm_env_val} or /root/${fcm_name}; FCM push will be skipped"
+  fi
+fi
+
 append_env_if_missing /opt/saigonquest/.env PORT "$APP_PORT"
 append_env_if_missing /opt/saigonquest/.env BIND_HOST 127.0.0.1
 append_env_if_missing /opt/saigonquest/.env COOKIE_SECURE true

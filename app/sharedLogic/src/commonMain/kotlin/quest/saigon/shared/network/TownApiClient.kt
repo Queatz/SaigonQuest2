@@ -279,7 +279,14 @@ class TownApiClient(
 
     suspend fun getCheckIns(): ApiResult<CheckInsResponse> =
         get("/api/checkins", CheckInsResponse.serializer()).map { res ->
-            res.copy(checkIns = res.checkIns.map { it.copy(authorPhotoUrl = it.authorPhotoUrl?.let(::resolveUrl)) })
+            res.copy(
+                checkIns = res.checkIns.map {
+                    it.copy(
+                        authorPhotoUrl = it.authorPhotoUrl?.let(::resolveUrl),
+                        photoUrl = it.photoUrl?.let(::resolveUrl),
+                    )
+                },
+            )
         }
 
     suspend fun updateCheckIn(postId: String, minutes: Int): ApiResult<CheckInUpdateResponse> =

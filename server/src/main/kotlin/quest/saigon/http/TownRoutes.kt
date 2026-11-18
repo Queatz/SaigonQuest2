@@ -627,8 +627,24 @@ fun Route.townApi(services: TownServices) {
 
     get("/checkins") {
         val viewer = call.user(services)
+        val activityFlags = services.repo.activityLocationFlags()
+        val checkIns = services.repo.activeCheckIns(services.clock(), viewer?.id).map { checkIn ->
+            val activitySummary = when {
+                !checkIn.locationId.isNullOrBlank() -> activityFlags.locationActivities[checkIn.locationId]
+                !checkIn.placeId.isNullOrBlank() -> activityFlags.placeActivities[checkIn.placeId]
+                else -> null
+            }
+            val locationName = checkIn.locationId?.let { services.repo.findUserLocation(it)?.name } ?: checkIn.location
+            checkIn.copy(
+                postCount = services.repo.countPostsAtPlace(locationName, checkIn.placeId, viewer?.id, checkIn.locationId),
+                activityCount = activitySummary?.count ?: 0,
+                activityEmojis = activitySummary?.emojis.orEmpty(),
+                hasActivities = activitySummary != null,
+                photoPath = services.repo.latestPostPhotoAtPlace(locationName, checkIn.placeId, viewer?.id, checkIn.locationId),
+            )
+        }
         call.respondJson(
-            mapOf("checkIns" to services.repo.activeCheckIns(services.clock(), viewer?.id).map(::checkInPayload)),
+            mapOf("checkIns" to checkIns.map(::checkInPayload)),
         )
     }
 
@@ -2478,6 +2494,11 @@ private fun checkInPayload(checkIn: CheckInView) = mapOf(
     "lat" to checkIn.lat,
     "lng" to checkIn.lng,
     "untilAt" to checkIn.untilAt,
+    "postCount" to checkIn.postCount,
+    "activityCount" to checkIn.activityCount,
+    "activityEmojis" to checkIn.activityEmojis,
+    "hasActivities" to checkIn.hasActivities,
+    "photoUrl" to checkIn.photoPath?.let { "/media/$it" },
 )
 
 private fun postPayload(item: FeedItem) = mapOf(
