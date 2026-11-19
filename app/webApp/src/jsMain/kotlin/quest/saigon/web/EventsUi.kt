@@ -115,7 +115,6 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         showProfile = false,
         onBack = { if (searching) closeSearch() else back(router) },
         searchAction = { openSearch() },
-        shopAction = { go(router, "/shop") },
     )
     val title = head.asDynamic().querySelector("h1") as HTMLElement
     val searchButton = head.asDynamic().querySelector(".post-search-toggle") as HTMLElement
@@ -127,12 +126,15 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     eventsChip.setAttribute("type", "button")
     val activitiesChip = el("button", "chip", text = Town.t("activities"))
     activitiesChip.setAttribute("type", "button")
+    val learnChip = el("button", "chip", text = Town.t("products"))
+    learnChip.setAttribute("type", "button")
     val peopleChip = el("button", "chip", text = Town.t("people"))
     peopleChip.setAttribute("type", "button")
     val communitiesChip = el("button", "chip", text = Town.t("communities"))
     communitiesChip.setAttribute("type", "button")
     tabs.appendChild(eventsChip)
     tabs.appendChild(activitiesChip)
+    tabs.appendChild(learnChip)
     tabs.appendChild(peopleChip)
     tabs.appendChild(communitiesChip)
     val split = el("div", "events-split")
@@ -168,14 +170,17 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     )
     val eventCol = el("div", "events-col")
     val activityCol = el("div", "events-col")
+    val learnCol = el("div", "events-col")
     val peopleCol = el("div", "events-col")
     val communityCol = el("div", "events-col")
     eventCol.appendChild(el("h3", text = Town.t("events")))
     activityCol.appendChild(el("h3", text = Town.t("activities")))
+    learnCol.appendChild(el("h3", text = Town.t("products")))
     peopleCol.appendChild(el("h3", text = Town.t("people")))
     communityCol.appendChild(el("h3", text = Town.t("communities")))
     val eventList = el("div", "event-list")
     val activityList = el("div", "activity-list")
+    learnCol.appendChild(learnCatalog(shell, router))
     val peopleList = el("div", "member-list")
     val communityList = el("div", "community-list")
     eventCol.appendChild(eventList)
@@ -184,6 +189,7 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     communityCol.appendChild(communityList)
     split.appendChild(eventCol)
     split.appendChild(activityCol)
+    split.appendChild(learnCol)
     split.appendChild(peopleCol)
     split.appendChild(communityCol)
     lists.appendChild(tabs)
@@ -241,14 +247,17 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     fun selectTab(chip: HTMLElement) {
         eventsChip.asDynamic().classList.toggle("selected", chip === eventsChip)
         activitiesChip.asDynamic().classList.toggle("selected", chip === activitiesChip)
+        learnChip.asDynamic().classList.toggle("selected", chip === learnChip)
         peopleChip.asDynamic().classList.toggle("selected", chip === peopleChip)
         communitiesChip.asDynamic().classList.toggle("selected", chip === communitiesChip)
         split.asDynamic().classList.toggle("show-activities", chip === activitiesChip)
+        split.asDynamic().classList.toggle("show-learn", chip === learnChip)
         split.asDynamic().classList.toggle("show-people", chip === peopleChip)
         split.asDynamic().classList.toggle("show-communities", chip === communitiesChip)
     }
     eventsChip.onClick { selectTab(eventsChip) }
     activitiesChip.onClick { selectTab(activitiesChip) }
+    learnChip.onClick { selectTab(learnChip) }
     peopleChip.onClick { selectTab(peopleChip) }
     communitiesChip.onClick { selectTab(communitiesChip) }
     loadGoogleMaps { }

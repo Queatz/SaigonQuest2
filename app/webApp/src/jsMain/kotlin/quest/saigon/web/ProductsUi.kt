@@ -6,19 +6,16 @@ import web.html.HTMLElement
 import web.window.window
 import kotlin.js.unsafeCast
 
-internal fun shopScreen(router: HistoryRouter): HTMLElement {
-    val shell = el("section", "shell page-shell shop-shell")
-    shell.appendChild(pageHead(router, Town.t("shop"), showProfile = true))
-    val body = el("div", "page-body shop-body")
+internal fun learnCatalog(host: HTMLElement, router: HistoryRouter): HTMLElement {
+    val catalog = el("div", "learn-catalog")
     val search = el("input", "shop-search-input")
     search.setAttribute("type", "search")
     search.setAttribute("placeholder", Town.t("searchShopProducts"))
     search.setAttribute("aria-label", Town.t("search"))
     search.setAttribute("autocomplete", "off")
-    val grid = el("div", "shop-product-grid")
-    body.appendChild(search)
-    body.appendChild(grid)
-    shell.appendChild(body)
+    val grid = el("div", "shop-product-grid learn-product-grid")
+    catalog.appendChild(search)
+    catalog.appendChild(grid)
 
     var cursor: String? = null
     var activeQuery = ""
@@ -56,17 +53,17 @@ internal fun shopScreen(router: HistoryRouter): HTMLElement {
                 val key = if (activeQuery.isBlank()) "noProducts" else "noProductMatches"
                 grid.appendChild(el("p", "hint", text = Town.t(key)))
             } else {
-                for (i in 0 until count) grid.appendChild(productCard(products[i], shell, router, vertical = true))
+                for (i in 0 until count) grid.appendChild(productCard(products[i], host, router, vertical = true))
             }
             cursor = parsed.nextCursor as? String
             if (cursor.isNullOrBlank()) done = true
         }
     }
 
-    body.asDynamic().addEventListener("scroll", {
-        val top = num(body.asDynamic().scrollTop)
-        val height = num(body.asDynamic().clientHeight)
-        val full = num(body.asDynamic().scrollHeight)
+    grid.asDynamic().addEventListener("scroll", {
+        val top = num(grid.asDynamic().scrollTop)
+        val height = num(grid.asDynamic().clientHeight)
+        val full = num(grid.asDynamic().scrollHeight)
         if (top + height > full - 80) load()
     })
     search.asDynamic().oninput = {
@@ -77,7 +74,7 @@ internal fun shopScreen(router: HistoryRouter): HTMLElement {
         }, 220)
     }
     load()
-    return shell
+    return catalog
 }
 
 internal fun myProductsScreen(router: HistoryRouter): HTMLElement {

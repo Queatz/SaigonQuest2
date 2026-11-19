@@ -27,7 +27,6 @@ import quest.saigon.android.ui.messages.ChatScreen
 import quest.saigon.android.ui.messages.MessagesListScreen
 import quest.saigon.android.ui.profile.*
 import quest.saigon.android.ui.shop.ProductDetailScreen
-import quest.saigon.android.ui.shop.ShopScreen
 import quest.saigon.android.ui.stats.StatsScreen
 import quest.saigon.matchAppRoute
 import quest.saigon.shared.TownSharedClient
@@ -256,7 +255,7 @@ fun SaigonApp(
             )
         }
         composable("/shop") {
-            ShopScreen(
+            DiscoverScreen(
                 shared = shared,
                 onNavigate = ::navigateTo,
                 onRequireAuth = { authPromptVisible = true },

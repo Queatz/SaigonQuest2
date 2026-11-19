@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -78,6 +77,7 @@ import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.dashedBorder
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
+import quest.saigon.android.ui.shop.LearnProductCard
 import quest.saigon.encodeLocationToken
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CheckInDto
@@ -96,6 +96,7 @@ import java.util.TimeZone
 private enum class DiscoverTab {
     EVENTS,
     ACTIVITIES,
+    LEARN,
     PEOPLE,
     COMMUNITIES,
 }
@@ -110,6 +111,7 @@ fun DiscoverScreen(
     val sessionState by shared.session.state.collectAsState()
     val discoverState by shared.discover.state.collectAsState()
     val activityState by shared.activity.state.collectAsState()
+    val shopState by shared.shop.state.collectAsState()
     val lang = sessionState.language
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
@@ -121,6 +123,7 @@ fun DiscoverScreen(
     var mapTouched by remember { mutableStateOf(false) }
     var activeCheckIn by remember { mutableStateOf<CheckInDto?>(null) }
     var communityQuery by remember { mutableStateOf("") }
+    var learnQuery by remember { mutableStateOf("") }
     var showCreateCommunity by remember { mutableStateOf(false) }
     var showPlaceSearch by remember { mutableStateOf(false) }
     var showPostSearch by remember { mutableStateOf(false) }
@@ -132,6 +135,7 @@ fun DiscoverScreen(
     LaunchedEffect(sessionState.me?.id) {
         shared.discover.loadAll()
         shared.activity.loadActivities()
+        shared.shop.loadInitial()
     }
 
     LaunchedEffect(discoverState.isLoading, discoverState.events.size, discoverState.error) {
@@ -210,12 +214,6 @@ fun DiscoverScreen(
                 overlay = false,
             ) {
                 Icon(Icons.Default.Search, contentDescription = Copy.text(lang, "searchPosts"), modifier = Modifier.size(20.dp))
-            }
-            SaigonIconButton(
-                onClick = { onNavigate(AppRoute.Shop) },
-                overlay = false,
-            ) {
-                Icon(Icons.Default.ShoppingBag, contentDescription = Copy.text(lang, "openShop"), modifier = Modifier.size(20.dp))
             }
             ViewerButton(
                 me = sessionState.me,
@@ -324,7 +322,7 @@ fun DiscoverScreen(
                 }
             }
 
-            // .events-tabs (Events, Activities, People, Communities)
+            // .events-tabs (Events, Activities, Learn, People, Communities)
             item {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -336,6 +334,7 @@ fun DiscoverScreen(
                     val tabs = listOf(
                         DiscoverTab.EVENTS to Copy.text(lang, "events"),
                         DiscoverTab.ACTIVITIES to Copy.text(lang, "activities"),
+                        DiscoverTab.LEARN to Copy.text(lang, "products"),
                         DiscoverTab.PEOPLE to Copy.text(lang, "people"),
                         DiscoverTab.COMMUNITIES to Copy.text(lang, "communities"),
                     )
@@ -349,7 +348,7 @@ fun DiscoverScreen(
                 }
             }
 
-            if (discoverState.isLoading && discoverState.events.isEmpty() && discoverState.locations.isEmpty()) {
+            if (selectedTab != DiscoverTab.LEARN && discoverState.isLoading && discoverState.events.isEmpty() && discoverState.locations.isEmpty()) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         SaigonSpinner()
@@ -433,6 +432,61 @@ fun DiscoverScreen(
                                     onOpenPhoto = { url -> zoomPhoto = url },
                                     modifier = Modifier.padding(horizontal = 18.dp),
                                 )
+                            }
+                        }
+                    }
+
+                    DiscoverTab.LEARN -> {
+                        item {
+                            SaigonTextField(
+                                value = learnQuery,
+                                onValueChange = {
+                                    learnQuery = it
+                                    shared.shop.loadInitial(it)
+                                },
+                                placeholder = Copy.text(lang, "searchShopProducts"),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                            )
+                        }
+                        when {
+                            shopState.isLoading && shopState.products.isEmpty() -> item {
+                                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    SaigonSpinner()
+                                }
+                            }
+                            shopState.products.isEmpty() -> item {
+                                Text(
+                                    Copy.text(lang, "noProducts"),
+                                    color = tokens.muted,
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                                )
+                            }
+                            else -> {
+                                items(shopState.products.chunked(2), key = { row -> row.first().id }) { rowProducts ->
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                                    ) {
+                                        rowProducts.forEach { product ->
+                                            LearnProductCard(
+                                                product = product,
+                                                onClick = { onNavigate(AppRoute.Product(product.id)) },
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
+                                        if (rowProducts.size == 1) Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                                if (shopState.nextCursor != null) {
+                                    item {
+                                        SaigonTextButton(
+                                            text = Copy.text(lang, "loadMore"),
+                                            onClick = { shared.shop.loadMore() },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

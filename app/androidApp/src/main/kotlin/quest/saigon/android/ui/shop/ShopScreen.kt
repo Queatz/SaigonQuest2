@@ -10,8 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -22,7 +20,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -72,154 +69,69 @@ import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ProductDto
 
 @Composable
-fun ShopScreen(
-    shared: TownSharedClient,
-    onNavigate: (AppRoute) -> Unit,
-    onRequireAuth: () -> Unit,
-    onBack: () -> Unit,
+internal fun LearnProductCard(
+    product: ProductDto,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val sessionState by shared.session.state.collectAsState()
-    val shopState by shared.shop.state.collectAsState()
-    val lang = sessionState.language
     val tokens = LocalSaigonTokens.current
-    var query by remember { mutableStateOf("") }
-    var showEditor by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        shared.shop.loadInitial()
-    }
-
-    SaigonPageShell(
-        title = Copy.text(lang, "shop"),
-        onBack = onBack,
-        backContentDescription = Copy.text(lang, "back"),
-        topActions = {
-            SaigonIconButton(
-                onClick = { if (sessionState.me == null) onRequireAuth() else showEditor = true },
-                overlay = false,
-            ) {
-                Icon(Icons.Default.Add, contentDescription = Copy.text(lang, "createProduct"), modifier = Modifier.size(20.dp))
-            }
-        },
+    SaigonCard(
+        onClick = onClick,
+        borderWidth = 2.dp,
+        cornerRadius = 16.dp,
+        contentPadding = PaddingValues(8.dp),
+        modifier = modifier,
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-            SaigonTextField(
-                value = query,
-                onValueChange = {
-                    query = it
-                    shared.shop.loadInitial(it)
-                },
-                placeholder = Copy.text(lang, "searchShopProducts"),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
-
-            if (shopState.isLoading && shopState.products.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    SaigonSpinner()
-                }
-            } else if (shopState.products.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(Copy.text(lang, "noProducts"), color = tokens.muted)
-                }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val photo = product.photoUrls.firstOrNull()
+            if (!photo.isNullOrBlank()) {
+                AsyncImage(
+                    model = photo,
+                    contentDescription = product.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SaigonColors.Card),
+                )
             } else {
-                val rows = shopState.products.chunked(2)
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp),
-                    modifier = Modifier.navigationBarsPadding(),
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SaigonColors.Card),
                 ) {
-                    items(rows) { rowProducts ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            rowProducts.forEach { product ->
-                                SaigonCard(
-                                    onClick = { onNavigate(AppRoute.Product(product.id)) },
-                                    borderWidth = 2.dp,
-                                    cornerRadius = 16.dp,
-                                    contentPadding = PaddingValues(8.dp),
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        val photo = product.photoUrls.firstOrNull()
-                                        if (!photo.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = photo,
-                                                contentDescription = product.name,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(1f)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(SaigonColors.Card),
-                                            )
-                                        } else {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(1f)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(SaigonColors.Card),
-                                            ) {
-                                                Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = tokens.muted, modifier = Modifier.size(32.dp))
-                                            }
-                                        }
-                                        Text(
-                                            product.name,
-                                            color = tokens.text,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 15.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Text(
-                                            formatVnd(product.price),
-                                            color = tokens.accent,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.sp,
-                                        )
-                                        if (product.description.isNotBlank()) {
-                                            Text(
-                                                product.description,
-                                                color = tokens.muted,
-                                                fontSize = 12.sp,
-                                                lineHeight = 16.sp,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            if (rowProducts.size == 1) {
-                                Spacer(Modifier.weight(1f))
-                            }
-                        }
-                    }
-                    if (shopState.nextCursor != null) {
-                        item {
-                            SaigonTextButton(
-                                text = Copy.text(lang, "loadMore"),
-                                onClick = { shared.shop.loadMore() },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
+                    Text("📚", fontSize = 28.sp)
                 }
+            }
+            Text(
+                product.name,
+                color = tokens.text,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                formatVnd(product.price),
+                color = tokens.accent,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+            )
+            if (product.description.isNotBlank()) {
+                Text(
+                    product.description,
+                    color = tokens.muted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
-    }
-
-    if (showEditor) {
-        ProductEditorDialog(
-            existing = null,
-            shared = shared,
-            language = lang,
-            onDismiss = { showEditor = false },
-        )
     }
 }
 

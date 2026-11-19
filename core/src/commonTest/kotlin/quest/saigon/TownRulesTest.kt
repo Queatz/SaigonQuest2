@@ -195,18 +195,65 @@ class TownRulesTest {
         assertEquals("Opens your profile.", Copy.text(Language.EN, "ctaShowProfileHint"))
         assertEquals("Xem hồ sơ của bạn", Copy.text(Language.VI, "ctaShowProfile"))
         assertEquals("Mở hồ sơ của bạn.", Copy.text(Language.VI, "ctaShowProfileHint"))
-        assertEquals("Show a product", Copy.text(Language.EN, "ctaShowProduct"))
-        assertEquals("Opens the selected product details.", Copy.text(Language.EN, "ctaShowProductHint"))
-        assertEquals("Choose a product", Copy.text(Language.EN, "chooseProduct"))
-        assertEquals("Search your products", Copy.text(Language.EN, "searchProducts"))
-        assertEquals("Xem sản phẩm", Copy.text(Language.VI, "ctaShowProduct"))
-        assertEquals("Mở chi tiết sản phẩm đã chọn.", Copy.text(Language.VI, "ctaShowProductHint"))
-        assertEquals("Chọn sản phẩm", Copy.text(Language.VI, "chooseProduct"))
-        assertEquals("Tìm sản phẩm của bạn", Copy.text(Language.VI, "searchProducts"))
+        assertEquals("Share a learning offer", Copy.text(Language.EN, "ctaShowProduct"))
+        assertEquals("Opens the selected learning offer.", Copy.text(Language.EN, "ctaShowProductHint"))
+        assertEquals("Choose a learning offer", Copy.text(Language.EN, "chooseProduct"))
+        assertEquals("Search your learning offers", Copy.text(Language.EN, "searchProducts"))
+        assertEquals("Chia sẻ nội dung học tập", Copy.text(Language.VI, "ctaShowProduct"))
+        assertEquals("Mở nội dung học tập đã chọn.", Copy.text(Language.VI, "ctaShowProductHint"))
+        assertEquals("Chọn nội dung học tập", Copy.text(Language.VI, "chooseProduct"))
+        assertEquals("Tìm nội dung học tập của bạn", Copy.text(Language.VI, "searchProducts"))
         assertNull(CallToAction.parse("", "", "message", ""))
         assertNull(CallToAction.parse("", "Show a product", "product", ""))
         assertNull(CallToAction.parse("", "Open", "website", "javascript:alert(1)"))
         assertNull(CallToAction.parse("", "Open", "email", ""))
+    }
+
+    @Test
+    fun learningCopyUsesLearningTerminologyInBothLanguages() {
+        val learningKeys = listOf(
+            "products",
+            "shop",
+            "openShop",
+            "searchShopProducts",
+            "searchForProducts",
+            "productOrders",
+            "productOrdersCount",
+            "noProducts",
+            "noProductOrders",
+            "createProduct",
+            "editProduct",
+            "productPhotosHint",
+            "productAttachment",
+            "viewProduct",
+            "deleteProductAsk",
+            "deleteProductHint",
+            "invalidProductName",
+            "cannotOrderOwnProduct",
+            "productSaved",
+            "productCount.one",
+            "productCount.many",
+            "buy",
+            "howToContactSeller",
+            "confirmPurchase",
+            "purchaseConfirmed",
+            "productBuyer",
+            "ctaShowProduct",
+            "ctaShowProductHint",
+            "chooseProduct",
+            "searchProducts",
+            "noProductMatches",
+            "notificationProductOrder",
+        )
+        listOf(Language.EN, Language.VI).forEach { language ->
+            learningKeys.forEach { key ->
+                val value = Copy.text(language, key)
+                assertTrue(!value.contains("product", ignoreCase = true), "$key still mentions products in $language")
+                assertTrue(!value.contains("sản phẩm", ignoreCase = true), "$key still mentions products in $language")
+            }
+        }
+        assertEquals("Learn", Copy.text(Language.EN, "products"))
+        assertEquals("Học", Copy.text(Language.VI, "products"))
     }
 
     @Test
@@ -281,7 +328,7 @@ class TownRulesTest {
         assertEquals("I'm down", NotificationCopy.body("I'm down"))
         assertEquals("/p/abc123", NotificationCopy.path("abc123"))
         assertEquals("/profile/orders", NotificationCopy.path("product_order", "order123"))
-        assertEquals("Mai placed an order for Ceramic cup", NotificationCopy.title(Language.EN, "product_order", "Mai", "Ceramic cup"))
+        assertEquals("Mai requested Ceramic cup", NotificationCopy.title(Language.EN, "product_order", "Mai", "Ceramic cup"))
         assertEquals(AppRoute.Post("abc123"), matchAppRoute(NotificationCopy.path("abc123")))
     }
 

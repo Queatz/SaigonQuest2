@@ -3,6 +3,7 @@ package quest.saigon.android
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.ContentType
@@ -20,7 +21,6 @@ import quest.saigon.android.theme.SaigonTheme
 import quest.saigon.android.ui.components.MiniProfileDialog
 import quest.saigon.android.ui.discover.DiscoverScreen
 import quest.saigon.android.ui.messages.MessagesListScreen
-import quest.saigon.android.ui.shop.ShopScreen
 import quest.saigon.android.ui.stats.StatsScreen
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.platform.InMemoryTokenStorage
@@ -76,7 +76,7 @@ class SaigonComposeTest {
     }
 
     @Test
-    fun discoverShopMessagesAndStatsScreensRenderSharedStoreState() {
+    fun discoverLearnMessagesAndStatsScreensRenderSharedStoreState() {
         val shared = fakeClient()
         composeRule.setContent {
             SaigonTheme {
@@ -85,12 +85,7 @@ class SaigonComposeTest {
         }
         composeRule.onNodeWithText(Copy.text(Language.EN, "discover")).assertIsDisplayed()
         composeRule.onNodeWithText(Copy.text(Language.EN, "communities")).assertIsDisplayed()
-
-        composeRule.setContent {
-            SaigonTheme {
-                ShopScreen(shared = shared, onNavigate = {}, onRequireAuth = {}, onBack = {})
-            }
-        }
+        composeRule.onNodeWithText(Copy.text(Language.EN, "products")).performClick()
         composeRule.onNodeWithText("Ca phe sua da").assertIsDisplayed()
 
         composeRule.setContent {
