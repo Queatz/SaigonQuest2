@@ -88,8 +88,9 @@ fun Route.townApi(services: TownServices) {
         } catch (error: TownException) {
             return@post call.fail(error.code)
         }
+        val responseUser = call.markAndroidLaunchIfNeeded(services, user)
         val token = call.session(services, user.id)
-        call.respondJson(mePayload(user, services) + ("token" to token))
+        call.respondJson(mePayload(responseUser, services) + ("token" to token))
     }
 
     post("/auth/login") {
@@ -100,8 +101,9 @@ fun Route.townApi(services: TownServices) {
         if (user == null || !quest.saigon.auth.PasswordHasher.verify(password, user.passwordHash)) {
             return@post call.fail("bad_credentials")
         }
+        val responseUser = call.markAndroidLaunchIfNeeded(services, user)
         val token = call.session(services, user.id)
-        call.respondJson(mePayload(user, services) + ("token" to token))
+        call.respondJson(mePayload(responseUser, services) + ("token" to token))
     }
 
     post("/auth/logout") {
@@ -137,6 +139,7 @@ fun Route.townApi(services: TownServices) {
 
     post("/stats/visit") {
         val user = call.user(services)
+        user?.let { call.markAndroidLaunchIfNeeded(services, it) }
         val ip = clientIp(call, services.config.trustProxy)
         if (services.visitLimiter.allow(user?.id ?: ip)) {
             services.repo.recordVisit(user?.id, services.clock())
@@ -1636,6 +1639,7 @@ fun Route.townApi(services: TownServices) {
                 createdAt = services.clock(),
             ),
         )
+        call.markAndroidLaunchIfNeeded(services, user)
         call.respondJson(mapOf("ok" to true))
     }
 
@@ -2362,6 +2366,12 @@ private fun ApplicationCall.bearerToken(): String? =
 private fun ApplicationCall.sessionToken(): String? =
     bearerToken() ?: requestCookie()
 
+private fun ApplicationCall.markAndroidLaunchIfNeeded(services: TownServices, user: UserRecord): UserRecord {
+    if (request.headers["X-Saigon-Client"]?.trim()?.equals("android", ignoreCase = true) != true) return user
+    services.repo.markAndroidLaunch(user.id, services.clock())
+    return services.repo.findUser(user.id) ?: user
+}
+
 private fun ApplicationCall.requestCookie(): String? =
     request.cookies[SESSION_COOKIE]?.takeIf { it.isNotBlank() }
 
@@ -2380,6 +2390,7 @@ private fun mePayload(user: UserRecord, services: TownServices) = mapOf(
     "photoUrl" to if (user.profilePhotoPath != null) "/api/me/photo" else null,
     "paused" to user.paused,
     "admin" to (services.repo.findAdmin(user.id) != null),
+    "hasAndroidApp" to (user.androidLaunchedAt > 0 || services.repo.fcmTokensFor(user.id).isNotEmpty()),
 )
 
 private fun avatarPayload(avatar: AvatarRecord) = mapOf(

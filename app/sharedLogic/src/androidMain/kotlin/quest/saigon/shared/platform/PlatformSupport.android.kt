@@ -159,3 +159,5 @@ actual fun defaultServerOrigin(): String = "https://saigon.town"
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
 actual val includeCookieHeaderOnRequests: Boolean = true
+
+actual val clientPlatform: String = "android"

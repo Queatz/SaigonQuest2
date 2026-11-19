@@ -68,6 +68,13 @@ class InMemoryTownRepository : TownRepository {
         }
     }
 
+    override fun markAndroidLaunch(userId: String, at: Long) {
+        synchronized(this) {
+            val current = users[userId] ?: return
+            if (current.androidLaunchedAt <= 0) users[userId] = current.copy(androidLaunchedAt = at)
+        }
+    }
+
     override fun createSession(token: String, userId: String, expiresAt: Long) {
         sessions[token] = SessionRecord(token, userId, expiresAt)
     }

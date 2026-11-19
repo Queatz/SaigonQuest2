@@ -91,6 +91,96 @@ class MobileAuthAndFcmTest {
     }
 
     @Test
+    fun androidClientUseIsTrackedAndFcmTokensBackfillExistingUsers() = testApplication {
+        val services = testServices(clock = { 1_700_000_000_000L })
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+
+        val client = createClient { }
+        val webRegistration = mapper.readTree(
+            client.post("/api/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Web user","phone":"0901110191","password":"secretpass"}""")
+            }.bodyAsText(),
+        )
+        val webToken = webRegistration.path("token").asText()
+        val webUserId = webRegistration.path("id").asText()
+        assertEquals(false, webRegistration.path("hasAndroidApp").asBoolean())
+
+        assertEquals(
+            HttpStatusCode.OK,
+            client.post("/api/stats/visit") {
+                header(HttpHeaders.Authorization, "Bearer $webToken")
+            }.status,
+        )
+        assertEquals(
+            false,
+            mapper.readTree(
+                client.get("/api/me") { header(HttpHeaders.Authorization, "Bearer $webToken") }.bodyAsText(),
+            ).path("hasAndroidApp").asBoolean(),
+        )
+
+        assertEquals(
+            HttpStatusCode.OK,
+            client.post("/api/stats/visit") {
+                header(HttpHeaders.Authorization, "Bearer $webToken")
+                header("X-Saigon-Client", "android")
+            }.status,
+        )
+        assertEquals(
+            true,
+            mapper.readTree(
+                client.get("/api/me") { header(HttpHeaders.Authorization, "Bearer $webToken") }.bodyAsText(),
+            ).path("hasAndroidApp").asBoolean(),
+        )
+        assertEquals(1_700_000_000_000L, services.repo.findUser(webUserId)?.androidLaunchedAt)
+
+        val androidRegistration = mapper.readTree(
+            client.post("/api/auth/register") {
+                header("X-Saigon-Client", "android")
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Android user","phone":"0901110192","password":"secretpass"}""")
+            }.bodyAsText(),
+        )
+        assertEquals(true, androidRegistration.path("hasAndroidApp").asBoolean())
+
+        val loginRegistration = mapper.readTree(
+            client.post("/api/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Login user","phone":"0901110193","password":"secretpass"}""")
+            }.bodyAsText(),
+        )
+        val androidLogin = client.post("/api/auth/login") {
+            header("X-Saigon-Client", "android")
+            contentType(ContentType.Application.Json)
+            setBody("""{"phone":"0901110193","password":"secretpass"}""")
+        }
+        assertEquals(true, mapper.readTree(androidLogin.bodyAsText()).path("hasAndroidApp").asBoolean())
+        assertEquals(false, loginRegistration.path("hasAndroidApp").asBoolean())
+
+        val fcmRegistration = mapper.readTree(
+            client.post("/api/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"FCM user","phone":"0901110194","password":"secretpass"}""")
+            }.bodyAsText(),
+        )
+        val fcmToken = fcmRegistration.path("token").asText()
+        assertEquals(
+            HttpStatusCode.OK,
+            client.post("/api/push/fcm") {
+                header(HttpHeaders.Authorization, "Bearer $fcmToken")
+                contentType(ContentType.Application.Json)
+                setBody("""{"token":"fcm-device-token-valid-5432"}""")
+            }.status,
+        )
+        assertEquals(
+            true,
+            mapper.readTree(
+                client.get("/api/me") { header(HttpHeaders.Authorization, "Bearer $fcmToken") }.bodyAsText(),
+            ).path("hasAndroidApp").asBoolean(),
+        )
+    }
+
+    @Test
     fun webCookieSessionAndAndroidBearerSessionCoexistWithoutInvalidation() = testApplication {
         val services = testServices(clock = { 1_700_000_000_000L })
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }

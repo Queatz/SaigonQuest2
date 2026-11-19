@@ -18,6 +18,7 @@ data class MeDto(
     val photoUrl: String? = null,
     val paused: Boolean = false,
     val admin: Boolean = false,
+    val hasAndroidApp: Boolean = false,
     val token: String? = null,
 )
 

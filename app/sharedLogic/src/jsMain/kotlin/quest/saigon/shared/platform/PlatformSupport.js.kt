@@ -57,3 +57,5 @@ actual fun defaultServerOrigin(): String =
 actual fun currentTimeMillis(): Long = Date.now().toLong()
 
 actual val includeCookieHeaderOnRequests: Boolean = false
+
+actual val clientPlatform: String = "web"

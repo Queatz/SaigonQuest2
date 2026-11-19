@@ -93,6 +93,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("paused", false)
         doc.addAttribute("createdAt", createdAt)
         doc.addAttribute("lastActiveAt", createdAt)
+        doc.addAttribute("androidLaunchedAt", 0L)
         val key = try {
             db.collection(USERS).insertDocument(doc).key
         } catch (error: ArangoDBException) {
@@ -126,12 +127,25 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("paused", user.paused)
         doc.addAttribute("createdAt", user.createdAt)
         doc.addAttribute("lastActiveAt", user.lastActiveAt)
+        doc.addAttribute("androidLaunchedAt", user.androidLaunchedAt)
         try {
             db.collection(USERS).replaceDocument(user.id, doc)
         } catch (error: ArangoDBException) {
             if (error.errorNum == 1210) throw TownException("phone_taken")
             throw error
         }
+    }
+
+    override fun markAndroidLaunch(userId: String, at: Long) {
+        db.query(
+            """
+            FOR u IN $USERS
+              FILTER u._key == @userId AND (u.androidLaunchedAt == null OR u.androidLaunchedAt == 0)
+              UPDATE u WITH { androidLaunchedAt: @at } IN $USERS
+            """.trimIndent(),
+            BaseDocument::class.java,
+            mapOf("userId" to userId, "at" to at),
+        ).use { }
     }
 
     override fun createSession(token: String, userId: String, expiresAt: Long) {
@@ -3544,6 +3558,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         locationId = doc.getAttribute("locationId")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
         lat = doc.getAttribute("lat")?.toString()?.toDoubleOrNull(),
         lng = doc.getAttribute("lng")?.toString()?.toDoubleOrNull(),
+        androidLaunchedAt = long(doc, "androidLaunchedAt"),
     )
 
     private fun musicFrom(doc: BaseDocument) = MusicRecord(

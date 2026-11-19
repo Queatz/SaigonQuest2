@@ -11,6 +11,8 @@ import quest.saigon.shared.js.observeState
 import quest.saigon.shared.store.FeedFilter
 import web.dom.document
 import web.html.HTMLElement
+import web.window.WindowTarget
+import web.window._blank
 import web.window.window
 import kotlin.math.abs
 
@@ -116,6 +118,12 @@ internal fun feedScreen(
     }
     shell.appendChild(stage)
     shell.appendChild(top)
+    if (
+        communityId == null && onBack == null && Town.meKnown &&
+        Town.me?.hasAndroidApp != true && !androidAppPeekDismissed()
+    ) {
+        shell.appendChild(androidAppPeek())
+    }
     if (focusPostId == null && onBack == null && communityId == null && searchQuery.isNullOrBlank()) {
         feedCheckInBubbles?.close()
         feedCheckInBubbles = CheckInBubbles(shell, router)
@@ -206,6 +214,33 @@ internal fun feedScreen(
         }
     }
     return shell
+}
+
+private fun androidAppPeekDismissed(): Boolean = try {
+    window.asDynamic().localStorage.getItem("sq_android_app_peek_dismissed") == "1"
+} catch (_: Throwable) {
+    false
+}
+
+private fun androidAppPeek(): HTMLElement {
+    val peek = el("button", "android-app-peek")
+    peek.setAttribute("type", "button")
+    peek.setAttribute("aria-label", Town.t("getTheApp"))
+    peek.appendChild(el("span", "android-app-peek-bubble", text = Town.t("getTheApp")))
+    peek.appendChild(el("img") { image ->
+        image.setAttribute("src", "/android_peek.png")
+        image.setAttribute("alt", "")
+    })
+    peek.onClick {
+        window.open("https://hitown.chat/saigontown2.apk", WindowTarget._blank)
+        try {
+            window.asDynamic().localStorage.setItem("sq_android_app_peek_dismissed", "1")
+        } catch (_: Throwable) {
+        }
+        peek.asDynamic().classList.add("is-leaving")
+        window.asDynamic().setTimeout({ peek.asDynamic().remove() }, 320)
+    }
+    return peek
 }
 
 private fun mountPager(
@@ -921,42 +956,6 @@ private class PhotoPager(
         }
         frame()
     }
-}
-
-internal fun showVisitorWelcome(host: HTMLElement) {
-    if (host.asDynamic().querySelector(".dialog-backdrop") != null) return
-    val backdrop = el("div", "dialog-backdrop")
-    val card = el("div", "dialog visitor-welcome")
-    card.setAttribute("role", "dialog")
-    card.setAttribute("aria-modal", "true")
-    card.setAttribute("aria-labelledby", "visitor-welcome-text")
-    val close = el("button", "icon-btn visitor-welcome-close", text = "×")
-    close.setAttribute("type", "button")
-    close.setAttribute("aria-label", Town.t("close"))
-    close.onClick { backdrop.asDynamic().remove() }
-    card.appendChild(close)
-    val emojis = el("div", "visitor-welcome-emojis")
-    emojis.setAttribute("aria-hidden", "true")
-    listOf("📍", "😍", "🍵").forEachIndexed { index, emoji ->
-        emojis.appendChild(el("span", "bob bob-${index + 1}", text = emoji))
-    }
-    card.appendChild(emojis)
-    val message = el("p", "visitor-welcome-text", text = Town.t("visitorWelcome"))
-    message.setAttribute("id", "visitor-welcome-text")
-    card.appendChild(message)
-    fun updateMessageFade() {
-        val top = num(message.asDynamic().scrollTop)
-        val height = num(message.asDynamic().clientHeight)
-        val full = num(message.asDynamic().scrollHeight)
-        val overflows = full > height + 1
-        message.asDynamic().classList.toggle("fade-top", overflows && top > 1)
-        message.asDynamic().classList.toggle("fade-bottom", overflows && top + height < full - 1)
-    }
-    message.asDynamic().addEventListener("scroll", { updateMessageFade() })
-    backdrop.appendChild(card)
-    backdrop.closeOnOutsideClick { backdrop.asDynamic().remove() }
-    host.appendChild(backdrop)
-    updateMessageFade()
 }
 
 internal fun openMiniProfile(

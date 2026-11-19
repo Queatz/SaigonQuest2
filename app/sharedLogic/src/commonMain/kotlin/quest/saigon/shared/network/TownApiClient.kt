@@ -28,6 +28,7 @@ import kotlinx.serialization.json.Json
 import quest.saigon.Language
 import quest.saigon.shared.model.*
 import quest.saigon.shared.platform.TokenStorage
+import quest.saigon.shared.platform.clientPlatform
 import quest.saigon.shared.platform.createHttpClientEngine
 import quest.saigon.shared.platform.createPlatformTokenStorage
 import quest.saigon.shared.platform.defaultServerOrigin
@@ -1050,6 +1051,7 @@ class TownApiClient(
         )
 
     private suspend fun HttpRequestBuilder.attachAuth() {
+        header("X-Saigon-Client", clientPlatform)
         val token = tokenStorage.readSessionToken()
         if (!token.isNullOrBlank()) {
             header(HttpHeaders.Authorization, "Bearer $token")

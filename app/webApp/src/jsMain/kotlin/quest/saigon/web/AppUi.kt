@@ -65,8 +65,6 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
             else -> "/new"
         }
         showAuthDialog(page, onSuccess = { router.navigate(next) }, onClose = { router.navigate("/", replace = true) })
-    } else if (route == AppRoute.Home && Town.signedOut) {
-        showVisitorWelcome(page)
     }
     when (route) {
         is AppRoute.User -> http("GET", "/api/users/${encodeQuery(route.id)}") { status, text ->

@@ -16,6 +16,7 @@ data class UserRecord(
     val lat: Double? = null,
     val lng: Double? = null,
     val locationId: String? = null,
+    val androidLaunchedAt: Long = 0,
 )
 
 data class AdminRecord(

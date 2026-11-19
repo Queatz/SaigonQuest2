@@ -182,6 +182,79 @@ button { cursor: pointer; }
     box-shadow: 0 0 0 2px #fff;
 }
 
+.android-app-peek {
+    position: absolute;
+    top: calc(148px + env(safe-area-inset-top));
+    right: 10px;
+    z-index: 7;
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    pointer-events: auto;
+    transform-origin: top right;
+    animation: android-peek-enter .38s cubic-bezier(.18, .8, .25, 1.15) both,
+        android-peek-bob 2.2s .38s ease-in-out infinite;
+}
+
+.android-app-peek img {
+    display: block;
+    width: 58px;
+    height: auto;
+    filter: drop-shadow(0 5px 5px rgba(0, 0, 0, .22));
+}
+
+.android-app-peek-bubble {
+    position: relative;
+    margin-top: 12px;
+    padding: 8px 11px;
+    border-radius: 16px;
+    background: #fff;
+    color: #241f1a;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+}
+
+.android-app-peek-bubble::after {
+    content: "";
+    position: absolute;
+    top: 11px;
+    right: -5px;
+    width: 10px;
+    height: 10px;
+    background: #fff;
+    transform: rotate(45deg);
+}
+
+.android-app-peek.is-leaving {
+    animation: android-peek-away .3s ease-in forwards;
+}
+
+@keyframes android-peek-enter {
+    from { opacity: 0; transform: translate3d(20px, -10px, 0) scale(.72); }
+    to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes android-peek-bob {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50% { transform: translate3d(0, -5px, 0); }
+}
+
+@keyframes android-peek-away {
+    to { opacity: 0; transform: translate3d(28px, -12px, 0) scale(.55); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .android-app-peek { animation: none; }
+    .android-app-peek.is-leaving { animation: android-peek-away .01ms linear forwards; }
+}
+
 .page-head .profile-btn {
     position: absolute;
     right: 16px;

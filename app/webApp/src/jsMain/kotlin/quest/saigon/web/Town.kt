@@ -23,6 +23,7 @@ internal data class Me(
     val photoUrl: String?,
     val paused: Boolean = false,
     val admin: Boolean = false,
+    val hasAndroidApp: Boolean = false,
     val placeId: String? = null,
     val lat: Double? = null,
     val lng: Double? = null,
@@ -155,6 +156,7 @@ internal fun MeDto.toLegacyMe(): Me = Me(
     photoUrl = photoUrl,
     paused = paused,
     admin = admin,
+    hasAndroidApp = hasAndroidApp,
     placeId = placeId,
     lat = lat,
     lng = lng,
@@ -269,6 +271,7 @@ internal fun meFrom(node: dynamic): Me = Me(
     locationId = (node.locationId as? String)?.takeIf { it.isNotBlank() },
     paused = node.paused == true,
     admin = node.admin == true,
+    hasAndroidApp = node.hasAndroidApp == true,
 )
 
 internal fun postFrom(node: dynamic): PostCard = PostCard(

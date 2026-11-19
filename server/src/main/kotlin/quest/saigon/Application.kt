@@ -73,6 +73,7 @@ fun Application.module(
         allowMethod(HttpMethod.Options)
         allowHeader(HttpHeaders.ContentType)
         allowHeader(HttpHeaders.Authorization)
+        allowHeader("X-Saigon-Client")
         allowCredentials = true
         allowNonSimpleContentTypes = true
     }

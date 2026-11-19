@@ -24,14 +24,15 @@ internal fun http(
     val init = js("({})")
     init.method = method
     init.credentials = "include"
+    val headers = js("({})")
+    headers["X-Saigon-Client"] = "web"
     if (json != null) {
-        val headers = js("({})")
         headers["Content-Type"] = "application/json"
-        init.headers = headers
         init.body = json
     } else if (form != null) {
         init.body = form
     }
+    init.headers = headers
     window.asDynamic().fetch(prefixServerOrigin(path), init).then({ response: dynamic ->
         response.text().then({ text: dynamic ->
             done(response.status as Int, text as String)

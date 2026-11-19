@@ -5,6 +5,7 @@ interface TownRepository {
     fun findUserByPhone(phone: String): UserRecord?
     fun findUser(id: String): UserRecord?
     fun updateUser(user: UserRecord)
+    fun markAndroidLaunch(userId: String, at: Long)
     fun createSession(token: String, userId: String, expiresAt: Long)
     fun findSession(token: String): SessionRecord?
     fun deleteSession(token: String)
