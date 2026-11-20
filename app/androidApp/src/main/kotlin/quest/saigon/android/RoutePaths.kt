@@ -8,6 +8,8 @@ import quest.saigon.matchAppRoute
 object RoutePaths {
     fun toPath(route: AppRoute): String = when (route) {
         AppRoute.Home -> "/"
+        AppRoute.Privacy -> "/privacy"
+        AppRoute.Csae -> "/CSAE"
         AppRoute.NewPost -> "/new"
         AppRoute.Profile -> "/profile"
         AppRoute.MyPosts -> "/profile/posts"

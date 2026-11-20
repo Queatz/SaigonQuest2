@@ -2,6 +2,8 @@ package quest.saigon
 
 sealed class AppRoute {
     data object Home : AppRoute()
+    data object Privacy : AppRoute()
+    data object Csae : AppRoute()
     data object NewPost : AppRoute()
     data object Profile : AppRoute()
     data object MyPosts : AppRoute()
@@ -39,6 +41,8 @@ fun matchAppRoute(path: String): AppRoute {
     val location = LOCATION_PATH.matchEntire(normalized)
     return when {
         normalized == "/" || normalized.isEmpty() -> AppRoute.Home
+        normalized == "/privacy" -> AppRoute.Privacy
+        normalized == "/CSAE" || normalized == "/csae" -> AppRoute.Csae
         normalized == "/new" -> AppRoute.NewPost
         normalized == "/profile" -> AppRoute.Profile
         normalized == "/profile/posts" -> AppRoute.MyPosts

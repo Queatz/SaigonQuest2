@@ -166,6 +166,14 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(postsPreview(shell, router))
     body.appendChild(el("h3", text = Town.t("settings")))
     body.appendChild(languageSelect)
+    val legalLinks = el("div", "legal-settings-links")
+    listOf(
+        "/privacy" to "privacyPolicy",
+        "/CSAE" to "csaePolicy",
+    ).forEach { (path, key) ->
+        legalLinks.appendChild(routeLink(router, path, Town.t(key), active = false))
+    }
+    body.appendChild(legalLinks)
     body.appendChild(el("button", "text-button danger", text = Town.t("signOut")) { button ->
         button.setAttribute("type", "button")
         button.onClick {

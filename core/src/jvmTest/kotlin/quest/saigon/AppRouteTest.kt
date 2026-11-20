@@ -13,6 +13,16 @@ class AppRouteTest {
     }
 
     @Test
+    fun publicLegalPaths() {
+        assertEquals(AppRoute.Privacy, matchAppRoute("/privacy"))
+        assertEquals(AppRoute.Privacy, matchAppRoute("/privacy/"))
+        assertEquals(AppRoute.Csae, matchAppRoute("/CSAE"))
+        assertEquals(AppRoute.Csae, matchAppRoute("/CSAE/"))
+        assertEquals(AppRoute.Csae, matchAppRoute("/csae"))
+        assertEquals(AppRoute.Csae, matchAppRoute("/csae/"))
+    }
+
+    @Test
     fun composerAndProfilePaths() {
         assertEquals(AppRoute.NewPost, matchAppRoute("/new"))
         assertEquals(AppRoute.NewPost, matchAppRoute("/new/"))

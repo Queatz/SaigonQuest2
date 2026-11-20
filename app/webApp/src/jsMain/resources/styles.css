@@ -121,6 +121,61 @@ button { cursor: pointer; }
     padding: 8px 18px 108px;
 }
 
+.legal-settings-links {
+    display: grid;
+    gap: 8px;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+}
+
+.legal-settings-links a {
+    color: var(--text);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.legal-article {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 2px 24px;
+    line-height: 1.6;
+}
+
+.legal-updated {
+    margin: 0 0 22px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.legal-section {
+    margin: 22px 0;
+}
+
+.legal-section h2 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    line-height: 1.3;
+}
+
+.legal-section p {
+    margin: 8px 0;
+}
+
+.legal-section ul {
+    margin: 8px 0;
+    padding-left: 22px;
+}
+
+.legal-section li + li {
+    margin-top: 6px;
+}
+
+.legal-section a {
+    color: var(--tertiary);
+    overflow-wrap: anywhere;
+}
+
 .icon-btn, .profile-btn {
     width: 44px;
     height: 44px;

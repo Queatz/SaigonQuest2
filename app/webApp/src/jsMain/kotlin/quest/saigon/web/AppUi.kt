@@ -31,6 +31,8 @@ internal fun renderApp(root: HTMLElement, router: HistoryRouter, route: AppRoute
         loggedOutGate || route == AppRoute.Home || route is AppRoute.Post || route is AppRoute.User ||
             route is AppRoute.Product || route is AppRoute.Activity || route is AppRoute.Location ->
             feedScreen(router, (route as? AppRoute.Post)?.id)
+        route == AppRoute.Privacy -> privacyScreen(router)
+        route == AppRoute.Csae -> csaeScreen(router)
         route == AppRoute.NewPost -> composerScreen(router)
         route == AppRoute.Profile -> profileScreen(router)
         route == AppRoute.MyPosts -> myPostsScreen(router)

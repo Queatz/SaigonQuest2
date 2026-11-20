@@ -14,6 +14,8 @@ class RoutePathsTest {
     fun roundTripsAllAppRoutesAndAuthGuards() {
         val routes = listOf(
             AppRoute.Home,
+            AppRoute.Privacy,
+            AppRoute.Csae,
             AppRoute.NewPost,
             AppRoute.Profile,
             AppRoute.MyPosts,
@@ -47,6 +49,8 @@ class RoutePathsTest {
         assertTrue(RoutePaths.requiresAuth(AppRoute.Chat("c1")))
         assertTrue(RoutePaths.requiresAuth(AppRoute.Admin))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Home))
+        assertFalse(RoutePaths.requiresAuth(AppRoute.Privacy))
+        assertFalse(RoutePaths.requiresAuth(AppRoute.Csae))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Discover))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Shop))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Post("p1")))
