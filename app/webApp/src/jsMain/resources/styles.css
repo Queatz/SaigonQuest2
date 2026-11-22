@@ -4070,6 +4070,8 @@ span.event-face {
 .events-map-tool svg { width: 22px; height: 22px; }
 
 .events-current-location-dot {
+    position: absolute;
+    transform: translate(-50%, -50%);
     width: 16px;
     height: 16px;
     border: 3px solid #fff;

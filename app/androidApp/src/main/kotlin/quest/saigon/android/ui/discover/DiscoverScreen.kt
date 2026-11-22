@@ -828,7 +828,7 @@ fun DiscoverScreen(
                         places = listOf(
                             SaigonMapPlacePin(
                                 key = "draft",
-                                name = newPlaceName.ifBlank { Copy.text(lang, "location") },
+                                name = newPlaceName,
                                 lat = newPlaceLat,
                                 lng = newPlaceLng,
                             ),
@@ -847,7 +847,7 @@ fun DiscoverScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                SaigonTextField(value = newPlaceName, onValueChange = { newPlaceName = it }, label = Copy.text(lang, "location"))
+                SaigonTextField(value = newPlaceName, onValueChange = { newPlaceName = it }, label = Copy.text(lang, "locationName"))
                 SaigonPrimaryButton(
                     text = Copy.text(lang, "save"),
                     enabled = newPlaceName.isNotBlank(),

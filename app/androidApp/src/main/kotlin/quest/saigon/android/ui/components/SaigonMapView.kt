@@ -363,7 +363,6 @@ fun SaigonMapView(
                 alwaysShowBubbles = alwaysShowBubbles,
                 language = language,
                 satelliteView = satelliteView,
-                locationPermissionGranted = showMapControls && locationPermissionGranted,
                 currentLocation = currentLocation,
                 locateRequestCount = locateRequestCount,
                 onEventClick = onEventClick,
@@ -449,7 +448,6 @@ private fun NativeGoogleMapView(
     alwaysShowBubbles: Boolean,
     language: Language,
     satelliteView: Boolean,
-    locationPermissionGranted: Boolean,
     currentLocation: LatLng?,
     locateRequestCount: Int,
     onEventClick: (String) -> Unit,
@@ -870,7 +868,6 @@ private fun NativeGoogleMapView(
             cameraPositionState = cameraState,
             properties = MapProperties(
                 mapType = if (satelliteView) MapType.HYBRID else MapType.NORMAL,
-                isMyLocationEnabled = locationPermissionGranted,
             ),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
@@ -884,6 +881,25 @@ private fun NativeGoogleMapView(
         ) {
             MapEffect(Unit) {
                 mapReady = true
+            }
+            currentLocation?.let { location ->
+                val locationBitmap = rememberComposeBitmap("currentLocation") {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .shadow(4.dp, CircleShape)
+                            .clip(CircleShape)
+                            .background(Color(0xFF4285F4))
+                            .border(3.dp, Color.White, CircleShape),
+                    )
+                }
+                val locationIcon = remember(locationBitmap) { BitmapDescriptorFactory.fromBitmap(locationBitmap) }
+                Marker(
+                    state = rememberUpdatedMarkerState(position = location),
+                    icon = locationIcon,
+                    anchor = Offset(0.5f, 0.5f),
+                    zIndex = 1000f,
+                )
             }
             animatedEntries.values.toList().forEach { entry ->
                 key(entry.key) {

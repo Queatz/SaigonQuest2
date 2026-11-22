@@ -1783,7 +1783,7 @@ private fun openMapAddLocationDialog(
     dialog.setAttribute("role", "dialog")
     dialog.setAttribute("aria-modal", "true")
     dialog.appendChild(el("h2", text = Town.t("createLocation")))
-    val name = field(Town.t("location"), "text", Town.t("location"))
+    val name = field(Town.t("locationName"), "text", "")
     dialog.appendChild(name.root)
     val hint = el("p", "hint map-location-hint")
     hint.asDynamic().hidden = true
