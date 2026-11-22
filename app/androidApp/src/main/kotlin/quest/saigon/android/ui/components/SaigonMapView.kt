@@ -1,11 +1,20 @@
 package quest.saigon.android.ui.components
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.location.Location
+import android.location.LocationManager
 import android.os.Build
+import android.os.CancellationSignal
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -19,11 +28,17 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.UiComposable
@@ -33,6 +48,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
@@ -57,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.applyCanvas
 import androidx.core.graphics.createBitmap
+import androidx.core.content.ContextCompat
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -71,6 +88,8 @@ import com.google.android.gms.maps.model.LatLngBounds
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapEffect
 import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.MapType
 import com.google.maps.android.compose.MapsComposeExperimentalApi
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.rememberCameraPositionState
@@ -80,6 +99,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -96,6 +117,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.coroutines.resume
 
 data class SaigonMapEventPin(
     val postId: String,
@@ -219,6 +241,48 @@ private class AnimatedMarkerEntry(
 private fun isValidLatLng(lat: Double, lng: Double): Boolean =
     lat.isFinite() && lng.isFinite() && lat in -90.0..90.0 && lng in -180.0..180.0
 
+private fun Context.hasLocationPermission(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+@SuppressLint("MissingPermission")
+private suspend fun getCurrentDeviceLocation(context: Context): Location? {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+    val providers = runCatching { manager.getProviders(true) }.getOrDefault(emptyList())
+    val lastKnown = providers.mapNotNull { provider ->
+        runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+    }.maxByOrNull { it.time }
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return lastKnown
+
+    val activeProviders = providers.filterNot { it == LocationManager.PASSIVE_PROVIDER }
+    if (activeProviders.isEmpty()) return lastKnown
+
+    return withTimeoutOrNull(10_000) {
+        suspendCancellableCoroutine { continuation ->
+            val waiting = activeProviders.toMutableSet()
+            val cancellationSignals = mutableListOf<CancellationSignal>()
+            continuation.invokeOnCancellation { cancellationSignals.forEach { it.cancel() } }
+            activeProviders.forEach { provider ->
+                val signal = CancellationSignal().also(cancellationSignals::add)
+                runCatching {
+                    manager.getCurrentLocation(provider, signal, context.mainExecutor) { location ->
+                        if (!continuation.isActive) return@getCurrentLocation
+                        if (location != null) {
+                            continuation.resume(location)
+                        } else {
+                            waiting.remove(provider)
+                            if (waiting.isEmpty() && continuation.isActive) continuation.resume(lastKnown)
+                        }
+                    }
+                }.onFailure {
+                    waiting.remove(provider)
+                    if (waiting.isEmpty() && continuation.isActive) continuation.resume(lastKnown)
+                }
+            }
+        }
+    } ?: lastKnown
+}
+
 @Composable
 fun SaigonMapView(
     events: List<SaigonMapEventPin> = emptyList(),
@@ -237,47 +301,137 @@ fun SaigonMapView(
     onMapClick: ((Double, Double) -> Unit)? = null,
     onCameraChanged: ((Double, Double, Float) -> Unit)? = null,
     onMapTouchChange: ((Boolean) -> Unit)? = null,
+    showMapControls: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalSaigonTokens.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var satelliteView by rememberSaveable { mutableStateOf(false) }
+    var locationPermissionGranted by remember { mutableStateOf(context.hasLocationPermission()) }
+    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+    var locateRequestCount by remember { mutableIntStateOf(0) }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { permissions ->
+        locationPermissionGranted = permissions.values.any { it }
+        if (locationPermissionGranted) {
+            scope.launch {
+                val location = getCurrentDeviceLocation(context)
+                if (location != null) {
+                    currentLocation = LatLng(location.latitude, location.longitude)
+                    locateRequestCount += 1
+                } else {
+                    Toast.makeText(context, Copy.text(language, "locationUnavailable"), Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            Toast.makeText(context, Copy.text(language, "locationPermissionDenied"), Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun locateUser() {
+        if (!locationPermissionGranted) {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            )
+            return
+        }
+        scope.launch {
+            val location = getCurrentDeviceLocation(context)
+            if (location != null) {
+                currentLocation = LatLng(location.latitude, location.longitude)
+                locateRequestCount += 1
+            } else {
+                Toast.makeText(context, Copy.text(language, "locationUnavailable"), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     LaunchedEffect(BuildConfig.MAPS_CONFIGURED) {
         CrashReporter.log("SaigonMapView mode=${if (BuildConfig.MAPS_CONFIGURED) "native" else "web"}")
     }
-    if (BuildConfig.MAPS_CONFIGURED) {
-        NativeGoogleMapView(
-            events = events,
-            places = places,
-            centerLat = centerLat,
-            centerLng = centerLng,
-            initialZoom = initialZoom,
-            restoredCenterLat = restoredCenterLat,
-            restoredCenterLng = restoredCenterLng,
-            restoredZoom = restoredZoom,
-            alwaysShowBubbles = alwaysShowBubbles,
-            language = language,
-            onEventClick = onEventClick,
-            onPlaceClick = onPlaceClick,
-            onMapClick = onMapClick,
-            onCameraChanged = onCameraChanged,
-            onMapTouchChange = onMapTouchChange,
-            modifier = modifier,
-        )
-    } else {
-        WebSaigonMapView(
-            events = events,
-            places = places,
-            mapsApiKey = mapsApiKey,
-            centerLat = centerLat,
-            centerLng = centerLng,
-            initialZoom = initialZoom,
-            alwaysShowBubbles = alwaysShowBubbles,
-            darkTheme = tokens.isDark,
-            onEventClick = onEventClick,
-            onPlaceClick = onPlaceClick,
-            onMapClick = onMapClick,
-            onMapTouchChange = onMapTouchChange,
-            modifier = modifier,
-        )
+    Box(modifier = modifier) {
+        if (BuildConfig.MAPS_CONFIGURED) {
+            NativeGoogleMapView(
+                events = events,
+                places = places,
+                centerLat = centerLat,
+                centerLng = centerLng,
+                initialZoom = initialZoom,
+                restoredCenterLat = restoredCenterLat,
+                restoredCenterLng = restoredCenterLng,
+                restoredZoom = restoredZoom,
+                alwaysShowBubbles = alwaysShowBubbles,
+                language = language,
+                satelliteView = satelliteView,
+                locationPermissionGranted = showMapControls && locationPermissionGranted,
+                currentLocation = currentLocation,
+                locateRequestCount = locateRequestCount,
+                onEventClick = onEventClick,
+                onPlaceClick = onPlaceClick,
+                onMapClick = onMapClick,
+                onCameraChanged = onCameraChanged,
+                onMapTouchChange = onMapTouchChange,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            WebSaigonMapView(
+                events = events,
+                places = places,
+                mapsApiKey = mapsApiKey,
+                centerLat = centerLat,
+                centerLng = centerLng,
+                initialZoom = initialZoom,
+                alwaysShowBubbles = alwaysShowBubbles,
+                darkTheme = tokens.isDark,
+                satelliteView = satelliteView,
+                currentLocation = currentLocation,
+                locateRequestCount = locateRequestCount,
+                onEventClick = onEventClick,
+                onPlaceClick = onPlaceClick,
+                onMapClick = onMapClick,
+                onMapTouchChange = onMapTouchChange,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (showMapControls) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            ) {
+                SaigonMapControlButton(
+                    icon = Icons.Default.Layers,
+                    description = Copy.text(language, if (satelliteView) "standardMap" else "satelliteView"),
+                    onClick = { satelliteView = !satelliteView },
+                )
+                SaigonMapControlButton(
+                    icon = Icons.Default.MyLocation,
+                    description = Copy.text(language, "locateMe"),
+                    onClick = ::locateUser,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SaigonMapControlButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(46.dp)
+            .shadow(6.dp, RoundedCornerShape(15.dp))
+            .clip(RoundedCornerShape(15.dp))
+            .background(tokens.surface)
+            .border(1.dp, tokens.line, RoundedCornerShape(15.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Icon(icon, contentDescription = description, tint = tokens.text, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -294,6 +448,10 @@ private fun NativeGoogleMapView(
     restoredZoom: Float?,
     alwaysShowBubbles: Boolean,
     language: Language,
+    satelliteView: Boolean,
+    locationPermissionGranted: Boolean,
+    currentLocation: LatLng?,
+    locateRequestCount: Int,
     onEventClick: (String) -> Unit,
     onPlaceClick: (String) -> Unit,
     onMapClick: ((Double, Double) -> Unit)?,
@@ -326,6 +484,9 @@ private fun NativeGoogleMapView(
     val startZoom = safeRestoredZoom ?: initialZoom
     val cameraState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(startLat, startLng), startZoom)
+    }
+    LaunchedEffect(locateRequestCount, currentLocation) {
+        currentLocation?.let { cameraState.animate(CameraUpdateFactory.newLatLngZoom(it, 16f)) }
     }
     var mapSize by remember { mutableStateOf(IntSize.Zero) }
     var mapReady by remember { mutableStateOf(false) }
@@ -707,6 +868,10 @@ private fun NativeGoogleMapView(
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraState,
+            properties = MapProperties(
+                mapType = if (satelliteView) MapType.HYBRID else MapType.NORMAL,
+                isMyLocationEnabled = locationPermissionGranted,
+            ),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
                 mapToolbarEnabled = false,
@@ -1250,6 +1415,9 @@ private fun WebSaigonMapView(
     initialZoom: Float,
     alwaysShowBubbles: Boolean,
     darkTheme: Boolean,
+    satelliteView: Boolean,
+    currentLocation: LatLng?,
+    locateRequestCount: Int,
     onEventClick: (String) -> Unit,
     onPlaceClick: (String) -> Unit,
     onMapClick: ((Double, Double) -> Unit)?,
@@ -1260,6 +1428,21 @@ private fun WebSaigonMapView(
     val latestOnPlace by rememberUpdatedState(onPlaceClick)
     val latestOnMapClick by rememberUpdatedState(onMapClick)
     val latestOnMapTouchChange by rememberUpdatedState(onMapTouchChange)
+    val latestSatelliteView by rememberUpdatedState(satelliteView)
+    val latestCurrentLocation by rememberUpdatedState(currentLocation)
+    val latestLocateRequestCount by rememberUpdatedState(locateRequestCount)
+
+    fun applyMapControls(webView: WebView?) {
+        webView ?: return
+        webView.evaluateJavascript("if(window.__setSaigonMapType)window.__setSaigonMapType(${latestSatelliteView});", null)
+        val location = latestCurrentLocation
+        if (latestLocateRequestCount > 0 && location != null) {
+            webView.evaluateJavascript(
+                "if(window.__locateSaigonMap)window.__locateSaigonMap(${location.latitude},${location.longitude});",
+                null,
+            )
+        }
+    }
 
     val markersJson = remember(events, places) {
         val list = buildList {
@@ -1321,6 +1504,10 @@ private fun WebSaigonMapView(
         wv.evaluateJavascript("if (window.__setSaigonMarkers) window.__setSaigonMarkers($markersJson);", null)
     }
 
+    LaunchedEffect(satelliteView, currentLocation, locateRequestCount, webViewRef) {
+        applyMapControls(webViewRef)
+    }
+
     DisposableEffect(Unit) {
         onDispose { latestOnMapTouchChange?.invoke(false) }
     }
@@ -1356,6 +1543,7 @@ private fun WebSaigonMapView(
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             view?.evaluateJavascript("if (window.__setSaigonMarkers) window.__setSaigonMarkers($markersJson);", null)
+                            applyMapControls(view)
                         }
 
                         override fun onReceivedError(
@@ -1467,10 +1655,70 @@ private fun buildMapHtml(
   var backend = null;
   var leafletMap = null;
   var leafletLayer = null;
+  var leafletStandardLayer = null;
+  var leafletSatelliteLayer = null;
   var gmap = null;
   var gOverlays = [];
+  var googleLocationMarker = null;
+  var leafletLocationMarker = null;
+  var pendingUserLocation = null;
+  var satelliteViewEnabled = false;
   var fixedCenter = $hasFixedCenter;
   var alwaysBubbles = $alwaysShowBubbles;
+
+  function applyMapType() {
+    if (backend === 'google' && gmap) {
+      gmap.setMapTypeId(satelliteViewEnabled ? 'hybrid' : 'roadmap');
+    } else if (backend === 'leaflet' && leafletMap) {
+      if (satelliteViewEnabled) {
+        if (!leafletSatelliteLayer) {
+          leafletSatelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri'
+          });
+        }
+        if (leafletMap.hasLayer(leafletStandardLayer)) leafletMap.removeLayer(leafletStandardLayer);
+        if (!leafletMap.hasLayer(leafletSatelliteLayer)) leafletSatelliteLayer.addTo(leafletMap);
+      } else {
+        if (leafletSatelliteLayer && leafletMap.hasLayer(leafletSatelliteLayer)) leafletMap.removeLayer(leafletSatelliteLayer);
+        if (leafletStandardLayer && !leafletMap.hasLayer(leafletStandardLayer)) leafletStandardLayer.addTo(leafletMap);
+      }
+    }
+  }
+
+  function applyUserLocation() {
+    if (!pendingUserLocation) return;
+    if (backend === 'google' && gmap && window.google && google.maps) {
+      gmap.panTo(pendingUserLocation);
+      gmap.setZoom(16);
+      if (!googleLocationMarker) {
+        googleLocationMarker = new google.maps.Marker({
+          map: gmap,
+          position: pendingUserLocation,
+          clickable: false,
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285f4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }
+        });
+      } else {
+        googleLocationMarker.setPosition(pendingUserLocation);
+      }
+    } else if (backend === 'leaflet' && leafletMap) {
+      leafletMap.setView([pendingUserLocation.lat, pendingUserLocation.lng], 16);
+      if (leafletLocationMarker) leafletLocationMarker.setLatLng([pendingUserLocation.lat, pendingUserLocation.lng]);
+      else leafletLocationMarker = L.circleMarker([pendingUserLocation.lat, pendingUserLocation.lng], {
+        radius: 8, color: '#fff', weight: 2, fillColor: '#4285f4', fillOpacity: 1
+      }).addTo(leafletMap);
+    }
+  }
+
+  window.__setSaigonMapType = function(satellite) {
+    satelliteViewEnabled = !!satellite;
+    applyMapType();
+  };
+
+  window.__locateSaigonMap = function(lat, lng) {
+    pendingUserLocation = { lat: lat, lng: lng };
+    applyUserLocation();
+  };
 
   function makeEl(m, currentZoom) {
     var wrap = document.createElement('div');
@@ -1518,9 +1766,15 @@ private fun buildMapHtml(
     if (backend === 'leaflet') return;
     backend = 'leaflet';
     document.getElementById('map').innerHTML = '';
-    leafletMap = L.map('map', { zoomControl: false, attributionControl: false }).setView([$centerLat, $centerLng], $zoom);
-    L.tileLayer('$tileUrl', { maxZoom: 19, subdomains: 'abcd' }).addTo(leafletMap);
+    leafletMap = L.map('map', { zoomControl: false, attributionControl: true }).setView([$centerLat, $centerLng], $zoom);
+    leafletStandardLayer = L.tileLayer('$tileUrl', {
+      maxZoom: 19,
+      subdomains: 'abcd',
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(leafletMap);
     leafletLayer = L.layerGroup().addTo(leafletMap);
+    applyMapType();
+    applyUserLocation();
     leafletMap.on('click', function(e) {
       if (window.SaigonMapBridge) SaigonMapBridge.pickLatLng(e.latlng.lat, e.latlng.lng);
     });
@@ -1616,8 +1870,11 @@ private fun buildMapHtml(
           center: { lat: $centerLat, lng: $centerLng },
           zoom: $zoom,
           disableDefaultUI: true,
-          zoomControl: true
+          zoomControl: true,
+          mapTypeId: satelliteViewEnabled ? 'hybrid' : 'roadmap'
         });
+        applyMapType();
+        applyUserLocation();
         gmap.addListener('click', function(e) {
           if (window.SaigonMapBridge && e.latLng) SaigonMapBridge.pickLatLng(e.latLng.lat(), e.latLng.lng());
         });

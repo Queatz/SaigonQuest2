@@ -146,6 +146,9 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     var eventsMapReady = false
     var navigateEventsMap: (PlacePick) -> Unit = {}
     var addEventsMapLocation: (PlacePick) -> Unit = {}
+    var setEventsMapType: (Boolean) -> Unit = {}
+    var locateEventsMap: () -> Unit = {}
+    var satelliteView = false
     var pendingMapNavigation: PlacePick? = null
     fun onMapLocationCreated(place: PlacePick) {
         if (sessionLocations.none { samePlace(it, place) }) sessionLocations += place
@@ -168,6 +171,26 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         },
         onCreated = ::onMapLocationCreated,
     )
+    val mapTools = el("div", "events-map-tools")
+    val satelliteButton = el("button", "icon-btn events-map-tool")
+    satelliteButton.setAttribute("type", "button")
+    satelliteButton.setAttribute("aria-label", Town.t("satelliteView"))
+    satelliteButton.asDynamic().innerHTML =
+        """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 3v15.5M15 5.5V21" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>"""
+    satelliteButton.onClick {
+        satelliteView = !satelliteView
+        satelliteButton.setAttribute("aria-label", Town.t(if (satelliteView) "standardMap" else "satelliteView"))
+        setEventsMapType(satelliteView)
+    }
+    val locateButton = el("button", "icon-btn events-map-tool")
+    locateButton.setAttribute("type", "button")
+    locateButton.setAttribute("aria-label", Town.t("locateMe"))
+    locateButton.asDynamic().innerHTML =
+        """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>"""
+    locateButton.onClick { locateEventsMap() }
+    mapTools.appendChild(satelliteButton)
+    mapTools.appendChild(locateButton)
+    mapPane.appendChild(mapTools)
     val eventCol = el("div", "events-col")
     val activityCol = el("div", "events-col")
     val learnCol = el("div", "events-col")
@@ -290,10 +313,20 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
         }
         mapLocations.clear()
         mapLocations.addAll(locations)
-        mountEventsMap(mapBox, events, locations, shell, router) { navigate, addLocation ->
+        mountEventsMap(
+            mapBox,
+            events,
+            locations,
+            shell,
+            router,
+            onMapTap = { lat, lng -> openMapAddLocationDialog(shell, router, lat, lng, ::onMapLocationCreated) },
+        ) { navigate, addLocation, setMapType, locate ->
             eventsMapReady = true
             navigateEventsMap = navigate
             addEventsMapLocation = addLocation
+            setEventsMapType = setMapType
+            locateEventsMap = locate
+            setMapType(satelliteView)
             pendingMapLocations.forEach { place ->
                 if (locations.none { samePlace(it, place) }) addLocation(place)
             }
@@ -498,6 +531,8 @@ internal fun openLocationPicker(
     var previewToken = 0
     var placingLocation = false
     var locationName = ""
+    var satelliteView = false
+    var currentLocationMarker: dynamic = null
     fun markSelected(row: HTMLElement) {
         selectedRow?.asDynamic()?.classList?.remove("selected")
         row.asDynamic().classList.add("selected")
@@ -550,6 +585,58 @@ internal fun openLocationPicker(
         opts.disableDefaultUI = true
         opts.zoomControl = true
         map = googleMap(mapBox, opts)
+        val mapTools = el("div", "events-map-tools picker-map-tools")
+        val satelliteButton = el("button", "icon-btn events-map-tool")
+        satelliteButton.setAttribute("type", "button")
+        satelliteButton.setAttribute("aria-label", Town.t("satelliteView"))
+        satelliteButton.asDynamic().innerHTML =
+            """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 3v15.5M15 5.5V21" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>"""
+        satelliteButton.onClick {
+            satelliteView = !satelliteView
+            satelliteButton.setAttribute("aria-label", Town.t(if (satelliteView) "standardMap" else "satelliteView"))
+            map.setMapTypeId(if (satelliteView) "hybrid" else "roadmap")
+        }
+        val locateButton = el("button", "icon-btn events-map-tool")
+        locateButton.setAttribute("type", "button")
+        locateButton.setAttribute("aria-label", Town.t("locateMe"))
+        locateButton.asDynamic().innerHTML =
+            """<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>"""
+        locateButton.onClick {
+            val geolocation = window.asDynamic().navigator.geolocation
+            if (geolocation == null || geolocation == undefined) {
+                toast(host, Town.t("locationUnavailable"))
+                return@onClick
+            }
+            val options = js("({})")
+            options.enableHighAccuracy = true
+            options.timeout = 10000
+            options.maximumAge = 30000
+            geolocation.getCurrentPosition(
+                { result: dynamic ->
+                    val position = js("({})")
+                    position.lat = num(result.coords.latitude)
+                    position.lng = num(result.coords.longitude)
+                    map.panTo(position)
+                    map.setZoom(16)
+                    if (currentLocationMarker != null && currentLocationMarker != undefined) {
+                        currentLocationMarker.setMap(null)
+                    }
+                    currentLocationMarker = googleHtmlMarker(map, position, el("div", "events-current-location-dot"))
+                },
+                { error: dynamic ->
+                    toast(
+                        host,
+                        Town.t(if (num(error.code).toInt() == 1) "locationPermissionDenied" else "locationUnavailable"),
+                    )
+                },
+                options,
+            )
+        }
+        mapTools.appendChild(satelliteButton)
+        mapTools.appendChild(locateButton)
+        mapTools.asDynamic().addEventListener("pointerdown", { event: dynamic -> event.stopPropagation() })
+        mapTools.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
+        mapBox.appendChild(mapTools)
         map.addListener("click", { event: dynamic ->
             if (!placingLocation) return@addListener
             val point = event.latLng
@@ -1407,7 +1494,8 @@ private fun mountEventsMap(
     locations: List<PlacePick>,
     sheetHost: HTMLElement,
     router: HistoryRouter,
-    onMapReady: ((PlacePick) -> Unit, (PlacePick) -> Unit) -> Unit,
+    onMapTap: (Double, Double) -> Unit,
+    onMapReady: ((PlacePick) -> Unit, (PlacePick) -> Unit, (Boolean) -> Unit, () -> Unit) -> Unit,
 ) {
     val marked = events.filter { it.lat != null && it.lng != null }
     val markedLocations = locations.filter { it.lat != null && it.lng != null }
@@ -1429,6 +1517,46 @@ private fun mountEventsMap(
             opts.disableDefaultUI = true
             opts.zoomControl = true
             val map = googleMap(host, opts)
+            var currentLocationMarker: dynamic = null
+            fun setMapType(satellite: Boolean) {
+                map.setMapTypeId(if (satellite) "hybrid" else "roadmap")
+            }
+            fun locateMe() {
+                val geolocation = window.asDynamic().navigator.geolocation
+                if (geolocation == null || geolocation == undefined) {
+                    toast(sheetHost, Town.t("locationUnavailable"))
+                    return
+                }
+                val options = js("({})")
+                options.enableHighAccuracy = true
+                options.timeout = 10000
+                options.maximumAge = 30000
+                geolocation.getCurrentPosition(
+                    { result: dynamic ->
+                        val position = js("({})")
+                        position.lat = num(result.coords.latitude)
+                        position.lng = num(result.coords.longitude)
+                        map.panTo(position)
+                        map.setZoom(16)
+                        if (currentLocationMarker != null && currentLocationMarker != undefined) {
+                            currentLocationMarker.setMap(null)
+                        }
+                        val dot = el("div", "events-current-location-dot")
+                        currentLocationMarker = googleHtmlMarker(map, position, dot)
+                    },
+                    { error: dynamic ->
+                        toast(
+                            sheetHost,
+                            Town.t(if (num(error.code).toInt() == 1) "locationPermissionDenied" else "locationUnavailable"),
+                        )
+                    },
+                    options,
+                )
+            }
+            map.addListener("click", { event: dynamic ->
+                val point = event.latLng
+                if (point != null && point != undefined) onMapTap(num(point.lat()), num(point.lng()))
+            })
             val bounds = googleBounds()
             val mapMarkers = mutableListOf<EventsMapMarker>()
             val renderedLocations = markedLocations.toMutableList()
@@ -1632,10 +1760,81 @@ private fun mountEventsMap(
             updateMapMarkers()
             window.asDynamic().requestAnimationFrame { relayout() }
             window.asDynamic().setTimeout({ relayout() }, 120)
-            onMapReady(::navigate, ::addLocation)
+            onMapReady(::navigate, ::addLocation, ::setMapType, ::locateMe)
         }
     }
     tryMount()
+}
+
+private fun openMapAddLocationDialog(
+    host: HTMLElement,
+    router: HistoryRouter,
+    lat: Double,
+    lng: Double,
+    onCreated: (PlacePick) -> Unit,
+) {
+    if (Town.me == null) {
+        showAuthDialog(host, onSuccess = { openMapAddLocationDialog(host, router, lat, lng, onCreated) })
+        return
+    }
+
+    val backdrop = el("div", "dialog-backdrop map-location-backdrop")
+    val dialog = el("div", "dialog map-location-dialog")
+    dialog.setAttribute("role", "dialog")
+    dialog.setAttribute("aria-modal", "true")
+    dialog.appendChild(el("h2", text = Town.t("createLocation")))
+    val name = field(Town.t("location"), "text", Town.t("location"))
+    dialog.appendChild(name.root)
+    val hint = el("p", "hint map-location-hint")
+    hint.asDynamic().hidden = true
+    dialog.appendChild(hint)
+    val actions = el("div", "dialog-actions")
+    val cancel = el("button", "text-button", text = Town.t("cancel"))
+    cancel.setAttribute("type", "button")
+    val save = el("button", "primary", text = Town.t("save"))
+    save.setAttribute("type", "button")
+    actions.appendChild(cancel)
+    actions.appendChild(save)
+    dialog.appendChild(actions)
+    backdrop.appendChild(dialog)
+    fun close() = backdrop.asDynamic().remove()
+    cancel.onClick { close() }
+    backdrop.closeOnOutsideClick { close() }
+    save.onClick {
+        val locationName = name.value().trim()
+        if (locationName.isBlank()) {
+            hint.textContent = Town.t("enterLocationName")
+            hint.asDynamic().hidden = false
+            name.input.focus()
+            return@onClick
+        }
+        save.asDynamic().disabled = true
+        val payload = js("({})")
+        payload.name = locationName
+        payload.lat = lat
+        payload.lng = lng
+        http("POST", "/api/places", jsonStringify(payload)) { status, body ->
+            if (status != 201) {
+                save.asDynamic().disabled = false
+                hint.textContent = errorText(body, status)
+                hint.asDynamic().hidden = false
+                return@http
+            }
+            val created = parseJson(body)
+            val place = PlacePick(
+                name = (created.name as? String)?.takeIf { it.isNotBlank() } ?: locationName,
+                placeId = (created.placeId as? String)?.takeIf { it.isNotBlank() },
+                lat = if (created.lat == null || created.lat == undefined) lat else num(created.lat),
+                lng = if (created.lng == null || created.lng == undefined) lng else num(created.lng),
+                id = (created.id as? String)?.takeIf { it.isNotBlank() },
+            )
+            onCreated(place)
+            close()
+            openLocationSheet(host, router, place.name, place.placeId, place.lat, place.lng, customLocationId = place.id)
+        }
+    }
+    host.appendChild(backdrop)
+    name.input.focus()
 }
 
 private fun userLocationDot(location: PlacePick, host: HTMLElement, router: HistoryRouter): HTMLElement {

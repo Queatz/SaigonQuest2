@@ -1065,7 +1065,7 @@ fun ComposerScreen(
 
     if (showLocationDialog) {
         LocationPickerDialog(
-            initialQuery = locationText,
+            initialQuery = "",
             currentPlace = selectedPlace,
             recent = composerState.recentPlaces,
             results = composerState.placeResults,

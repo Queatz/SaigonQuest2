@@ -262,6 +262,7 @@ fun LocationPickerDialog(
                 centerLng = pendingPlace?.lng,
                 initialZoom = if (pendingPlace?.lat != null) 16f else 12f,
                 alwaysShowBubbles = true,
+                showMapControls = true,
                 onMapClick = { lat, lng ->
                     if (placingLocation) {
                         val cleanName = query.trim()

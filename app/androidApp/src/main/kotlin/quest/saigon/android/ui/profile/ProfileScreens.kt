@@ -368,7 +368,7 @@ fun ProfileScreen(
 
     if (showLocationDialog) {
         LocationPickerDialog(
-            initialQuery = location,
+            initialQuery = "",
             currentPlace = selectedPlace,
             recent = composerState.recentPlaces,
             results = composerState.placeResults,

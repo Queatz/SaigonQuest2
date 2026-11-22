@@ -130,6 +130,7 @@ fun DiscoverScreen(
     var showAddPlace by remember { mutableStateOf(false) }
     var newPlaceLat by remember { mutableDoubleStateOf(10.7769) }
     var newPlaceLng by remember { mutableDoubleStateOf(106.7009) }
+    var newPlaceName by remember { mutableStateOf("") }
     var zoomPhoto by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(sessionState.me?.id) {
@@ -269,6 +270,7 @@ fun DiscoverScreen(
                         restoredCenterLat = discoverState.mapCameraLat,
                         restoredCenterLng = discoverState.mapCameraLng,
                         restoredZoom = discoverState.mapCameraZoom,
+                        showMapControls = true,
                         language = lang,
                         onEventClick = { postId -> onNavigate(AppRoute.Post(postId)) },
                         onPlaceClick = { key ->
@@ -289,6 +291,12 @@ fun DiscoverScreen(
                         onMapClick = { lat, lng ->
                             newPlaceLat = lat
                             newPlaceLng = lng
+                            if (sessionState.me == null) {
+                                onRequireAuth()
+                            } else {
+                                newPlaceName = ""
+                                showAddPlace = true
+                            }
                         },
                         onCameraChanged = { lat, lng, zoom ->
                             shared.discover.updateMapCamera(lat, lng, zoom)
@@ -686,6 +694,7 @@ fun DiscoverScreen(
                     placeholder = Copy.text(lang, "searchPlaces"),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    autoFocus = true,
                 )
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -719,7 +728,12 @@ fun DiscoverScreen(
                     text = "+ ${Copy.text(lang, "createLocation")}",
                     onClick = {
                         showPlaceSearch = false
-                        if (sessionState.me == null) onRequireAuth() else showAddPlace = true
+                        if (sessionState.me == null) {
+                            onRequireAuth()
+                        } else {
+                            newPlaceName = placeQuery.trim()
+                            showAddPlace = true
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -795,7 +809,6 @@ fun DiscoverScreen(
     }
 
     if (showAddPlace) {
-        var placeName by remember { mutableStateOf("") }
         var addPlaceMapTouched by remember { mutableStateOf(false) }
         SaigonDialog(
             onDismiss = { showAddPlace = false },
@@ -815,7 +828,7 @@ fun DiscoverScreen(
                         places = listOf(
                             SaigonMapPlacePin(
                                 key = "draft",
-                                name = placeName.ifBlank { Copy.text(lang, "location") },
+                                name = newPlaceName.ifBlank { Copy.text(lang, "location") },
                                 lat = newPlaceLat,
                                 lng = newPlaceLng,
                             ),
@@ -834,13 +847,13 @@ fun DiscoverScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                SaigonTextField(value = placeName, onValueChange = { placeName = it }, label = Copy.text(lang, "location"))
+                SaigonTextField(value = newPlaceName, onValueChange = { newPlaceName = it }, label = Copy.text(lang, "location"))
                 SaigonPrimaryButton(
                     text = Copy.text(lang, "save"),
-                    enabled = placeName.isNotBlank(),
+                    enabled = newPlaceName.isNotBlank(),
                     onClick = {
                         scope.launch {
-                            val created = shared.discover.createCustomPlace(placeName.trim(), newPlaceLat, newPlaceLng)
+                            val created = shared.discover.createCustomPlace(newPlaceName.trim(), newPlaceLat, newPlaceLng)
                             if (created != null) showAddPlace = false
                         }
                     },

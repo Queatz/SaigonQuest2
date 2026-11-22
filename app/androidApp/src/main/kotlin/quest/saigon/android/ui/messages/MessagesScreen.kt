@@ -141,6 +141,7 @@ fun MessagesListScreen(
                     value = groupName,
                     onValueChange = { if (it.length <= Limits.CHAT_NAME_MAX) groupName = it },
                     label = Copy.text(lang, "groupName"),
+                    placeholder = Copy.text(lang, "groupNameHint"),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )

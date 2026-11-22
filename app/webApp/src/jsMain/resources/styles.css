@@ -4048,6 +4048,39 @@ span.event-face {
     border: 1px solid var(--line);
 }
 
+.events-map-tools {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 7;
+    display: grid;
+    gap: 8px;
+}
+
+.events-map-tool {
+    width: 46px;
+    height: 46px;
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: var(--surface);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
+}
+
+.events-map-tool svg { width: 22px; height: 22px; }
+
+.events-current-location-dot {
+    width: 16px;
+    height: 16px;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    background: #4285f4;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+
+.map-location-dialog { width: min(380px, 100%); }
+.map-location-hint { margin: 0; }
+
 .events-map-search-desktop { display: none; }
 
 .events-map-search-toggle {
@@ -4595,6 +4628,7 @@ span.event-face {
 .location-dialog { width: min(520px, 100%); }
 
 .picker-map {
+    position: relative;
     height: 220px;
     border-radius: 16px;
     overflow: hidden;

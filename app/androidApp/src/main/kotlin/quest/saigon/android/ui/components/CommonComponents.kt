@@ -61,6 +61,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -75,6 +77,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -620,8 +623,11 @@ fun SaigonTextField(
     borderColor: Color? = null,
     borderWidth: Dp = 2.dp,
     cornerRadius: Dp = 14.dp,
+    autoFocus: Boolean = false,
 ) {
     val tokens = LocalSaigonTokens.current
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val resolvedBorderColor by animateColorAsState(
@@ -630,6 +636,13 @@ fun SaigonTextField(
     )
     val shape = RoundedCornerShape(cornerRadius)
     val bg = containerColor ?: tokens.surface
+
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -680,7 +693,9 @@ fun SaigonTextField(
                     keyboardOptions = keyboardOptions,
                     keyboardActions = keyboardActions,
                     interactionSource = interactionSource,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (autoFocus) Modifier.focusRequester(focusRequester) else Modifier),
                 )
             }
             if (trailing != null) {
