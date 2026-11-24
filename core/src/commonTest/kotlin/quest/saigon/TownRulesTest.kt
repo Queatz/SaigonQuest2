@@ -258,6 +258,8 @@ class TownRulesTest {
         }
         assertEquals("Learn", Copy.text(Language.EN, "products"))
         assertEquals("Học", Copy.text(Language.VI, "products"))
+        assertEquals("Lessons", Copy.text(Language.EN, "lessons"))
+        assertEquals("Buổi học", Copy.text(Language.VI, "lessons"))
         assertEquals("Lesson requests", Copy.text(Language.EN, "productOrders"))
         assertEquals("Yêu cầu buổi học", Copy.text(Language.VI, "productOrders"))
         assertEquals("Your communities", Copy.text(Language.EN, "yourCommunities"))

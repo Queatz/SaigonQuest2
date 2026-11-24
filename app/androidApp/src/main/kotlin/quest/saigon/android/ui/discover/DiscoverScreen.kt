@@ -342,7 +342,7 @@ fun DiscoverScreen(
                     val tabs = listOf(
                         DiscoverTab.EVENTS to Copy.text(lang, "events"),
                         DiscoverTab.ACTIVITIES to Copy.text(lang, "activities"),
-                        DiscoverTab.LEARN to Copy.text(lang, "products"),
+                        DiscoverTab.LEARN to Copy.text(lang, "lessons"),
                         DiscoverTab.PEOPLE to Copy.text(lang, "people"),
                         DiscoverTab.COMMUNITIES to Copy.text(lang, "communities"),
                     )

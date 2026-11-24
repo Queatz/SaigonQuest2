@@ -45,11 +45,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -713,7 +713,7 @@ fun FeedScreen(
                                             overlay = true,
                                         ) {
                                             Icon(
-                                                Icons.AutoMirrored.Outlined.Chat,
+                                                Icons.Outlined.ChatBubble,
                                                 contentDescription = Copy.text(lang, "openMessages"),
                                                 modifier = Modifier.size(20.dp),
                                             )
@@ -1659,7 +1659,7 @@ private fun FeedPostSlide(
                                         CardSquareActionButton(
                                             onClick = onMessageAuthor,
                                             contentDescription = Copy.text(language, "messageUser", mapOf("name" to post.authorName)),
-                                            icon = Icons.AutoMirrored.Outlined.Chat,
+                                            icon = Icons.Outlined.ChatBubble,
                                         )
                                     }
                                     CardSquareActionButton(

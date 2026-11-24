@@ -89,7 +89,7 @@ class SaigonComposeTest {
         }
         composeRule.onNodeWithText(Copy.text(Language.EN, "discover")).assertIsDisplayed()
         composeRule.onNodeWithText(Copy.text(Language.EN, "communities")).assertIsDisplayed()
-        composeRule.onNodeWithText(Copy.text(Language.EN, "products")).performClick()
+        composeRule.onNodeWithText(Copy.text(Language.EN, "lessons")).performClick()
         composeRule.onNodeWithText("Ca phe sua da").assertIsDisplayed()
 
         composeRule.setContent {
