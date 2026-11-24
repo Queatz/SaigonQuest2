@@ -192,8 +192,8 @@ internal fun openCommentsSheet(
     val replyBar = el("div", "reply-target")
     replyBar.setAttribute("hidden", "hidden")
     val row = el("div", "comment-input-row")
-    val field = el("input", "comment-field")
-    field.setAttribute("type", "text")
+    val field = el("textarea", "comment-field")
+    field.setAttribute("rows", "1")
     field.setAttribute("maxlength", Limits.COMMENT_MAX.toString())
     if (draft.isNotBlank()) field.asDynamic().value = draft
     val send = el("button", "comment-send", text = Town.t("sendComment"))
@@ -450,7 +450,7 @@ internal fun openCommentsSheet(
         sendText((field.asDynamic().value as? String).orEmpty())
     }
     field.asDynamic().addEventListener("keydown", { event: dynamic ->
-        if (event.key == "Enter") {
+        if (event.key == "Enter" && event.shiftKey != true) {
             event.preventDefault()
             sendText((field.asDynamic().value as? String).orEmpty())
         }

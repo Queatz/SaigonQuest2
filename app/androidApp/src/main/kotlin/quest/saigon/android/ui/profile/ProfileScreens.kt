@@ -326,9 +326,9 @@ fun ProfileScreen(
             }
             val links = buildList {
                 add(Copy.text(lang, "yourPosts") to AppRoute.MyPosts)
-                add(Copy.text(lang, "communities") to AppRoute.MyCommunities)
+                add(Copy.text(lang, "yourCommunities") to AppRoute.MyCommunities)
                 add(Copy.text(lang, "yourMusic") to AppRoute.MyMusic)
-                add(Copy.text(lang, "products") to AppRoute.MyProducts)
+                add(Copy.text(lang, "yourLessons") to AppRoute.MyProducts)
                 add(Copy.text(lang, "myActivities") to AppRoute.MyActivities)
                 add(ordersLabel to AppRoute.MyOrders)
                 add(Copy.text(lang, "allFeatures") to AppRoute.FeatureSuggestions)
@@ -1111,7 +1111,7 @@ fun MyProductsScreen(
     LaunchedEffect(Unit) { shared.profile.loadMyProducts() }
 
     SaigonPageShell(
-        title = Copy.text(lang, "products"),
+        title = Copy.text(lang, "yourLessons"),
         onBack = onBack,
         topActions = {
             SaigonIconButton(onClick = { showCreateDialog = true }, overlay = false) {

@@ -199,10 +199,10 @@ class TownRulesTest {
         assertEquals("Opens the selected lesson.", Copy.text(Language.EN, "ctaShowProductHint"))
         assertEquals("Choose a lesson", Copy.text(Language.EN, "chooseProduct"))
         assertEquals("Search your lessons", Copy.text(Language.EN, "searchProducts"))
-        assertEquals("Chia sẻ buổi học tập", Copy.text(Language.VI, "ctaShowProduct"))
-        assertEquals("Mở buổi học tập đã chọn.", Copy.text(Language.VI, "ctaShowProductHint"))
-        assertEquals("Chọn buổi học tập", Copy.text(Language.VI, "chooseProduct"))
-        assertEquals("Tìm buổi học tập của bạn", Copy.text(Language.VI, "searchProducts"))
+        assertEquals("Chia sẻ buổi học", Copy.text(Language.VI, "ctaShowProduct"))
+        assertEquals("Mở buổi học đã chọn.", Copy.text(Language.VI, "ctaShowProductHint"))
+        assertEquals("Chọn buổi học", Copy.text(Language.VI, "chooseProduct"))
+        assertEquals("Tìm buổi học của bạn", Copy.text(Language.VI, "searchProducts"))
         assertNull(CallToAction.parse("", "", "message", ""))
         assertNull(CallToAction.parse("", "Show a product", "product", ""))
         assertNull(CallToAction.parse("", "Open", "website", "javascript:alert(1)"))
@@ -210,8 +210,8 @@ class TownRulesTest {
     }
 
     @Test
-    fun learningCopyUsesLearningTerminologyInBothLanguages() {
-        val learningKeys = listOf(
+    fun lessonCopyUsesLessonTerminologyInBothLanguages() {
+        val lessonKeys = listOf(
             "products",
             "shop",
             "openShop",
@@ -246,7 +246,7 @@ class TownRulesTest {
             "notificationProductOrder",
         )
         listOf(Language.EN, Language.VI).forEach { language ->
-            learningKeys.forEach { key ->
+            lessonKeys.forEach { key ->
                 val value = Copy.text(language, key)
                 assertTrue(!value.contains("product", ignoreCase = true), "$key still mentions products in $language")
                 assertTrue(!value.contains("sản phẩm", ignoreCase = true), "$key still mentions products in $language")
@@ -258,11 +258,17 @@ class TownRulesTest {
         }
         assertEquals("Learn", Copy.text(Language.EN, "products"))
         assertEquals("Học", Copy.text(Language.VI, "products"))
-        assertEquals("buổi học tập", Copy.text(Language.VI, "searchShopProducts"))
+        assertEquals("Lesson requests", Copy.text(Language.EN, "productOrders"))
+        assertEquals("Yêu cầu buổi học", Copy.text(Language.VI, "productOrders"))
+        assertEquals("Your communities", Copy.text(Language.EN, "yourCommunities"))
+        assertEquals("Your lessons", Copy.text(Language.EN, "yourLessons"))
+        assertEquals("Chats", Copy.text(Language.EN, "messages"))
+        assertEquals("Group Chats", Copy.text(Language.EN, "groupChat"))
+        assertEquals("Tìm buổi học", Copy.text(Language.VI, "searchShopProducts"))
         assertEquals("Share a lesson", Copy.text(Language.EN, "ctaShowProduct"))
         assertEquals("Choose a lesson", Copy.text(Language.EN, "chooseProduct"))
-        assertEquals("Chia sẻ buổi học tập", Copy.text(Language.VI, "ctaShowProduct"))
-        assertEquals("Chọn buổi học tập", Copy.text(Language.VI, "chooseProduct"))
+        assertEquals("Chia sẻ buổi học", Copy.text(Language.VI, "ctaShowProduct"))
+        assertEquals("Chọn buổi học", Copy.text(Language.VI, "chooseProduct"))
         assertEquals("How would you like the teacher to contact you?", Copy.text(Language.EN, "howToContactSeller"))
         assertEquals("Bạn muốn thầy liên hệ bạn bằng cách nào?", Copy.text(Language.VI, "howToContactSeller"))
     }
@@ -307,6 +313,14 @@ class TownRulesTest {
         assertEquals(
             "Minh also commented",
             NotificationCopy.title(Language.EN, "thread_comment", "Minh", "Same"),
+        )
+        assertEquals(
+            "Minh replied to your comment",
+            NotificationCopy.title(Language.EN, "comment_reply", "Minh", "Same"),
+        )
+        assertEquals(
+            "Minh đã trả lời bình luận của bạn",
+            NotificationCopy.title(Language.VI, "comment_reply", "Minh", "Same"),
         )
         assertEquals(
             "Minh joined your event",

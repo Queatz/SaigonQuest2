@@ -79,7 +79,7 @@ internal fun learnCatalog(host: HTMLElement, router: HistoryRouter): HTMLElement
 
 internal fun myProductsScreen(router: HistoryRouter): HTMLElement {
     val shell = el("section", "shell page-shell")
-    shell.appendChild(pageHead(router, Town.t("products"), showProfile = false))
+    shell.appendChild(pageHead(router, Town.t("yourLessons"), showProfile = false))
     val body = el("div", "page-body")
     body.appendChild(productEditorForm(shell, router))
     val list = el("div", "product-list")
@@ -103,7 +103,7 @@ internal fun myOrdersScreen(router: HistoryRouter): HTMLElement {
 internal fun productsPreview(shell: HTMLElement, router: HistoryRouter): HTMLElement {
     val section = el("section", "products-preview")
     val head = el("div", "section-head")
-    head.appendChild(el("h3", text = Town.t("products")))
+    head.appendChild(el("h3", text = Town.t("yourLessons")))
     val seeAll = el("button", "see-all", text = Town.t("seeAll"))
     seeAll.setAttribute("type", "button")
     seeAll.onClick { go(router, "/profile/products") }

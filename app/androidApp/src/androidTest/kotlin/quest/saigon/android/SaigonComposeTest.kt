@@ -23,6 +23,7 @@ import quest.saigon.android.ui.discover.DiscoverScreen
 import quest.saigon.android.ui.messages.MessagesListScreen
 import quest.saigon.android.ui.stats.StatsScreen
 import quest.saigon.shared.TownSharedClient
+import quest.saigon.shared.model.CommunityDto
 import quest.saigon.shared.platform.InMemoryTokenStorage
 
 class SaigonComposeTest {
@@ -66,11 +67,14 @@ class SaigonComposeTest {
                     onDismiss = {},
                     onOpenProfile = {},
                     onMessage = {},
+                    communities = listOf(CommunityDto(id = "c1", name = "Board games", emoji = "🎲")),
+                    onOpenCommunity = {},
                 )
             }
         }
         composeRule.onNodeWithText("Linh").assertIsDisplayed()
         composeRule.onNodeWithText("District 1").assertIsDisplayed()
+        composeRule.onNodeWithText("🎲 Board games").assertIsDisplayed()
         composeRule.onNodeWithText(Copy.text(Language.EN, "messageUser", mapOf("name" to "Linh"))).assertIsDisplayed()
         composeRule.onNodeWithText(Copy.text(Language.EN, "profile")).assertIsDisplayed()
     }

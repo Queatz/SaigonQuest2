@@ -28,7 +28,7 @@ class CommentService(
             ),
         )
         val item = repo.commentItem(stored.id) ?: throw TownException("not_found")
-        notifyAbout(post, actor, item)
+        notifyAbout(post, actor, item, parent)
         return item
     }
 
@@ -46,9 +46,13 @@ class CommentService(
         repo.deleteComment(comment.id)
     }
 
-    private fun notifyAbout(post: PostRecord, actor: UserRecord, item: CommentItem) {
+    private fun notifyAbout(post: PostRecord, actor: UserRecord, item: CommentItem, parent: CommentRecord?) {
         val notified = mutableSetOf<String>()
-        if (post.userId != actor.id) {
+        if (parent != null && parent.userId != actor.id) {
+            push(parent.userId, NotificationType.COMMENT_REPLY, actor, item)
+            notified += parent.userId
+        }
+        if (post.userId != actor.id && post.userId !in notified) {
             push(post.userId, NotificationType.POST_COMMENT, actor, item)
             notified += post.userId
         }

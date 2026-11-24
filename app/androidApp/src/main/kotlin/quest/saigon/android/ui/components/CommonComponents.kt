@@ -114,6 +114,7 @@ import quest.saigon.android.theme.SaigonColors
 import quest.saigon.encodeLocationToken
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CheckInDto
+import quest.saigon.shared.model.CommunityDto
 import quest.saigon.shared.model.MeDto
 import quest.saigon.shared.model.NotificationDto
 import quest.saigon.shared.model.PlaceSuggestionDto
@@ -1131,16 +1132,15 @@ fun NotificationBellButton(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = 4.dp, y = (-4).dp)
-                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .size(if (unreadCount > 99L) 26.dp else 22.dp)
+                    .clip(CircleShape)
                     .background(SaigonColors.NotifyRed)
-                    .border(2.dp, Color.White, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 5.dp),
+                    .border(2.dp, Color.White, CircleShape),
             ) {
                 Text(
                     text = if (unreadCount > 99) "99+" else unreadCount.toString(),
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = if (unreadCount > 99) 9.sp else 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                 )
             }
@@ -1266,6 +1266,7 @@ private fun NotificationRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MiniProfileDialog(
     name: String,
@@ -1276,6 +1277,8 @@ fun MiniProfileDialog(
     onDismiss: () -> Unit,
     onOpenProfile: (() -> Unit)? = null,
     onMessage: (() -> Unit)? = null,
+    communities: List<CommunityDto> = emptyList(),
+    onOpenCommunity: ((String) -> Unit)? = null,
 ) {
     val tokens = LocalSaigonTokens.current
     SaigonDialog(onDismiss = onDismiss) {
@@ -1307,6 +1310,33 @@ fun MiniProfileDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
+            }
+            if (communities.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    communities.forEach { community ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(tokens.surface)
+                                .border(1.dp, tokens.line, RoundedCornerShape(999.dp))
+                                .clickable(enabled = onOpenCommunity != null) {
+                                    onOpenCommunity?.invoke(community.id)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Text(
+                                text = "${community.emoji} ${community.name}".trim(),
+                                color = tokens.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(6.dp))
             Row(

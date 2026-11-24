@@ -432,7 +432,7 @@ private fun createCommunity(
 internal fun communitiesPanel(host: HTMLElement, router: HistoryRouter): HTMLElement {
     val box = el("div", "community-panel")
     val head = el("div", "section-head")
-    head.appendChild(el("h3", text = Town.t("communities")))
+    head.appendChild(el("h3", text = Town.t("yourCommunities")))
     val seeAll = el("button", "see-all", text = Town.t("seeAll"))
     seeAll.setAttribute("type", "button")
     seeAll.asDynamic().hidden = true

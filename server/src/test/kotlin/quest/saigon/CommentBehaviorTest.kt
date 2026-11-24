@@ -195,6 +195,49 @@ class CommentBehaviorTest {
     }
 
     @Test
+    fun replyingToACommentNotifiesItsAuthorWithReplyCopy() = testApplication {
+        var now = 1_700_000_000_000L
+        val services = services { now }
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val owner = createClient { install(HttpCookies) }
+        val commenter = createClient { install(HttpCookies) }
+        val replier = createClient { install(HttpCookies) }
+        owner.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0904440001","password":"secretpass"}""")
+        }
+        commenter.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Minh","phone":"0904440002","password":"secretpass"}""")
+        }
+        replier.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"An","phone":"0904440003","password":"secretpass"}""")
+        }
+        val ownerId = mapper.readTree(owner.get("/api/me").bodyAsText()).path("id").asText()
+        val avatar = services.repo.insertAvatar(ownerId, "hi", now)
+        services.repo.updateAvatar(avatar.id, AvatarStatus.READY, "avatars/a.png", null)
+        val post = services.repo.insertPost(
+            PostRecord("", ownerId, avatar.id, "posts/x.jpg", "Coffee at 8?", "D1", now),
+        )
+        now += 1
+        val parent = mapper.readTree(
+            commenter.post("/api/posts/${post.id}/comments") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"text":"What time?"}""")
+            }.bodyAsText(),
+        )
+        now += 1
+        replier.post("/api/posts/${post.id}/comments") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"text":"8pm","replyToId":"${parent.path("id").asText()}"}""")
+        }
+
+        val notifications = mapper.readTree(commenter.get("/api/notifications").bodyAsText()).path("notifications")
+        assertEquals("comment_reply", notifications.path(0).path("type").asText())
+    }
+
+    @Test
     fun ownerAndAuthorCanDeleteCommentsAndMarkAllRead() = testApplication {
         var now = 1_700_000_000_000L
         val services = services { now }

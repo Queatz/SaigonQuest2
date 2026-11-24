@@ -426,7 +426,9 @@ fun ChatScreen(
                         containerColor = tokens.surface,
                         borderWidth = 1.dp,
                         cornerRadius = 16.dp,
-                        singleLine = true,
+                        singleLine = false,
+                        minLines = 1,
+                        maxLines = 5,
                         modifier = Modifier.weight(1f),
                     )
                     val sendEnabled = (inputText.isNotBlank() || pendingPhotos.isNotEmpty()) && !msgState.isSending

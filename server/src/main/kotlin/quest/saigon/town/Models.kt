@@ -362,6 +362,7 @@ data class NotificationPage(
 object NotificationType {
     const val PRODUCT_ORDER = "product_order"
     const val POST_COMMENT = "post_comment"
+    const val COMMENT_REPLY = "comment_reply"
     const val THREAD_COMMENT = "thread_comment"
     const val EVENT_JOINED = "event_joined"
     const val EVENT_LEFT = "event_left"

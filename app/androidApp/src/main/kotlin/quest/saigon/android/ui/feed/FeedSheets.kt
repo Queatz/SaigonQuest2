@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,6 +75,7 @@ fun CommentsSheet(
     val tokens = LocalSaigonTokens.current
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
+    val commentsListState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
     var inputText by remember(post.id, initialDraft) { mutableStateOf(initialDraft) }
     var replyTarget by remember { mutableStateOf<CommentCardDto?>(null) }
@@ -110,10 +112,17 @@ fun CommentsSheet(
         title = Copy.text(language, "comments"),
         onDismiss = onDismiss,
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f),
+        ) {
             when {
                 state.isLoadingComments && state.comments.isEmpty() -> {
-                    Box(Modifier.fillMaxWidth().heightIn(min = 160.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.fillMaxWidth().weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         SaigonSpinner()
                     }
                 }
@@ -122,7 +131,7 @@ fun CommentsSheet(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 140.dp)
+                            .weight(1f)
                             .padding(horizontal = 16.dp),
                     ) {
                         Text(
@@ -134,11 +143,12 @@ fun CommentsSheet(
                 }
                 else -> {
                     LazyColumn(
+                        state = commentsListState,
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 140.dp, max = 360.dp),
+                            .weight(1f),
                     ) {
                         items(state.comments, key = { it.id }) { comment ->
                             val canDelete = viewerId != null && (viewerId == comment.userId || viewerId == post.authorId || isAdmin)
@@ -260,7 +270,9 @@ fun CommentsSheet(
                         containerColor = tokens.bg,
                         borderWidth = 1.dp,
                         cornerRadius = 12.dp,
-                        singleLine = true,
+                        singleLine = false,
+                        minLines = 1,
+                        maxLines = 5,
                         modifier = Modifier
                             .weight(1f)
                             .focusRequester(focusRequester),
@@ -283,6 +295,7 @@ fun CommentsSheet(
                                 if (created != null) {
                                     inputText = ""
                                     replyTarget = null
+                                    commentsListState.animateScrollToItem(0)
                                 }
                             }
                         },

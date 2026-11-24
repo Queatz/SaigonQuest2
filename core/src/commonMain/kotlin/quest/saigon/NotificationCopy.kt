@@ -24,6 +24,7 @@ object NotificationCopy {
     }
 
     fun titleKey(type: String): String = when (type) {
+        "comment_reply" -> "notificationCommentReply"
         "thread_comment" -> "notificationThreadComment"
         "event_joined" -> "notificationEventJoined"
         "event_left" -> "notificationEventLeft"

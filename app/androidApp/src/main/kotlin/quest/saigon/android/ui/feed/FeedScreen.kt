@@ -123,6 +123,7 @@ import quest.saigon.feedMotion
 import quest.saigon.postMessageNeedsMore
 import quest.saigon.previewPostMessage
 import quest.saigon.shared.TownSharedClient
+import quest.saigon.shared.model.CommunityDto
 import quest.saigon.shared.model.CheckInDto
 import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.platform.currentTimeMillis
@@ -179,6 +180,7 @@ fun FeedScreen(
 
     var showNotifications by remember { mutableStateOf(false) }
     var commentsRequest by remember { mutableStateOf<CommentsSheetRequest?>(null) }
+    var openedFocusCommentsPostId by remember(focusPostId) { mutableStateOf<String?>(null) }
     var attendeesPostId by remember { mutableStateOf<String?>(null) }
     var pollVotersPostId by remember { mutableStateOf<String?>(null) }
     var questionPost by remember { mutableStateOf<PostCardDto?>(null) }
@@ -188,6 +190,7 @@ fun FeedScreen(
     var fullMessagePost by remember { mutableStateOf<PostCardDto?>(null) }
     var zoomPhotoUrl by remember { mutableStateOf<String?>(null) }
     var selectedPerson by remember { mutableStateOf<SelectedPersonModal?>(null) }
+    var miniProfileCommunities by remember { mutableStateOf<List<CommunityDto>>(emptyList()) }
     var activeCommunity by remember { mutableStateOf<quest.saigon.shared.model.CommunityDto?>(null) }
     var peeking by remember { mutableStateOf(false) }
     var feedMusicEnabled by remember { mutableStateOf(false) }
@@ -229,6 +232,22 @@ fun FeedScreen(
             activeCommunity = null
             shared.discover.refreshCheckIns()
             shared.discover.loadSummary()
+        }
+    }
+
+    LaunchedEffect(focusPostId, feedState.posts) {
+        if (focusPostId.isNullOrBlank() || openedFocusCommentsPostId == focusPostId) return@LaunchedEffect
+        val post = feedState.posts.firstOrNull { it.id == focusPostId } ?: return@LaunchedEffect
+        openedFocusCommentsPostId = focusPostId
+        commentsRequest = CommentsSheetRequest(post)
+    }
+
+    LaunchedEffect(selectedPerson?.id) {
+        miniProfileCommunities = emptyList()
+        val userId = selectedPerson?.id?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val result = shared.api.getUserCommunities(userId)
+        if (result is quest.saigon.shared.network.ApiResult.Success) {
+            miniProfileCommunities = result.value.communities
         }
     }
 
@@ -705,16 +724,15 @@ fun FeedScreen(
                                                 modifier = Modifier
                                                     .align(Alignment.TopEnd)
                                                     .offset(x = 4.dp, y = (-4).dp)
-                                                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .size(if (msgState.unreadCount > 99L) 26.dp else 22.dp)
+                                                    .clip(CircleShape)
                                                     .background(SaigonColors.NotifyRed)
-                                                    .border(2.dp, Color.White, RoundedCornerShape(999.dp))
-                                                    .padding(horizontal = 5.dp),
+                                                    .border(2.dp, Color.White, CircleShape),
                                             ) {
                                                 Text(
                                                     text = if (msgState.unreadCount > 99) "99+" else msgState.unreadCount.toString(),
                                                     color = Color.White,
-                                                    fontSize = 11.sp,
+                                                    fontSize = if (msgState.unreadCount > 99L) 9.sp else 11.sp,
                                                     fontWeight = FontWeight.ExtraBold,
                                                 )
                                             }
@@ -1031,9 +1049,11 @@ fun FeedScreen(
             photoUrl = person.photoUrl,
             location = person.location,
             intro = person.intro,
+            communities = miniProfileCommunities,
             language = lang,
             onDismiss = { selectedPerson = null },
             onOpenProfile = { onNavigate(AppRoute.User(person.id)) },
+            onOpenCommunity = { onNavigate(AppRoute.Community(it)) },
             onMessage = if (canMessage) {
                 { openDirectMessage(person.id, person.name) }
             } else {
