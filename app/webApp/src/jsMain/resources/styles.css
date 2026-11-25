@@ -663,11 +663,13 @@ button { cursor: pointer; }
     position: relative;
     z-index: 1;
     margin: 0 14px;
-    background: var(--card);
+    background: color-mix(in srgb, var(--card) 65.88%, transparent);
     color: var(--ink);
     border-radius: 22px;
     padding: 28px 16px 14px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .18), 0 0 6px 0px white inset;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     min-height: 148px;
 }
 

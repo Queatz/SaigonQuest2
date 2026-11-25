@@ -33,9 +33,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -51,10 +53,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -66,16 +70,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.draw.innerShadow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.shadow.Shadow as DrawShadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -83,6 +93,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -137,6 +150,7 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 private data class SelectedPersonModal(
     val id: String,
@@ -1263,6 +1277,9 @@ private fun FeedPostSlide(
     val scope = rememberCoroutineScope()
     val photos = remember(post.id, post.photoUrl, post.photoUrls) { post.allPhotoUrls() }
     val photoPagerState = rememberPagerState(pageCount = { photos.size.coerceAtLeast(1) })
+    var slidePositionInRoot by remember(post.id) { mutableStateOf(Offset.Zero) }
+    var glassCardPositionInRoot by remember(post.id) { mutableStateOf(Offset.Zero) }
+    var glassCardSize by remember(post.id) { mutableStateOf(IntSize.Zero) }
     val previewTarget = remember(post.id, post.message) { previewPostMessage(post.message) }
     var visibleChars by remember(post.id) { mutableIntStateOf(0) }
 
@@ -1302,9 +1319,13 @@ private fun FeedPostSlide(
         label = "avatarEnterOffset",
     )
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { slidePositionInRoot = it.positionInRoot() },
     ) {
+        val stageWidth = maxWidth
+        val stageHeight = maxHeight
         HorizontalPager(
             state = photoPagerState,
             modifier = Modifier
@@ -1452,265 +1473,312 @@ private fun FeedPostSlide(
                                     .zIndex(0f),
                             )
                         }
-                        Surface(
-                            color = SaigonColors.Card,
-                            contentColor = SaigonColors.Ink,
-                            shape = RoundedCornerShape(22.dp),
-                            shadowElevation = 12.dp,
+                        val glassCardShape = RoundedCornerShape(22.dp)
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = 148.dp)
+                                .dropShadow(
+                                    shape = glassCardShape,
+                                    shadow = DrawShadow(
+                                        radius = 30.dp,
+                                        spread = 0.dp,
+                                        color = Color.Black.copy(alpha = 0.18f),
+                                        offset = DpOffset(0.dp, 12.dp),
+                                    ),
+                                )
+                                .clip(glassCardShape)
+                                .onGloballyPositioned {
+                                    glassCardPositionInRoot = it.positionInRoot()
+                                    glassCardSize = it.size
+                                }
                                 .pointerInput(Unit) { detectTapGestures { } }
                                 .zIndex(1f),
                         ) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 14.dp),
-                            ) {
-                                // Message on the left + Community chip on the right (.message .community-chip.in-message)
-                                val hasCommunity = !post.communityId.isNullOrBlank() && !post.communityName.isNullOrBlank()
-                                val hasMessage = post.message.isNotBlank()
-                                if (hasMessage || hasCommunity) {
-                                    Row(
-                                        verticalAlignment = Alignment.Top,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        if (hasMessage) {
-                                            val shownText = previewTarget.take(visibleChars.coerceIn(0, previewTarget.length))
-                                            val age = PostAge.relative(post.createdAt, currentTimeMillis(), language)
-                                            val needsMore = postMessageNeedsMore(post.message) && visibleChars >= previewTarget.length
-                                            Column(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .then(if (needsMore) Modifier.clickable(onClick = onExpandMessage) else Modifier),
-                                            ) {
-                                                LinkifiedText(
-                                                    text = shownText,
-                                                    color = SaigonColors.Ink,
-                                                    linkColor = SaigonColors.Accent,
-                                                    style = TextStyle(
-                                                        fontFamily = LivvicFontFamily,
-                                                        fontSize = 20.sp,
-                                                        lineHeight = 27.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                    ),
+                            Box(modifier = Modifier.matchParentSize()) {
+                                val photoUrl = photos.getOrNull(photoPagerState.currentPage).orEmpty()
+                                if (photoUrl.isNotBlank() && glassCardSize.width > 0) {
+                                    AsyncImage(
+                                        model = photoUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .wrapContentSize(Alignment.TopStart, unbounded = true)
+                                            .requiredSize(stageWidth, stageHeight)
+                                            .offset {
+                                                IntOffset(
+                                                    x = (slidePositionInRoot.x - glassCardPositionInRoot.x).roundToInt(),
+                                                    y = (slidePositionInRoot.y - glassCardPositionInRoot.y).roundToInt(),
                                                 )
-                                                val metaLine = buildAnnotatedString {
-                                                    if (needsMore) {
-                                                        withStyle(SpanStyle(color = tokens.muted, fontWeight = FontWeight.Bold)) {
-                                                            append("… ${Copy.text(language, "seeMore")}")
+                                            }
+                                            .blur(8.dp),
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .background(SaigonColors.Card.copy(alpha = 0xA8 / 255f), glassCardShape)
+                                    .innerShadow(
+                                        shape = glassCardShape,
+                                        shadow = DrawShadow(
+                                            radius = 6.dp,
+                                            spread = 0.dp,
+                                            color = Color.White.copy(alpha = 0.24f),
+                                            offset = DpOffset.Zero,
+                                        ),
+                                    ),
+                            )
+                            CompositionLocalProvider(LocalContentColor provides SaigonColors.Ink) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 14.dp),
+                                ) {
+                                    // Message on the left + Community chip on the right (.message .community-chip.in-message)
+                                    val hasCommunity = !post.communityId.isNullOrBlank() && !post.communityName.isNullOrBlank()
+                                    val hasMessage = post.message.isNotBlank()
+                                    if (hasMessage || hasCommunity) {
+                                        Row(
+                                            verticalAlignment = Alignment.Top,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            if (hasMessage) {
+                                                val shownText = previewTarget.take(visibleChars.coerceIn(0, previewTarget.length))
+                                                val age = PostAge.relative(post.createdAt, currentTimeMillis(), language)
+                                                val needsMore = postMessageNeedsMore(post.message) && visibleChars >= previewTarget.length
+                                                Column(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .then(if (needsMore) Modifier.clickable(onClick = onExpandMessage) else Modifier),
+                                                ) {
+                                                    LinkifiedText(
+                                                        text = shownText,
+                                                        color = SaigonColors.Ink,
+                                                        linkColor = SaigonColors.Accent,
+                                                        style = TextStyle(
+                                                            fontFamily = LivvicFontFamily,
+                                                            fontSize = 20.sp,
+                                                            lineHeight = 27.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                        ),
+                                                    )
+                                                    val metaLine = buildAnnotatedString {
+                                                        if (needsMore) {
+                                                            withStyle(SpanStyle(color = tokens.muted, fontWeight = FontWeight.Bold)) {
+                                                                append("… ${Copy.text(language, "seeMore")}")
+                                                            }
+                                                        }
+                                                        if (!age.isNullOrBlank()) {
+                                                            if (needsMore) append(" ")
+                                                            withStyle(SpanStyle(color = SaigonColors.Ink.copy(alpha = 0.5f), fontWeight = FontWeight.SemiBold)) {
+                                                                append(age)
+                                                            }
+                                                        }
+                                                        if (post.communityOnly) {
+                                                            append(" ⭐")
                                                         }
                                                     }
-                                                    if (!age.isNullOrBlank()) {
-                                                        if (needsMore) append(" ")
-                                                        withStyle(SpanStyle(color = SaigonColors.Ink.copy(alpha = 0.5f), fontWeight = FontWeight.SemiBold)) {
-                                                            append(age)
-                                                        }
-                                                    }
-                                                    if (post.communityOnly) {
-                                                        append(" ⭐")
+                                                    if (metaLine.isNotEmpty()) {
+                                                        Text(
+                                                            text = metaLine,
+                                                            fontSize = 14.sp,
+                                                            modifier = Modifier.padding(top = 2.dp),
+                                                        )
                                                     }
                                                 }
-                                                if (metaLine.isNotEmpty()) {
+                                            } else {
+                                                Spacer(Modifier.weight(1f))
+                                            }
+                                            if (hasCommunity) {
+                                                val chipBg = if (tokens.isDark) Color(0xDB161311) else Color(0xFFFFFDF8)
+                                                val chipFg = if (tokens.isDark) Color(0xFFF6F1EA) else SaigonColors.Ink
+                                                val chipBorder = if (tokens.isDark) Color(0x59F6F1EA) else SaigonColors.Ink.copy(alpha = 0.16f)
+                                                Surface(
+                                                    color = chipBg,
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    border = BorderStroke(1.dp, chipBorder),
+                                                    modifier = Modifier
+                                                        .widthIn(max = 170.dp)
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .clickable { onOpenCommunity(post.communityId!!) },
+                                                ) {
                                                     Text(
-                                                        text = metaLine,
-                                                        fontSize = 14.sp,
-                                                        modifier = Modifier.padding(top = 2.dp),
+                                                        text = "${post.communityEmoji.orEmpty()} ${post.communityName}".trim(),
+                                                        color = chipFg,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                                     )
                                                 }
                                             }
-                                        } else {
-                                            Spacer(Modifier.weight(1f))
-                                        }
-                                        if (hasCommunity) {
-                                            val chipBg = if (tokens.isDark) Color(0xDB161311) else Color(0xFFFFFDF8)
-                                            val chipFg = if (tokens.isDark) Color(0xFFF6F1EA) else SaigonColors.Ink
-                                            val chipBorder = if (tokens.isDark) Color(0x59F6F1EA) else SaigonColors.Ink.copy(alpha = 0.16f)
-                                            Surface(
-                                                color = chipBg,
-                                                shape = RoundedCornerShape(999.dp),
-                                                border = BorderStroke(1.dp, chipBorder),
-                                                modifier = Modifier
-                                                    .widthIn(max = 170.dp)
-                                                    .clip(RoundedCornerShape(999.dp))
-                                                    .clickable { onOpenCommunity(post.communityId!!) },
-                                            ) {
-                                                Text(
-                                                    text = "${post.communityEmoji.orEmpty()} ${post.communityName}".trim(),
-                                                    color = chipFg,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                                )
-                                            }
                                         }
                                     }
-                                }
 
-                                PostAddonsColumn(
-                                    post = post,
-                                    viewerId = viewerId,
-                                    language = language,
-                                    onOpenLocation = onOpenLocation,
-                                    onToggleEventJoin = onToggleEventJoin,
-                                    onOpenAttendees = onOpenAttendees,
-                                    onVotePoll = onVotePoll,
-                                    onOpenPollVoters = onOpenPollVoters,
-                                    onAnswerQuestion = onAnswerQuestion,
-                                    onOpenQuestionAnswers = onOpenQuestionAnswers,
-                                    onJoinOpenChat = onJoinOpenChat,
-                                    onCallToAction = onCallToAction,
-                                )
+                                    PostAddonsColumn(
+                                        post = post,
+                                        viewerId = viewerId,
+                                        language = language,
+                                        onOpenLocation = onOpenLocation,
+                                        onToggleEventJoin = onToggleEventJoin,
+                                        onOpenAttendees = onOpenAttendees,
+                                        onVotePoll = onVotePoll,
+                                        onOpenPollVoters = onOpenPollVoters,
+                                        onAnswerQuestion = onAnswerQuestion,
+                                        onOpenQuestionAnswers = onOpenQuestionAnswers,
+                                        onJoinOpenChat = onJoinOpenChat,
+                                        onCallToAction = onCallToAction,
+                                    )
 
-                                // .collapsed-preview (rotating comment preview or "Be the first to give {name} a comment." + commentCount pill)
-                                val previewComment = if (post.comments.isNotEmpty()) {
-                                    post.comments[cycleIdx % post.comments.size]
-                                } else {
-                                    null
-                                }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 20.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { onOpenComments(false) },
-                                ) {
-                                    if (previewComment != null) {
-                                        UserAvatar(
-                                            photoUrl = previewComment.authorPhotoUrl,
-                                            name = previewComment.authorName,
-                                            size = 18.dp,
-                                            borderWidth = 0.dp,
-                                        )
-                                        Text(
-                                            text = buildAnnotatedString {
-                                                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = SaigonColors.Ink)) {
-                                                    append(previewComment.authorName)
-                                                }
-                                                append(" ")
-                                                withStyle(SpanStyle(fontWeight = FontWeight.Normal, color = SaigonColors.Ink)) {
-                                                    append(previewComment.text)
-                                                }
-                                            },
-                                            fontSize = 13.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f),
-                                        )
+                                    // .collapsed-preview (rotating comment preview or "Be the first to give {name} a comment." + commentCount pill)
+                                    val previewComment = if (post.comments.isNotEmpty()) {
+                                        post.comments[cycleIdx % post.comments.size]
                                     } else {
-                                        Text(
-                                            text = Copy.text(language, "beFirstComment", mapOf("name" to post.authorName)),
-                                            color = SaigonColors.Ink,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Normal,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f),
-                                        )
+                                        null
                                     }
-                                    if (post.commentCount > 0) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                                                .clip(RoundedCornerShape(999.dp))
-                                                .background(SaigonColors.Accent)
-                                                .padding(horizontal = 6.dp),
-                                        ) {
-                                            Text(
-                                                text = "${post.commentCount}",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Quick replies (.quick-replies -> .quick-chip)
-                                if (quickReplies.isNotEmpty()) {
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
+                                            .defaultMinSize(minHeight = 20.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { onOpenComments(false) },
                                     ) {
-                                        quickReplies.forEach { reply ->
-                                            Surface(
-                                                color = Color.White,
-                                                shape = RoundedCornerShape(999.dp),
-                                                border = BorderStroke(1.dp, SaigonColors.LightLine),
+                                        if (previewComment != null) {
+                                            UserAvatar(
+                                                photoUrl = previewComment.authorPhotoUrl,
+                                                name = previewComment.authorName,
+                                                size = 18.dp,
+                                                borderWidth = 0.dp,
+                                            )
+                                            Text(
+                                                text = buildAnnotatedString {
+                                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = SaigonColors.Ink)) {
+                                                        append(previewComment.authorName)
+                                                    }
+                                                    append(" ")
+                                                    withStyle(SpanStyle(fontWeight = FontWeight.Normal, color = SaigonColors.Ink)) {
+                                                        append(previewComment.text)
+                                                    }
+                                                },
+                                                fontSize = 13.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        } else {
+                                            Text(
+                                                text = Copy.text(language, "beFirstComment", mapOf("name" to post.authorName)),
+                                                color = SaigonColors.Ink,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
+                                        if (post.commentCount > 0) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
                                                 modifier = Modifier
+                                                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
                                                     .clip(RoundedCornerShape(999.dp))
-                                                    .clickable { onQuickReply(reply) },
+                                                    .background(SaigonColors.Accent)
+                                                    .padding(horizontal = 6.dp),
                                             ) {
                                                 Text(
-                                                    reply,
-                                                    color = SaigonColors.Ink,
-                                                    fontSize = 12.sp,
+                                                    text = "${post.commentCount}",
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.ExtraBold,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                                 )
                                             }
                                         }
                                     }
-                                }
 
-                                // .card-actions row (.comment-input with rotating placeholder, NO count; Message author + Share)
-                                val commentPlaceholder = quickReplies.getOrElse(cycleIdx % quickReplies.size) {
-                                    Copy.text(language, "comments")
-                                }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Surface(
-                                        color = Color.White,
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, SaigonColors.LightLine),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .defaultMinSize(minHeight = 44.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable { onOpenComments(true) },
-                                    ) {
+                                    // Quick replies (.quick-replies -> .quick-chip)
+                                    if (quickReplies.isNotEmpty()) {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                                .horizontalScroll(rememberScrollState()),
                                         ) {
-                                            Text(
-                                                text = commentPlaceholder,
-                                                color = SaigonColors.PlaceholderInk,
-                                                fontSize = 15.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
+                                            quickReplies.forEach { reply ->
+                                                Surface(
+                                                    color = Color.White,
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    border = BorderStroke(1.dp, SaigonColors.LightLine),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(999.dp))
+                                                        .clickable { onQuickReply(reply) },
+                                                ) {
+                                                    Text(
+                                                        reply,
+                                                        color = SaigonColors.Ink,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
 
-                                    if (post.authorId.isNotBlank() && post.authorId != viewerId) {
+                                    // .card-actions row (.comment-input with rotating placeholder, NO count; Message author + Share)
+                                    val commentPlaceholder = quickReplies.getOrElse(cycleIdx % quickReplies.size) {
+                                        Copy.text(language, "comments")
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Surface(
+                                            color = Color.White,
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, SaigonColors.LightLine),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .defaultMinSize(minHeight = 44.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { onOpenComments(true) },
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                            ) {
+                                                Text(
+                                                    text = commentPlaceholder,
+                                                    color = SaigonColors.PlaceholderInk,
+                                                    fontSize = 15.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+
+                                        if (post.authorId.isNotBlank() && post.authorId != viewerId) {
+                                            CardSquareActionButton(
+                                                onClick = onMessageAuthor,
+                                                contentDescription = Copy.text(language, "messageUser", mapOf("name" to post.authorName)),
+                                                icon = Icons.Outlined.ChatBubble,
+                                            )
+                                        }
                                         CardSquareActionButton(
-                                            onClick = onMessageAuthor,
-                                            contentDescription = Copy.text(language, "messageUser", mapOf("name" to post.authorName)),
-                                            icon = Icons.Outlined.ChatBubble,
+                                            onClick = onSharePost,
+                                            contentDescription = Copy.text(language, "share"),
+                                            icon = Icons.Default.Share,
                                         )
                                     }
-                                    CardSquareActionButton(
-                                        onClick = onSharePost,
-                                        contentDescription = Copy.text(language, "share"),
-                                        icon = Icons.Default.Share,
-                                    )
                                 }
                             }
                         }
