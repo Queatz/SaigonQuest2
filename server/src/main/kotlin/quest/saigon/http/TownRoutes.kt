@@ -70,6 +70,7 @@ import quest.saigon.town.TranslationService
 import quest.saigon.town.UserPhotoRecord
 import quest.saigon.town.UserRecord
 import quest.saigon.town.WantRecord
+import quest.saigon.town.WantView
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -1845,9 +1846,30 @@ fun Route.townApi(services: TownServices) {
             return@post call.fail(error.code)
         }
         call.respondJson(
-            wantPayload(opened.want, joined = true),
+            wantPayload(services.wants.view(opened.want, user.id)),
             if (opened.created) HttpStatusCode.Created else HttpStatusCode.OK,
         )
+    }
+
+    get("/wants/{id}") {
+        val viewer = call.user(services)
+        val want = try {
+            services.wants.get(call.parameters["id"].orEmpty(), viewer?.id)
+        } catch (error: TownException) {
+            return@get call.fail(error.code)
+        }
+        call.respondJson(wantPayload(want))
+    }
+
+    post("/wants/{id}/chat") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val chat = try {
+            services.wants.startChat(user, call.parameters["id"].orEmpty(), parseUserIds(body))
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(ChatService.chatPayload(chat), HttpStatusCode.Created)
     }
 
     post("/wants/{id}/join") {
@@ -1857,7 +1879,7 @@ fun Route.townApi(services: TownServices) {
         } catch (error: TownException) {
             return@post call.fail(error.code)
         }
-        call.respondJson(wantPayload(want, joined = true))
+        call.respondJson(wantPayload(services.wants.view(want, user.id)))
     }
 
     post("/wants/{id}/leave") {
@@ -1867,12 +1889,12 @@ fun Route.townApi(services: TownServices) {
         } catch (error: TownException) {
             return@post call.fail(error.code)
         }
-        call.respondJson(wantPayload(want, joined = false))
+        call.respondJson(wantPayload(services.wants.view(want, user.id)))
     }
 
     get("/me/wants") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
-        call.respondJson(mapOf("wants" to services.repo.wantsForUser(user.id).map { wantPayload(it, joined = true) }))
+        call.respondJson(mapOf("wants" to services.repo.wantsForUser(user.id).map { wantPayload(services.wants.view(it, user.id)) }))
     }
 
     get("/users/{id}/wants") {
@@ -1881,7 +1903,7 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(
             mapOf(
                 "wants" to services.repo.wantsForUser(profile.id).map { want ->
-                    wantPayload(want, joined = viewer != null && services.repo.isWantMember(want.id, viewer.id))
+                    wantPayload(services.wants.view(want, viewer?.id))
                 },
             ),
         )
@@ -2648,11 +2670,21 @@ private fun communityPayload(
     },
 )
 
-private fun wantPayload(want: WantRecord, joined: Boolean) = mapOf(
-    "id" to want.id,
-    "name" to want.name,
-    "memberCount" to want.memberCount,
-    "joined" to joined,
+private fun wantPayload(view: WantView) = mapOf(
+    "id" to view.want.id,
+    "name" to view.want.name,
+    "memberCount" to view.want.memberCount,
+    "joined" to view.joined,
+    "members" to view.members.map { member ->
+        mapOf(
+            "id" to member.id,
+            "name" to member.name,
+            "photoUrl" to member.profilePhotoPath?.let { "/api/users/${member.id}/photo" },
+            "location" to member.location,
+            "intro" to member.intro,
+            "joinedAt" to member.joinedAt,
+        )
+    },
 )
 
 private fun memberPayload(member: quest.saigon.town.CommunityMember, includeLatestPost: Boolean = false) = mapOf(

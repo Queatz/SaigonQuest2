@@ -84,6 +84,19 @@ internal fun discoverBannerCard(
         content.appendChild(thumbnails)
     }
     val footer = el("div", "discover-card-footer")
+    val faces = discoverPeopleFaces(people)
+    footer.appendChild(faces)
+    if (action != null) {
+        action.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
+        footer.appendChild(action)
+    }
+    content.appendChild(footer)
+    card.appendChild(content)
+    onClick?.let(card::onClick)
+    return card
+}
+
+internal fun discoverPeopleFaces(people: List<DiscoverCardPerson>): HTMLElement {
     val faces = el("div", "discover-card-people")
     people.take(5).forEach { person ->
         val face = if (person.photoUrl.isNullOrBlank()) {
@@ -100,13 +113,5 @@ internal fun discoverBannerCard(
         }
         faces.appendChild(face)
     }
-    footer.appendChild(faces)
-    if (action != null) {
-        action.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
-        footer.appendChild(action)
-    }
-    content.appendChild(footer)
-    card.appendChild(content)
-    onClick?.let(card::onClick)
-    return card
+    return faces
 }

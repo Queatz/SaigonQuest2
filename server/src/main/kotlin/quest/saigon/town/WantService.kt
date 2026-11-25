@@ -26,6 +26,7 @@ class WantService(
     private val hub: NotificationHub,
     private val clock: () -> Long = System::currentTimeMillis,
     private val pusher: NotificationPusher = NoNotificationPush,
+    private val chats: ChatService,
 ) {
     fun open(actor: UserRecord, rawName: String): OpenedWant {
         val name = WantNames.clean(rawName) ?: throw TownException("invalid_want")
@@ -59,6 +60,38 @@ class WantService(
         val want = repo.findWant(wantId) ?: throw TownException("not_found")
         repo.leaveWant(want.id, actor.id)
         return repo.findWant(want.id) ?: want
+    }
+
+    fun get(wantId: String, viewerId: String?): WantView {
+        val want = repo.findWant(wantId) ?: throw TownException("not_found")
+        return view(want, viewerId, Limits.WANT_SHEET_MEMBER_LIMIT)
+    }
+
+    fun view(want: WantRecord, viewerId: String?, memberLimit: Int = Limits.WANT_CARD_MEMBER_LIMIT): WantView =
+        WantView(
+            want = want,
+            joined = viewerId != null && repo.isWantMember(want.id, viewerId),
+            members = repo.wantPeople(want.id, memberLimit),
+        )
+
+    fun startChat(actor: UserRecord, wantId: String, userIds: List<String>): ChatSummary {
+        val want = repo.findWant(wantId) ?: throw TownException("not_found")
+        val allowed = repo.wantMembers(want.id).toSet()
+        val selected = userIds
+            .map(String::trim)
+            .filter { it.isNotBlank() && it != actor.id && it in allowed }
+            .distinct()
+        if (selected.isEmpty()) throw TownException("no_chat_members")
+        val attachment = ChatAttachment(type = "want", wantId = want.id, wantName = want.name)
+        return if (selected.size == 1) {
+            chats.createDirect(actor, selected.first(), "", attachment)
+        } else {
+            val groupName = ChatService.cleanName(want.name.take(Limits.CHAT_NAME_MAX)) ?: want.name.take(Limits.CHAT_NAME_MAX)
+            val group = chats.createGroup(actor, groupName)
+            selected.forEach { memberId -> chats.addMember(actor, group.id, memberId) }
+            chats.send(actor, group.id, "", emptyList(), attachment)
+            chats.get(actor, group.id)
+        }
     }
 
     private fun notifyMember(userId: String, actor: UserRecord, want: WantRecord) {

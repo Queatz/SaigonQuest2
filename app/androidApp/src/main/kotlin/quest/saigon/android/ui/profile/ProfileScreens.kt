@@ -82,6 +82,8 @@ import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.WantNotebookCard
+import quest.saigon.android.ui.components.WantMemberFaceStack
+import quest.saigon.android.ui.components.WantSheet
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.android.ui.components.rememberDirectMessageOpener
@@ -133,6 +135,7 @@ fun ProfileScreen(
     var intro by remember(me?.id, me?.intro) { mutableStateOf(me?.intro.orEmpty()) }
     var wantName by remember(me?.id) { mutableStateOf("") }
     var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
+    var wantSheetId by remember { mutableStateOf<String?>(null) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
 
@@ -300,15 +303,17 @@ fun ProfileScreen(
                     } else {
                         profileState.myWants.forEach { want ->
                             WantNotebookCard(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().clickable { wantSheetId = want.id },
                             ) {
-                                Text(
-                                    text = want.name,
-                                    color = tokens.text,
-                                    fontWeight = FontWeight.Bold,
-                                    fontStyle = FontStyle.Italic,
-                                    modifier = Modifier.weight(1f),
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = want.name,
+                                        color = tokens.text,
+                                        fontWeight = FontWeight.Bold,
+                                        fontStyle = FontStyle.Italic,
+                                    )
+                                    if (want.memberCount >= 2L) WantMemberFaceStack(want.members)
+                                }
                                 SaigonTextButton(
                                     text = Copy.text(lang, "leaveWant"),
                                     enabled = !profileState.isMutating,
@@ -419,6 +424,17 @@ fun ProfileScreen(
         }
     }
 
+    wantSheetId?.let { wantId ->
+        WantSheet(
+            wantId = wantId,
+            shared = shared,
+            language = lang,
+            onNavigate = onNavigate,
+            onRequireAuth = {},
+            onDismiss = { wantSheetId = null },
+        )
+    }
+
     pendingWantLeave?.let { want ->
         SaigonConfirmDialog(
             title = Copy.text(lang, "leaveWantAsk", mapOf("want" to want.name)),
@@ -476,6 +492,7 @@ fun PublicUserProfileScreen(
     val scope = rememberCoroutineScope()
     var zoomPhoto by remember { mutableStateOf<String?>(null) }
     var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
+    var wantSheetId by remember { mutableStateOf<String?>(null) }
     val openDirectMessage = rememberDirectMessageOpener(
         shared = shared,
         onNavigate = onNavigate,
@@ -588,17 +605,19 @@ fun PublicUserProfileScreen(
                             ) {
                                 profileState.viewedUserWants.forEach { want ->
                                     WantNotebookCard(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier.fillMaxWidth().clickable { wantSheetId = want.id },
                                     ) {
-                                        Text(
-                                            text = want.name,
-                                            color = tokens.text,
-                                            fontWeight = FontWeight.Bold,
-                                            fontStyle = FontStyle.Italic,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f),
-                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = want.name,
+                                                color = tokens.text,
+                                                fontWeight = FontWeight.Bold,
+                                                fontStyle = FontStyle.Italic,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            if (want.memberCount >= 2L) WantMemberFaceStack(want.members)
+                                        }
                                         SaigonPillChip(
                                             label = Copy.text(lang, if (want.joined) "wantJoined" else "wantJoin"),
                                             selected = want.joined,
@@ -790,6 +809,16 @@ fun PublicUserProfileScreen(
     }
 
     zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
+    wantSheetId?.let { wantId ->
+        WantSheet(
+            wantId = wantId,
+            shared = shared,
+            language = lang,
+            onNavigate = onNavigate,
+            onRequireAuth = onRequireAuth,
+            onDismiss = { wantSheetId = null },
+        )
+    }
     pendingWantLeave?.let { want ->
         SaigonConfirmDialog(
             title = Copy.text(lang, "leaveWantAsk", mapOf("want" to want.name)),

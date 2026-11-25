@@ -97,6 +97,80 @@ class WantBehaviorTest {
         assertEquals(HttpStatusCode.BadRequest, tooLong.status)
     }
 
+    @Test
+    fun wantRosterAndChatCarryWantAttachment() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        val minh = createClient { install(HttpCookies) }
+        val an = createClient { install(HttpCookies) }
+        val outsider = createClient { install(HttpCookies) }
+        val duy = createClient { install(HttpCookies) }
+        val hoa = createClient { install(HttpCookies) }
+        val my = createClient { install(HttpCookies) }
+        register(linh, "Linh", "0905550011")
+        register(minh, "Minh", "0905550012")
+        register(an, "An", "0905550013")
+        register(outsider, "Bao", "0905550014")
+        register(duy, "Duy", "0905550015")
+        register(hoa, "Hoa", "0905550016")
+        register(my, "My", "0905550017")
+        val minhId = mapper.readTree(minh.get("/api/me").bodyAsText()).path("id").asText()
+        val anId = mapper.readTree(an.get("/api/me").bodyAsText()).path("id").asText()
+        val outsiderId = mapper.readTree(outsider.get("/api/me").bodyAsText()).path("id").asText()
+
+        val created = linh.post("/api/wants") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Go hiking"}""")
+        }
+        val wantId = mapper.readTree(created.bodyAsText()).path("id").asText()
+        minh.post("/api/wants/$wantId/join")
+        an.post("/api/wants/$wantId/join")
+        duy.post("/api/wants/$wantId/join")
+        hoa.post("/api/wants/$wantId/join")
+        my.post("/api/wants/$wantId/join")
+
+        val cardWant = mapper.readTree(linh.get("/api/me/wants").bodyAsText()).path("wants").path(0)
+        assertEquals(6, cardWant.path("memberCount").asInt())
+        assertEquals(5, cardWant.path("members").size())
+        val cardMemberNames = (0 until cardWant.path("members").size()).map { cardWant.path("members").path(it).path("name").asText() }
+        assertEquals(5, cardMemberNames.toSet().size)
+        val want = mapper.readTree(linh.get("/api/wants/$wantId").bodyAsText())
+        assertEquals("Go hiking", want.path("name").asText())
+        assertEquals(6, want.path("members").size())
+
+        val direct = linh.post("/api/wants/$wantId/chat") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"userIds":["$minhId"]}""")
+        }
+        assertEquals(HttpStatusCode.Created, direct.status)
+        val directBody = mapper.readTree(direct.bodyAsText())
+        assertEquals("direct", directBody.path("type").asText())
+        val directMessages = mapper.readTree(linh.get("/api/chats/${directBody.path("id").asText()}/messages").bodyAsText())
+            .path("messages")
+        assertEquals("want", directMessages.path(0).path("attachment").path("type").asText())
+        assertEquals(wantId, directMessages.path(0).path("attachment").path("wantId").asText())
+        assertEquals("Go hiking", directMessages.path(0).path("attachment").path("wantName").asText())
+
+        val group = linh.post("/api/wants/$wantId/chat") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"userIds":["$minhId","$anId"]}""")
+        }
+        assertEquals(HttpStatusCode.Created, group.status)
+        val groupBody = mapper.readTree(group.bodyAsText())
+        assertEquals("group", groupBody.path("type").asText())
+        val groupMessages = mapper.readTree(linh.get("/api/chats/${groupBody.path("id").asText()}/messages").bodyAsText())
+            .path("messages")
+        assertEquals("want", groupMessages.path(0).path("attachment").path("type").asText())
+
+        val invalidChat = linh.post("/api/wants/$wantId/chat") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"userIds":["$outsiderId"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, invalidChat.status)
+        assertEquals("no_chat_members", mapper.readTree(invalidChat.bodyAsText()).path("error").asText())
+    }
+
     private suspend fun register(client: io.ktor.client.HttpClient, name: String, phone: String) {
         client.post("/api/auth/register") {
             contentType(ContentType.Application.Json)

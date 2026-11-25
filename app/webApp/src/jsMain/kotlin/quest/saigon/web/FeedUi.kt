@@ -1024,7 +1024,7 @@ internal fun openMiniProfile(
     }
     if (router != null && userId.isNotBlank() && userId != Town.me?.id) {
         val actions = el("div", "profile-sheet-actions")
-        actions.appendChild(el("button", "primary profile-sheet-message", text = Town.t("message")) { button ->
+        actions.appendChild(el("button", "primary profile-sheet-message", text = Town.t("messageAction")) { button ->
             button.setAttribute("type", "button")
             button.onClick {
                 chrome.close()
@@ -1047,7 +1047,7 @@ internal fun openMiniProfile(
         head.appendChild(copyLinkButton(host, "/u/$userId", "text-button profile-sheet-copy-link"))
     }
     body.appendChild(head)
-    if (userId.isNotBlank()) body.appendChild(miniProfileWants(userId, name, host))
+    if (userId.isNotBlank()) body.appendChild(miniProfileWants(userId, name, host, router))
     if (userId.isNotBlank() && router != null) body.appendChild(miniProfileActivities(userId, name, router, host))
     if (userId.isNotBlank() && router != null) body.appendChild(miniProfileProducts(userId, name, router, host))
     val updatesHead = el("h3", "profile-sheet-count")
@@ -1102,7 +1102,7 @@ internal fun openMiniProfile(
     chrome.open(host) { load() }
 }
 
-private fun miniProfileWants(userId: String, name: String, host: HTMLElement): HTMLElement {
+private fun miniProfileWants(userId: String, name: String, host: HTMLElement, router: HistoryRouter?): HTMLElement {
     val section = el("section", "community-panel mini-wants")
     section.asDynamic().hidden = true
     val title = el("h3", "profile-sheet-count", text = Town.t("wantsTo", mapOf("name" to name)))
@@ -1125,9 +1125,27 @@ private fun miniProfileWants(userId: String, name: String, host: HTMLElement): H
                 val want = wants[i]
                 val id = (want.id as? String).orEmpty()
                 val row = el("div", "community-row want-notebook")
+                row.setAttribute("role", "button")
+                row.setAttribute("tabindex", "0")
+                row.asDynamic().addEventListener("click", { event: dynamic ->
+                    if (event.target.closest("button") != null) return@addEventListener
+                    router?.let { openWantSheet(host, id, it) }
+                })
                 val header = el("div", "community-row-header")
                 val info = el("div", "community-row-info")
                 info.appendChild(el("span", "want-notebook-name", text = (want.name as? String).orEmpty()))
+                val memberCount = num(want.memberCount).toInt()
+                if (memberCount >= 2) {
+                    val members = want.members
+                    val facePeople = mutableListOf<DiscoverCardPerson>()
+                    for (memberIndex in 0 until (members.length as? Int ?: 0)) {
+                        facePeople += DiscoverCardPerson(
+                            name = (members[memberIndex].name as? String).orEmpty(),
+                            photoUrl = members[memberIndex].photoUrl as? String,
+                        )
+                    }
+                    row.appendChild(discoverPeopleFaces(facePeople))
+                }
                 val wantName = (want.name as? String).orEmpty()
                 val joined = want.joined == true
                 val button = el(
@@ -1136,6 +1154,7 @@ private fun miniProfileWants(userId: String, name: String, host: HTMLElement): H
                     text = Town.t(if (joined) "wantJoined" else "wantJoin"),
                 )
                 button.setAttribute("type", "button")
+                button.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
                 fun toggleWant() {
                     button.setAttribute("disabled", "disabled")
                     val action = if (joined) "leave" else "join"

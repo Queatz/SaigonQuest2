@@ -189,6 +189,20 @@ class ProfileStore(
         }
     }
 
+    suspend fun startWantChat(wantId: String, userIds: List<String>): ChatDto? {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.startWantChat(wantId, userIds)) {
+            is ApiResult.Success -> {
+                _state.update { it.copy(isMutating = false) }
+                res.value
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                null
+            }
+        }
+    }
+
     fun loadMyMusic() {
         scope.launch {
             _state.update { it.copy(isLoading = true, error = null) }

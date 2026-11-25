@@ -429,9 +429,12 @@ data class ChatAttachment(
     val activityName: String = "",
     val activityEmoji: String = "",
     val activityDescription: String = "",
+    val wantId: String = "",
+    val wantName: String = "",
 ) {
     fun preview(): String = when (type) {
         "activity" -> listOf(activityEmoji, activityName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "🎯" }
+        "want" -> wantName.ifBlank { "💭" }
         else -> productName.ifBlank { "📷" }
     }
 }
@@ -777,6 +780,21 @@ data class WantRecord(
     val slug: String,
     val createdAt: Long,
     val memberCount: Long = 0,
+)
+
+data class WantMemberView(
+    val id: String,
+    val name: String,
+    val profilePhotoPath: String?,
+    val location: String,
+    val intro: String,
+    val joinedAt: Long,
+)
+
+data class WantView(
+    val want: WantRecord,
+    val joined: Boolean,
+    val members: List<WantMemberView> = emptyList(),
 )
 
 data class WantMember(

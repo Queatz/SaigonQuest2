@@ -656,7 +656,7 @@ fun QuestionAnswersSheet(
                                     }
                                     if (item.userId.isNotBlank() && item.userId != viewerId) {
                                         SaigonPrimaryButton(
-                                            text = Copy.text(language, "message"),
+                                            text = Copy.text(language, "messageAction"),
                                             onClick = { onMessageUser(item.userId, item.name) },
                                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                         )

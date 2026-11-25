@@ -515,6 +515,8 @@ class ChatService(
                     "activityName" to attachment.activityName.takeIf { it.isNotBlank() },
                     "activityEmoji" to attachment.activityEmoji.takeIf { it.isNotBlank() },
                     "activityDescription" to attachment.activityDescription.takeIf { it.isNotBlank() },
+                    "wantId" to attachment.wantId.takeIf { it.isNotBlank() },
+                    "wantName" to attachment.wantName.takeIf { it.isNotBlank() },
                 )
             },
             "createdAt" to item.createdAt,

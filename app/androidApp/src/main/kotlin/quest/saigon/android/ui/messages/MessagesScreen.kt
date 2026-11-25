@@ -64,6 +64,7 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.WantSheet
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.ChatDto
@@ -298,6 +299,7 @@ fun ChatScreen(
     var pendingDeleteMessage by remember { mutableStateOf<ChatMessageDto?>(null) }
     var reactTargetMessage by remember { mutableStateOf<ChatMessageDto?>(null) }
     var zoomUrl by remember { mutableStateOf<String?>(null) }
+    var wantSheetId by remember { mutableStateOf<String?>(null) }
 
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(Limits.PHOTOS_MAX),
@@ -476,6 +478,7 @@ fun ChatScreen(
                     language = lang,
                     onOpenProduct = { id -> onNavigate(AppRoute.Product(id)) },
                     onOpenActivity = { id -> onNavigate(AppRoute.Activity(id)) },
+                    onOpenWant = { id -> wantSheetId = id },
                     onZoomPhoto = { zoomUrl = it },
                     onToggleReaction = { emoji, mine ->
                         scope.launch { shared.messages.toggleReaction(chatId, msg.id, emoji, mine) }
@@ -642,6 +645,16 @@ fun ChatScreen(
     }
 
     zoomUrl?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomUrl = null }) }
+    wantSheetId?.let { wantId ->
+        WantSheet(
+            wantId = wantId,
+            shared = shared,
+            language = lang,
+            onNavigate = onNavigate,
+            onRequireAuth = {},
+            onDismiss = { wantSheetId = null },
+        )
+    }
 }
 
 @Composable
@@ -651,6 +664,7 @@ private fun ChatMessageBubble(
     language: Language,
     onOpenProduct: (String) -> Unit,
     onOpenActivity: (String) -> Unit,
+    onOpenWant: (String) -> Unit,
     onZoomPhoto: (String) -> Unit,
     onToggleReaction: (String, Boolean) -> Unit,
     onLongPress: () -> Unit,
@@ -714,6 +728,27 @@ private fun ChatMessageBubble(
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text("${att.activityEmoji.orEmpty()} ${att.activityName.orEmpty()}".trim(), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    } else if (att.type == "want" && !att.wantId.isNullOrBlank()) {
+                        Surface(
+                            color = tokens.surface,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, tokens.line),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onOpenWant(att.wantId!!) },
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(10.dp),
+                            ) {
+                                Text("♥", color = tokens.accent, fontSize = 18.sp)
+                                Column {
+                                    Text(Copy.text(language, "wantAttachment"), color = tokens.muted, fontSize = 12.sp)
+                                    Text(att.wantName.orEmpty(), color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                                }
                             }
                         }
                     }

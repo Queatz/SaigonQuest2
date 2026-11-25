@@ -123,6 +123,7 @@ import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.model.UserPhotoDto
 import quest.saigon.shared.model.WantDto
+import quest.saigon.shared.model.WantMemberDto
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.DirectChatCheckResult
 import quest.saigon.shared.store.NotificationStore
@@ -1286,6 +1287,7 @@ fun MiniProfileDialog(
     onOpenCommunity: ((String) -> Unit)? = null,
     wants: List<WantDto> = emptyList(),
     onToggleWant: ((String, Boolean) -> Unit)? = null,
+    onOpenWant: ((String) -> Unit)? = null,
 ) {
     val tokens = LocalSaigonTokens.current
     var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
@@ -1365,18 +1367,24 @@ fun MiniProfileDialog(
                 ) {
                     wants.forEach { want ->
                         WantNotebookCard(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = onOpenWant != null) { onOpenWant?.invoke(want.id) },
                         ) {
-                            Text(
-                                text = want.name,
-                                color = tokens.text,
-                                fontWeight = FontWeight.Bold,
-                                fontStyle = FontStyle.Italic,
-                                fontFamily = LivvicFontFamily,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = want.name,
+                                    color = tokens.text,
+                                    fontWeight = FontWeight.Bold,
+                                    fontStyle = FontStyle.Italic,
+                                    fontFamily = LivvicFontFamily,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (want.memberCount >= 2L) {
+                                    WantMemberFaceStack(members = want.members, modifier = Modifier.padding(top = 4.dp))
+                                }
+                            }
                             SaigonPillChip(
                                 label = Copy.text(language, if (want.joined) "wantJoined" else "wantJoin"),
                                 selected = want.joined,
@@ -1462,6 +1470,34 @@ fun WantNotebookCard(
             .padding(start = 34.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
         content = content,
     )
+}
+
+@Composable
+fun WantMemberFaceStack(
+    members: List<WantMemberDto>,
+    modifier: Modifier = Modifier,
+) {
+    val faces = members.take(Limits.WANT_CARD_MEMBER_LIMIT)
+    if (faces.isEmpty()) return
+    val tokens = LocalSaigonTokens.current
+    val faceSize = 26.dp
+    val overlap = 18.dp
+    Box(
+        modifier = modifier
+            .width(faceSize + overlap * (faces.size - 1).toFloat())
+            .height(faceSize),
+    ) {
+        faces.forEachIndexed { index, member ->
+            UserAvatar(
+                photoUrl = member.photoUrl,
+                name = member.name,
+                size = faceSize,
+                borderColor = tokens.surface,
+                borderWidth = 2.dp,
+                modifier = Modifier.offset(x = overlap * index.toFloat()).zIndex(index.toFloat()),
+            )
+        }
+    }
 }
 
 @Composable

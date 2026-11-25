@@ -1572,6 +1572,35 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         mapOf("wantKey" to wantId),
     ).map { string(it, "userKey") }
 
+    override fun wantPeople(wantId: String, limit: Int): List<WantMemberView> = queryList(
+        """
+        FOR m IN $WANT_MEMBERSHIPS
+          FILTER m.wantKey == @wantKey
+          SORT m.joinedAt DESC, m._key DESC
+          LIMIT @limit
+          LET u = DOCUMENT("$USERS", m.userKey)
+          FILTER u != null
+          RETURN {
+            id: u._key,
+            name: u.name,
+            profilePhotoPath: u.profilePhotoPath,
+            location: u.location,
+            intro: u.intro,
+            joinedAt: m.joinedAt
+          }
+        """.trimIndent(),
+        mapOf("wantKey" to wantId, "limit" to limit.coerceAtLeast(0)),
+    ).map { row ->
+        WantMemberView(
+            id = string(row, "id"),
+            name = string(row, "name"),
+            profilePhotoPath = row.getAttribute("profilePhotoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            location = string(row, "location"),
+            intro = string(row, "intro"),
+            joinedAt = long(row, "joinedAt"),
+        )
+    }
+
     override fun joinWant(wantId: String, userId: String, joinedAt: Long): Boolean {
         val want = findWant(wantId) ?: return false
         val key = wantMembershipKey(wantId, userId)
@@ -3396,6 +3425,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
             doc.addAttribute("attachmentActivityName", attachment.activityName)
             doc.addAttribute("attachmentActivityEmoji", attachment.activityEmoji)
             doc.addAttribute("attachmentActivityDescription", attachment.activityDescription)
+            doc.addAttribute("attachmentWantId", attachment.wantId)
+            doc.addAttribute("attachmentWantName", attachment.wantName)
         }
         val key = db.collection(CHAT_MESSAGES).insertDocument(doc).key
         return message.copy(id = key)
@@ -4258,6 +4289,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 activityName = string(doc, "attachmentActivityName"),
                 activityEmoji = string(doc, "attachmentActivityEmoji"),
                 activityDescription = string(doc, "attachmentActivityDescription"),
+                wantId = string(doc, "attachmentWantId"),
+                wantName = string(doc, "attachmentWantName"),
             )
         },
     )

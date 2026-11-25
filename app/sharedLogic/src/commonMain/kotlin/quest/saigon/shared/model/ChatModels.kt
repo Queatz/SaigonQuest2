@@ -44,6 +44,8 @@ data class ChatAttachmentDto(
     val activityName: String? = null,
     val activityEmoji: String? = null,
     val activityDescription: String? = null,
+    val wantId: String? = null,
+    val wantName: String? = null,
 )
 
 @Serializable

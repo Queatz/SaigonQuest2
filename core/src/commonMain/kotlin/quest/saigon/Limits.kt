@@ -33,6 +33,8 @@ object Limits {
     const val FEATURE_MAX = 280
     const val COMMUNITY_DESCRIPTION_MAX = 280
     const val WANT_NAME_MAX = 80
+    const val WANT_CARD_MEMBER_LIMIT = 5
+    const val WANT_SHEET_MEMBER_LIMIT = 50
     const val LOCATION_DESCRIPTION_MAX = 280
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72

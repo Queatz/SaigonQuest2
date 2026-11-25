@@ -74,11 +74,22 @@ data class CommunitiesResponse(
 )
 
 @Serializable
+data class WantMemberDto(
+    val id: String,
+    val name: String = "",
+    val photoUrl: String? = null,
+    val location: String = "",
+    val intro: String = "",
+    val joinedAt: Long = 0L,
+)
+
+@Serializable
 data class WantDto(
     val id: String,
     val name: String = "",
     val memberCount: Long = 0L,
     val joined: Boolean = false,
+    val members: List<WantMemberDto> = emptyList(),
 )
 
 @Serializable
@@ -89,6 +100,11 @@ data class WantsResponse(
 @Serializable
 data class CreateWantRequest(
     val name: String,
+)
+
+@Serializable
+data class WantStartChatRequest(
+    val userIds: List<String>,
 )
 
 @Serializable

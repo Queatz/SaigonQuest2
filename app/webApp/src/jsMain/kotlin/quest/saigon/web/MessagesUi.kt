@@ -1085,7 +1085,14 @@ private fun messageBubble(
     }
     if (message.text.isNotBlank()) bubble.appendChild(linkedParagraph(message.text, "chat-text"))
     message.attachment?.let { attachment ->
-        val card = el("button", if (attachment.type == "activity") "chat-product-attachment chat-activity-attachment" else "chat-product-attachment")
+        val card = el(
+            "button",
+            when (attachment.type) {
+                "activity" -> "chat-product-attachment chat-activity-attachment"
+                "want" -> "chat-product-attachment chat-want-attachment"
+                else -> "chat-product-attachment"
+            },
+        )
         card.setAttribute("type", "button")
         if (attachment.type == "activity") {
             card.setAttribute("aria-label", Town.t("viewActivity"))
@@ -1098,6 +1105,17 @@ private fun messageBubble(
             card.asDynamic().addEventListener("click", { event: dynamic ->
                 event.stopPropagation()
                 openActivitySheet(host, router, attachment.activityId)
+            })
+        } else if (attachment.type == "want") {
+            card.setAttribute("aria-label", Town.t("viewWant"))
+            card.appendChild(el("span", "activity-emoji", text = "♥"))
+            val copy = el("span", "chat-product-attachment-copy")
+            copy.appendChild(el("small", text = Town.t("wantAttachment")))
+            copy.appendChild(el("strong", text = attachment.name))
+            card.appendChild(copy)
+            card.asDynamic().addEventListener("click", { event: dynamic ->
+                event.stopPropagation()
+                openWantSheet(host, attachment.wantId, router)
             })
         } else {
             card.setAttribute("aria-label", Town.t("viewProduct"))
@@ -1392,6 +1410,7 @@ private data class ChatAttachmentCard(
     val activityId: String = "",
     val emoji: String = "",
     val description: String = "",
+    val wantId: String = "",
 )
 
 private data class ReactionChip(val emoji: String, val count: Int, val mine: Boolean)
@@ -1454,6 +1473,11 @@ private fun chatAttachmentFrom(node: dynamic): ChatAttachmentCard? {
             activityId = (node.activityId as? String).orEmpty(),
             emoji = (node.activityEmoji as? String).orEmpty(),
             description = (node.activityDescription as? String).orEmpty(),
+        )
+        "want" -> ChatAttachmentCard(
+            type = type,
+            name = (node.wantName as? String).orEmpty(),
+            wantId = (node.wantId as? String).orEmpty(),
         )
         "product" -> ChatAttachmentCard(
             type = type,

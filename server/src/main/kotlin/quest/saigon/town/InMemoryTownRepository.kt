@@ -786,6 +786,23 @@ class InMemoryTownRepository : TownRepository {
     override fun wantMembers(wantId: String): List<String> =
         wantMemberships.values.filter { it.wantId == wantId }.map { it.userId }
 
+    override fun wantPeople(wantId: String, limit: Int): List<WantMemberView> =
+        wantMemberships.values
+            .filter { it.wantId == wantId }
+            .sortedWith(compareByDescending<WantMember> { it.joinedAt }.thenByDescending { it.userId })
+            .take(limit.coerceAtLeast(0))
+            .mapNotNull { membership ->
+                val user = users[membership.userId] ?: return@mapNotNull null
+                WantMemberView(
+                    id = user.id,
+                    name = user.name,
+                    profilePhotoPath = user.profilePhotoPath,
+                    location = user.location,
+                    intro = user.intro,
+                    joinedAt = membership.joinedAt,
+                )
+            }
+
     override fun joinWant(wantId: String, userId: String, joinedAt: Long): Boolean = synchronized(this) {
         val want = wants[wantId] ?: return@synchronized false
         val key = wantMembershipKey(wantId, userId)

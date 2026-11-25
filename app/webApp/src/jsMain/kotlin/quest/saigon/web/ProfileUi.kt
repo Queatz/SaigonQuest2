@@ -158,7 +158,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(intro.root)
     body.appendChild(error)
     body.appendChild(communitiesPanel(shell, router))
-    body.appendChild(wantsPanel(shell))
+    body.appendChild(wantsPanel(shell, router))
     body.appendChild(productsPreview(shell, router))
     body.appendChild(activitiesPreview(shell, router))
     body.appendChild(el("h3", text = Town.t("createAvatar")))
@@ -197,7 +197,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     return shell
 }
 
-private fun wantsPanel(host: HTMLElement): HTMLElement {
+private fun wantsPanel(host: HTMLElement, router: HistoryRouter): HTMLElement {
     val box = el("section", "community-panel wants-panel")
     box.appendChild(el("h3", text = Town.t("yourWants")))
     val list = el("div", "community-list")
@@ -225,11 +225,31 @@ private fun wantsPanel(host: HTMLElement): HTMLElement {
                 val want = wants[i]
                 val id = (want.id as? String).orEmpty()
                 val row = el("div", "community-row want-notebook")
+                row.setAttribute("role", "button")
+                row.setAttribute("tabindex", "0")
+                row.asDynamic().addEventListener("click", { event: dynamic ->
+                    if (event.target.closest("button") != null) return@addEventListener
+                    openWantSheet(host, id, router)
+                })
                 val header = el("div", "community-row-header")
                 val info = el("div", "community-row-info")
                 info.appendChild(el("span", "want-notebook-name", text = (want.name as? String).orEmpty()))
+                val memberCount = num(want.memberCount).toInt()
+                if (memberCount >= 2) {
+                    val members = want.members
+                    val facePeople = mutableListOf<DiscoverCardPerson>()
+                    val membersCount = members.length as? Int ?: 0
+                    for (memberIndex in 0 until membersCount) {
+                        facePeople += DiscoverCardPerson(
+                            name = (members[memberIndex].name as? String).orEmpty(),
+                            photoUrl = members[memberIndex].photoUrl as? String,
+                        )
+                    }
+                    row.appendChild(discoverPeopleFaces(facePeople))
+                }
                 val leave = el("button", "tiny danger community-action", text = Town.t("leaveWant"))
                 leave.setAttribute("type", "button")
+                leave.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
                 leave.onClick {
                     confirmDialog(
                         host,

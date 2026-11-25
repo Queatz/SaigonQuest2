@@ -115,6 +115,7 @@ import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSpinner
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.WantSheet
 import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
@@ -193,6 +194,7 @@ fun FeedScreen(
     var selectedPerson by remember { mutableStateOf<SelectedPersonModal?>(null) }
     var miniProfileCommunities by remember { mutableStateOf<List<CommunityDto>>(emptyList()) }
     var miniProfileWants by remember { mutableStateOf<List<WantDto>>(emptyList()) }
+    var wantSheetId by remember { mutableStateOf<String?>(null) }
     var activeCommunity by remember { mutableStateOf<quest.saigon.shared.model.CommunityDto?>(null) }
     var peeking by remember { mutableStateOf(false) }
     var feedMusicEnabled by remember { mutableStateOf(false) }
@@ -1058,6 +1060,10 @@ fun FeedScreen(
             intro = person.intro,
             communities = miniProfileCommunities,
             wants = miniProfileWants,
+            onOpenWant = { wantId ->
+                selectedPerson = null
+                wantSheetId = wantId
+            },
             onToggleWant = { wantId, joined ->
                 if (sessionState.me == null) {
                     onRequireAuth()
@@ -1079,6 +1085,16 @@ fun FeedScreen(
             } else {
                 null
             },
+        )
+    }
+    wantSheetId?.let { wantId ->
+        WantSheet(
+            wantId = wantId,
+            shared = shared,
+            language = lang,
+            onNavigate = onNavigate,
+            onRequireAuth = onRequireAuth,
+            onDismiss = { wantSheetId = null },
         )
     }
 }

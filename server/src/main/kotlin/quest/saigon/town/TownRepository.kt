@@ -104,6 +104,7 @@ interface TownRepository {
     fun findWantBySlug(slug: String): WantRecord?
     fun wantsForUser(userId: String): List<WantRecord>
     fun wantMembers(wantId: String): List<String>
+    fun wantPeople(wantId: String, limit: Int): List<WantMemberView>
     fun joinWant(wantId: String, userId: String, joinedAt: Long): Boolean
     fun leaveWant(wantId: String, userId: String): Boolean
     fun isWantMember(wantId: String, userId: String): Boolean

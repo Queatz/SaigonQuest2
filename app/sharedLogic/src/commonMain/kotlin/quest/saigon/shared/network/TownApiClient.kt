@@ -568,19 +568,26 @@ class TownApiClient(
         }
 
     suspend fun createWant(name: String): ApiResult<WantDto> =
-        postJson("/api/wants", WantDto.serializer(), CreateWantRequest(name), CreateWantRequest.serializer())
+        postJson("/api/wants", WantDto.serializer(), CreateWantRequest(name), CreateWantRequest.serializer()).map(::normalizeWantUrls)
 
     suspend fun joinWant(id: String): ApiResult<WantDto> =
-        postJson("/api/wants/$id/join", WantDto.serializer(), Unit, EmptySerializer)
+        postJson("/api/wants/$id/join", WantDto.serializer(), Unit, EmptySerializer).map(::normalizeWantUrls)
 
     suspend fun leaveWant(id: String): ApiResult<WantDto> =
-        postJson("/api/wants/$id/leave", WantDto.serializer(), Unit, EmptySerializer)
+        postJson("/api/wants/$id/leave", WantDto.serializer(), Unit, EmptySerializer).map(::normalizeWantUrls)
+
+    suspend fun getWant(id: String): ApiResult<WantDto> =
+        get("/api/wants/$id", WantDto.serializer()).map(::normalizeWantUrls)
+
+    suspend fun startWantChat(id: String, userIds: List<String>): ApiResult<ChatDto> =
+        postJson("/api/wants/$id/chat", ChatDto.serializer(), WantStartChatRequest(userIds), WantStartChatRequest.serializer())
+            .map(::normalizeChatUrls)
 
     suspend fun getMyWants(): ApiResult<WantsResponse> =
-        get("/api/me/wants", WantsResponse.serializer())
+        get("/api/me/wants", WantsResponse.serializer()).map(::normalizeWantsUrls)
 
     suspend fun getUserWants(userId: String): ApiResult<WantsResponse> =
-        get("/api/users/$userId/wants", WantsResponse.serializer())
+        get("/api/users/$userId/wants", WantsResponse.serializer()).map(::normalizeWantsUrls)
 
     // --- Shop & Products ---
 
@@ -931,6 +938,14 @@ class TownApiClient(
     private fun normalizeCommunityMemberUrls(member: CommunityMemberDto): CommunityMemberDto = member.copy(
         photoUrl = member.photoUrl?.let(::resolveUrl),
         latestPostPhotoUrl = member.latestPostPhotoUrl?.let(::resolveUrl),
+    )
+
+    private fun normalizeWantUrls(want: WantDto): WantDto = want.copy(
+        members = want.members.map { member -> member.copy(photoUrl = member.photoUrl?.let(::resolveUrl)) },
+    )
+
+    private fun normalizeWantsUrls(response: WantsResponse): WantsResponse = response.copy(
+        wants = response.wants.map(::normalizeWantUrls),
     )
 
     private fun normalizeProductUrls(product: ProductDto): ProductDto = product.copy(
