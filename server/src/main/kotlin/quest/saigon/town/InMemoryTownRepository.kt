@@ -22,6 +22,8 @@ class InMemoryTownRepository : TownRepository {
     private val admins = ConcurrentHashMap<String, AdminRecord>()
     private val communities = ConcurrentHashMap<String, CommunityRecord>()
     private val memberships = ConcurrentHashMap<String, Membership>()
+    private val wants = ConcurrentHashMap<String, WantRecord>()
+    private val wantMemberships = ConcurrentHashMap<String, WantMember>()
     private val attendances = ConcurrentHashMap<String, Attendance>()
     private val pollVotes = ConcurrentHashMap<String, PollVote>()
     private val questionAnswers = ConcurrentHashMap<String, QuestionAnswerRecord>()
@@ -717,7 +719,25 @@ class InMemoryTownRepository : TownRepository {
                     .take(Limits.COMMUNITY_CARD_PHOTO_LIMIT)
                     .map { CommunityPostPhoto(it.id, it.photoPath) }
                     .toList()
-                CommunityView(community, userId != null && isMember(community.id, userId), latestPosts)
+                val members = memberships.values
+                    .asSequence()
+                    .filter { it.communityId == community.id }
+                    .sortedWith(compareByDescending<Membership> { it.joinedAt }.thenByDescending { membershipKey(it.communityId, it.userId) })
+                    .take(5)
+                    .mapNotNull { membership ->
+                        users[membership.userId]?.let { user ->
+                            CommunityMember(
+                                id = user.id,
+                                name = user.name,
+                                profilePhotoPath = user.profilePhotoPath,
+                                location = user.location,
+                                intro = user.intro,
+                                joinedAt = membership.joinedAt,
+                            )
+                        }
+                    }
+                    .toList()
+                CommunityView(community, userId != null && isMember(community.id, userId), latestPosts, members)
             }
     }
 
@@ -745,6 +765,45 @@ class InMemoryTownRepository : TownRepository {
 
     override fun isMember(communityId: String, userId: String): Boolean =
         memberships.containsKey(membershipKey(communityId, userId))
+
+    override fun insertWant(want: WantRecord): WantRecord = synchronized(this) {
+        if (wants.values.any { it.slug == want.slug }) throw TownException("want_taken")
+        val stored = if (want.id.isBlank()) want.copy(id = newId()) else want
+        wants[stored.id] = stored
+        stored
+    }
+
+    override fun findWant(id: String): WantRecord? = wants[id]
+
+    override fun findWantBySlug(slug: String): WantRecord? = wants.values.firstOrNull { it.slug == slug }
+
+    override fun wantsForUser(userId: String): List<WantRecord> =
+        wantMemberships.values
+            .filter { it.userId == userId }
+            .sortedByDescending { it.joinedAt }
+            .mapNotNull { wants[it.wantId] }
+
+    override fun wantMembers(wantId: String): List<String> =
+        wantMemberships.values.filter { it.wantId == wantId }.map { it.userId }
+
+    override fun joinWant(wantId: String, userId: String, joinedAt: Long): Boolean = synchronized(this) {
+        val want = wants[wantId] ?: return@synchronized false
+        val key = wantMembershipKey(wantId, userId)
+        if (wantMemberships.containsKey(key)) return@synchronized false
+        wantMemberships[key] = WantMember(wantId, userId, joinedAt)
+        wants[wantId] = want.copy(memberCount = want.memberCount + 1)
+        true
+    }
+
+    override fun leaveWant(wantId: String, userId: String): Boolean = synchronized(this) {
+        val want = wants[wantId] ?: return@synchronized false
+        if (wantMemberships.remove(wantMembershipKey(wantId, userId)) == null) return@synchronized false
+        wants[wantId] = want.copy(memberCount = (want.memberCount - 1).coerceAtLeast(0))
+        true
+    }
+
+    override fun isWantMember(wantId: String, userId: String): Boolean =
+        wantMemberships.containsKey(wantMembershipKey(wantId, userId))
 
     override fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
@@ -840,11 +899,12 @@ class InMemoryTownRepository : TownRepository {
     override fun attendeeIds(postId: String): List<String> =
         attendances.values.filter { it.postId == postId }.map { it.userId }
 
-    override fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem> =
+    override fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int, query: String): List<FeedItem> =
         posts.values
             .filter { start ->
                 val at = start.eventStartAt ?: return@filter false
-                at >= fromMillis && !start.communityOnly
+                at >= fromMillis && !start.communityOnly &&
+                    (query.isBlank() || start.message.contains(query, ignoreCase = true) || start.location.contains(query, ignoreCase = true))
             }
             .sortedWith(compareBy<PostRecord> { it.eventStartAt }.thenBy { it.id })
             .take(limit)
@@ -1163,8 +1223,13 @@ class InMemoryTownRepository : TownRepository {
         return pageActivities(filtered, limit) { Cursors.encodeActivity(it.interestedCount, it.createdAt, it.id) }
     }
 
-    override fun searchActivities(cursor: String?, limit: Int): ActivityPage {
-        val matching = activities.values.sortedWith(
+    override fun searchActivities(cursor: String?, limit: Int, query: String): ActivityPage {
+        val matching = activities.values.filter { activity ->
+            query.isBlank() || listOf(activity.name, activity.description, activity.locationName).any { it.contains(query, ignoreCase = true) } ||
+                activity.translations?.locales?.values.orEmpty().any { translated ->
+                    listOf("name", "description").any { field -> translated[field]?.contains(query, ignoreCase = true) == true }
+                }
+        }.sortedWith(
             compareByDescending<ActivityRecord> { it.interestedCount }
                 .thenByDescending { it.createdAt }
                 .thenByDescending { it.id },
@@ -1343,11 +1408,14 @@ class InMemoryTownRepository : TownRepository {
         return isMember(communityId, viewer)
     }
 
-    override fun people(cursor: String?, limit: Int, viewerId: String?): CommunityMemberPage {
+    override fun people(cursor: String?, limit: Int, viewerId: String?, query: String): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
         val sorted = users.values.sortedWith(
             compareByDescending<UserRecord> { maxOf(it.lastActiveAt, it.createdAt) }.thenByDescending { it.id },
-        )
+        ).filter { user ->
+            query.isBlank() || user.name.contains(query, ignoreCase = true) ||
+                user.location.contains(query, ignoreCase = true) || user.intro.contains(query, ignoreCase = true)
+        }
         val filtered = if (parsed == null) {
             sorted
         } else {

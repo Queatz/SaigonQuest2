@@ -16,7 +16,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
     fun ensureSchema() {
         listOf(
             USERS, SESSIONS, AVATARS, MUSIC, POSTS, COMMENTS, COMMENT_WATCHES,
-            NOTIFICATIONS, PUSH_SUBSCRIPTIONS, FCM_TOKENS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, EVENT_ATTENDANCES,
+            NOTIFICATIONS, PUSH_SUBSCRIPTIONS, FCM_TOKENS, ADMINS, DAY_STATS, COMMUNITIES, MEMBERSHIPS, WANTS, WANT_MEMBERSHIPS, EVENT_ATTENDANCES,
             POLL_VOTES, QUESTION_ANSWERS, FEATURE_SUGGESTIONS, FEATURE_VOTES, PRODUCTS, PRODUCT_ORDERS,
             ACTIVITIES, ACTIVITY_INTERESTS, USER_PHOTOS, LOCATION_DESCRIPTIONS,
             CHATS, CHAT_MEMBERS, CHAT_MESSAGES, CHAT_REACTIONS, LOCATIONS,
@@ -36,6 +36,11 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(COMMUNITIES).ensurePersistentIndex(listOf("memberCount"), PersistentIndexOptions())
         db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("userKey", "joinedAt"), PersistentIndexOptions())
         db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("communityKey", "joinedAt"), PersistentIndexOptions())
+        db.collection(WANTS).ensurePersistentIndex(listOf("slug"), PersistentIndexOptions().unique(true))
+        db.collection(WANTS).ensurePersistentIndex(listOf("memberCount"), PersistentIndexOptions())
+        db.collection(WANT_MEMBERSHIPS).ensurePersistentIndex(listOf("wantKey", "userKey"), PersistentIndexOptions().unique(true))
+        db.collection(WANT_MEMBERSHIPS).ensurePersistentIndex(listOf("userKey", "joinedAt"), PersistentIndexOptions())
+        db.collection(WANT_MEMBERSHIPS).ensurePersistentIndex(listOf("wantKey", "joinedAt"), PersistentIndexOptions())
         db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(EVENT_ATTENDANCES).ensurePersistentIndex(listOf("postKey", "joinedAt"), PersistentIndexOptions())
         db.collection(POLL_VOTES).ensurePersistentIndex(listOf("postKey", "userKey"), PersistentIndexOptions().unique(true))
@@ -1439,6 +1444,22 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                     SORT p.createdAt DESC, p._key DESC
                     LIMIT @photoLimit
                     RETURN { id: p._key, photoPath: p.photoPath }
+                ),
+                members: (
+                  FOR m IN $MEMBERSHIPS
+                    FILTER m.communityKey == c._key
+                    SORT m.joinedAt DESC, m._key DESC
+                    LIMIT @memberLimit
+                    LET u = DOCUMENT("$USERS", m.userKey)
+                    FILTER u != null
+                    RETURN {
+                      id: u._key,
+                      name: u.name,
+                      profilePhotoPath: u.profilePhotoPath,
+                      location: u.location,
+                      intro: u.intro,
+                      joinedAt: m.joinedAt
+                    }
                 )
               })
             """.trimIndent(),
@@ -1447,13 +1468,19 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 "like" to like,
                 "limit" to limit,
                 "photoLimit" to Limits.COMMUNITY_CARD_PHOTO_LIMIT,
+                "memberLimit" to 5,
                 "viewerId" to userId.orEmpty(),
             ),
         )
         val joined = joinedIds(userId)
         return rows.map { row ->
             val community = communityFrom(row)
-            CommunityView(community, community.id in joined, communityPostPhotoList(row, "latestPosts"))
+            CommunityView(
+                community,
+                community.id in joined,
+                communityPostPhotoList(row, "latestPosts"),
+                communityMemberList(row, "members"),
+            )
         }
     }
 
@@ -1504,6 +1531,94 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
 
     override fun isMember(communityId: String, userId: String): Boolean =
         db.collection(MEMBERSHIPS).documentExists(membershipKey(communityId, userId))
+
+    override fun insertWant(want: WantRecord): WantRecord {
+        val doc = BaseDocument()
+        doc.addAttribute("name", want.name)
+        doc.addAttribute("slug", want.slug)
+        doc.addAttribute("createdAt", want.createdAt)
+        doc.addAttribute("memberCount", want.memberCount)
+        val key = try {
+            db.collection(WANTS).insertDocument(doc).key
+        } catch (error: ArangoDBException) {
+            if (error.errorNum == 1210) throw TownException("want_taken")
+            throw error
+        }
+        return want.copy(id = key)
+    }
+
+    override fun findWant(id: String): WantRecord? =
+        db.collection(WANTS).getDocument(id, BaseDocument::class.java)?.let(::wantFrom)
+
+    override fun findWantBySlug(slug: String): WantRecord? = first(
+        "FOR w IN $WANTS FILTER w.slug == @slug LIMIT 1 RETURN w",
+        mapOf("slug" to slug),
+    )?.let(::wantFrom)
+
+    override fun wantsForUser(userId: String): List<WantRecord> = queryList(
+        """
+        FOR m IN $WANT_MEMBERSHIPS
+          FILTER m.userKey == @userKey
+          SORT m.joinedAt DESC
+          LET w = DOCUMENT("$WANTS", m.wantKey)
+          FILTER w != null
+          RETURN w
+        """.trimIndent(),
+        mapOf("userKey" to userId),
+    ).map(::wantFrom)
+
+    override fun wantMembers(wantId: String): List<String> = queryList(
+        "FOR m IN $WANT_MEMBERSHIPS FILTER m.wantKey == @wantKey RETURN m",
+        mapOf("wantKey" to wantId),
+    ).map { string(it, "userKey") }
+
+    override fun joinWant(wantId: String, userId: String, joinedAt: Long): Boolean {
+        val want = findWant(wantId) ?: return false
+        val key = wantMembershipKey(wantId, userId)
+        val collection = db.collection(WANT_MEMBERSHIPS)
+        if (collection.documentExists(key)) return false
+        val doc = BaseDocument(key)
+        doc.addAttribute("wantKey", wantId)
+        doc.addAttribute("userKey", userId)
+        doc.addAttribute("joinedAt", joinedAt)
+        try {
+            collection.insertDocument(doc)
+        } catch (error: ArangoDBException) {
+            if (error.errorNum == 1210) return false
+            throw error
+        }
+        exec(
+            """
+            FOR w IN $WANTS
+              FILTER w._key == @id
+              UPDATE w WITH { memberCount: (w.memberCount == null ? 0 : w.memberCount) + 1 } IN $WANTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to wantId),
+        )
+        return true
+    }
+
+    override fun leaveWant(wantId: String, userId: String): Boolean {
+        if (findWant(wantId) == null) return false
+        val key = wantMembershipKey(wantId, userId)
+        val collection = db.collection(WANT_MEMBERSHIPS)
+        if (!collection.documentExists(key)) return false
+        collection.deleteDocument(key)
+        exec(
+            """
+            FOR w IN $WANTS
+              FILTER w._key == @id
+              UPDATE w WITH { memberCount: MAX([(w.memberCount == null ? 0 : w.memberCount) - 1, 0]) } IN $WANTS
+              RETURN NEW
+            """.trimIndent(),
+            mapOf("id" to wantId),
+        )
+        return true
+    }
+
+    override fun isWantMember(wantId: String, userId: String): Boolean =
+        db.collection(WANT_MEMBERSHIPS).documentExists(wantMembershipKey(wantId, userId))
 
     override fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
@@ -1667,15 +1782,17 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         mapOf("postKey" to postId),
     ).map { string(it, "userKey") }
 
-    override fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem> {
+    override fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int, query: String): List<FeedItem> {
         val bind = mapOf(
             "from" to fromMillis,
             "limit" to limit,
             "viewerId" to viewerId.orEmpty(),
+            "query" to query.trim().lowercase(),
         )
         val query = """
             FOR p IN $POSTS
               FILTER p.eventStartAt != null AND p.eventStartAt >= @from AND p.communityOnly != true
+              FILTER @query == "" OR CONTAINS(LOWER(TO_STRING(p.message)), @query) OR CONTAINS(LOWER(TO_STRING(p.location)), @query)
               SORT p.eventStartAt ASC, p._key ASC
               LIMIT @limit
               LET author = DOCUMENT("$USERS", p.userKey)
@@ -2187,11 +2304,19 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return pageActivities(rows, limit)
     }
 
-    override fun searchActivities(cursor: String?, limit: Int): ActivityPage {
+    override fun searchActivities(cursor: String?, limit: Int, query: String): ActivityPage {
         val parsed = Cursors.parseActivity(cursor)
         val rows = queryList(
             """
             FOR a IN $ACTIVITIES
+              FILTER @query == ""
+                OR CONTAINS(LOWER(TO_STRING(a.name)), @query)
+                OR CONTAINS(LOWER(TO_STRING(a.description)), @query)
+                OR CONTAINS(LOWER(TO_STRING(a.locationName)), @query)
+                OR CONTAINS(LOWER(TO_STRING(a.translations.locales.en.name)), @query)
+                OR CONTAINS(LOWER(TO_STRING(a.translations.locales.en.description)), @query)
+                OR CONTAINS(LOWER(TO_STRING(a.translations.locales.vi.name)), @query)
+                OR CONTAINS(LOWER(TO_STRING(a.translations.locales.vi.description)), @query)
               FILTER @hasCursor == false
                 OR a.interestedCount < @cursorCount
                 OR (a.interestedCount == @cursorCount AND a.createdAt < @cursorAt)
@@ -2201,6 +2326,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
               RETURN a
             """.trimIndent(),
             mapOf(
+                "query" to query.trim().lowercase(),
                 "limit" to limit + 1,
                 "hasCursor" to (parsed != null),
                 "cursorCount" to (parsed?.interestedCount ?: 0L),
@@ -2661,12 +2787,16 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         )
     """.trimIndent()
 
-    override fun people(cursor: String?, limit: Int, viewerId: String?): CommunityMemberPage {
+    override fun people(cursor: String?, limit: Int, viewerId: String?, query: String): CommunityMemberPage {
         val parsed = Cursors.parse(cursor)
         val rows = queryList(
             """
             FOR u IN $USERS
               LET activeAt = u.lastActiveAt == null || u.lastActiveAt == 0 ? u.createdAt : u.lastActiveAt
+              FILTER @query == ""
+                OR CONTAINS(LOWER(TO_STRING(u.name)), @query)
+                OR CONTAINS(LOWER(TO_STRING(u.location)), @query)
+                OR CONTAINS(LOWER(TO_STRING(u.intro)), @query)
               FILTER @hasCursor == false OR activeAt < @cursorAt OR (activeAt == @cursorAt AND u._key < @cursorKey)
               SORT activeAt DESC, u._key DESC
               LIMIT @limit
@@ -2694,6 +2824,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
                 "cursorAt" to (parsed?.first ?: 0L),
                 "cursorKey" to (parsed?.second ?: ""),
                 "viewerId" to viewerId.orEmpty(),
+                "query" to query.trim().lowercase(),
             ),
         )
         val page = rows.take(limit)
@@ -3529,6 +3660,14 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         description = string(doc, "description"),
     )
 
+    private fun wantFrom(doc: BaseDocument) = WantRecord(
+        id = doc.key,
+        name = string(doc, "name"),
+        slug = string(doc, "slug"),
+        createdAt = long(doc, "createdAt"),
+        memberCount = long(doc, "memberCount"),
+    )
+
     private fun first(query: String, bind: Map<String, Any?>): BaseDocument? =
         db.query(query, BaseDocument::class.java, bind).use { cursor ->
             if (cursor.hasNext()) cursor.next() else null
@@ -3885,6 +4024,33 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         }
     }
 
+    private fun communityMemberList(doc: BaseDocument, name: String): List<CommunityMember> {
+        val raw = doc.getAttribute(name) ?: return emptyList()
+        val rows = when (raw) {
+            is Collection<*> -> raw
+            is Array<*> -> raw.toList()
+            else -> return emptyList()
+        }
+        return rows.mapNotNull { row ->
+            fun read(field: String): Any? = when (row) {
+                is BaseDocument -> row.getAttribute(field)
+                is Map<*, *> -> row[field]
+                else -> null
+            }
+            fun str(field: String) = read(field)?.toString()?.takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            fun strOrNull(field: String) = read(field)?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+            val id = str("id")
+            if (id.isBlank()) null else CommunityMember(
+                id = id,
+                name = str("name"),
+                profilePhotoPath = strOrNull("profilePhotoPath"),
+                location = str("location"),
+                intro = str("intro"),
+                joinedAt = (read("joinedAt") as? Number)?.toLong() ?: 0L,
+            )
+        }
+    }
+
     private fun pollOptionFrom(doc: BaseDocument): PollOptionView? = pollOptionFromAny(doc)
 
     private fun pollOptionFromAny(row: Any?): PollOptionView? {
@@ -4234,6 +4400,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         private const val DAY_STATS = "dayStats"
         private const val COMMUNITIES = "communities"
         private const val MEMBERSHIPS = "memberships"
+        private const val WANTS = "wants"
+        private const val WANT_MEMBERSHIPS = "wantMembers"
         private const val EVENT_ATTENDANCES = "eventAttendances"
         private const val POLL_VOTES = "pollVotes"
         private const val QUESTION_ANSWERS = "questionAnswers"

@@ -232,7 +232,7 @@ private fun androidAppPeek(): HTMLElement {
         image.setAttribute("alt", "")
     })
     peek.onClick {
-        window.open("https://hitown.chat/saigontown2.apk", WindowTarget._blank)
+        window.open("https://play.google.com/store/apps/details?id=town.saigon", WindowTarget._blank)
         try {
             window.asDynamic().localStorage.setItem("sq_android_app_peek_dismissed", "1")
         } catch (_: Throwable) {
@@ -991,6 +991,16 @@ internal fun openMiniProfile(
         http("GET", "/api/users/${encodeQuery(userId)}/communities") { status, body ->
             if (status != 200) return@http
             val communities = readCommunities(parseJson(body).communities)
+            if (communities.isNotEmpty()) {
+                head.insertBefore(
+                    el(
+                        "h3",
+                        "profile-sheet-count",
+                        text = Town.t("communitiesJoined", mapOf("name" to name)),
+                    ),
+                    row,
+                )
+            }
             communities.take(Limits.MINI_PROFILE_COMMUNITIES).forEach { community ->
                 row.appendChild(communityChip(router, community) { chrome.close() })
             }
@@ -1037,13 +1047,14 @@ internal fun openMiniProfile(
         head.appendChild(copyLinkButton(host, "/u/$userId", "text-button profile-sheet-copy-link"))
     }
     body.appendChild(head)
-    if (userId.isNotBlank() && router != null) body.appendChild(miniProfileActivities(userId, router, host))
-    if (userId.isNotBlank() && router != null) body.appendChild(miniProfileProducts(userId, router, host))
-    val countHead = el("h3", "profile-sheet-count")
-    countHead.asDynamic().hidden = true
+    if (userId.isNotBlank()) body.appendChild(miniProfileWants(userId, name, host))
+    if (userId.isNotBlank() && router != null) body.appendChild(miniProfileActivities(userId, name, router, host))
+    if (userId.isNotBlank() && router != null) body.appendChild(miniProfileProducts(userId, name, router, host))
+    val updatesHead = el("h3", "profile-sheet-count")
+    updatesHead.asDynamic().hidden = true
     val grid = el("div", "location-sheet-grid")
     if (userId.isNotBlank() && router != null) {
-        body.appendChild(countHead)
+        body.appendChild(updatesHead)
         body.appendChild(grid)
     }
     chrome.sheet.appendChild(body)
@@ -1067,9 +1078,8 @@ internal fun openMiniProfile(
                 return@http
             }
             val parsed = parseJson(text)
-            val total = num(parsed.count).toInt()
-            countHead.textContent = Town.t("postCount", mapOf("count" to total.toString()))
-            countHead.asDynamic().hidden = false
+            updatesHead.textContent = Town.t("latestUpdatesFrom", mapOf("name" to name))
+            updatesHead.asDynamic().hidden = false
             val posts = readLocationPosts(parsed.posts)
             if (posts.isEmpty() && grid.childElementCount == 0) {
                 grid.appendChild(el("p", "hint", text = Town.t("noPosts")))
@@ -1090,6 +1100,78 @@ internal fun openMiniProfile(
         if (top + height > full - 80) load()
     })
     chrome.open(host) { load() }
+}
+
+private fun miniProfileWants(userId: String, name: String, host: HTMLElement): HTMLElement {
+    val section = el("section", "community-panel mini-wants")
+    section.asDynamic().hidden = true
+    val title = el("h3", "profile-sheet-count", text = Town.t("wantsTo", mapOf("name" to name)))
+    val list = el("div", "community-list")
+    section.appendChild(title)
+    section.appendChild(list)
+
+    fun load() {
+        http("GET", "/api/users/${encodeQuery(userId)}/wants") { status, body ->
+            if (status != 200 || section.asDynamic().isConnected == false) return@http
+            list.clear()
+            val wants = parseJson(body).wants
+            val count = wants.length as Int
+            if (count == 0) {
+                section.asDynamic().hidden = true
+                return@http
+            }
+            section.asDynamic().hidden = false
+            for (i in 0 until count) {
+                val want = wants[i]
+                val id = (want.id as? String).orEmpty()
+                val row = el("div", "community-row want-notebook")
+                val header = el("div", "community-row-header")
+                val info = el("div", "community-row-info")
+                info.appendChild(el("span", "want-notebook-name", text = (want.name as? String).orEmpty()))
+                val wantName = (want.name as? String).orEmpty()
+                val joined = want.joined == true
+                val button = el(
+                    "button",
+                    if (joined) "tiny community-action" else "tiny community-action",
+                    text = Town.t(if (joined) "wantJoined" else "wantJoin"),
+                )
+                button.setAttribute("type", "button")
+                fun toggleWant() {
+                    button.setAttribute("disabled", "disabled")
+                    val action = if (joined) "leave" else "join"
+                    http("POST", "/api/wants/${encodeQuery(id)}/$action") { actionStatus, actionBody ->
+                        if (actionStatus == 200) load() else {
+                            button.removeAttribute("disabled")
+                            toast(host, errorText(actionBody, actionStatus))
+                        }
+                    }
+                }
+                button.onClick {
+                    if (Town.me == null) {
+                        showAuthDialog(host, onSuccess = { load() })
+                        return@onClick
+                    }
+                    if (joined) {
+                        confirmDialog(
+                            host,
+                            Town.t("leaveWantAsk", mapOf("want" to wantName)),
+                            Town.t("leaveWantHint"),
+                            Town.t("leaveWant"),
+                        ) { toggleWant() }
+                    } else {
+                        toggleWant()
+                    }
+                }
+                header.appendChild(info)
+                header.appendChild(button)
+                row.appendChild(header)
+                list.appendChild(row)
+            }
+        }
+    }
+
+    load()
+    return section
 }
 
 private val monthNames = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")

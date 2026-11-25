@@ -100,6 +100,7 @@ class CommentService(
             "postId" to item.postId,
             "commentId" to item.commentId,
             "chatId" to item.chatId,
+            "actorId" to item.actorId,
             "actorName" to item.actorName,
             "preview" to item.preview,
             "createdAt" to item.createdAt,

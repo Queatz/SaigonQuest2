@@ -35,6 +35,7 @@ class SaigonFirebaseMessagingService : FirebaseMessagingService() {
             type = data["type"].orEmpty(),
             postId = data["postId"].orEmpty(),
             chatId = data["chatId"].orEmpty(),
+            actorId = data["actorId"].orEmpty(),
         )
         val parsedPath = RoutePaths.parsePathFromUriString(rawUrl)
         val url = if (parsedPath != null && matchAppRoute(parsedPath) !is AppRoute.NotFound) parsedPath else "/"

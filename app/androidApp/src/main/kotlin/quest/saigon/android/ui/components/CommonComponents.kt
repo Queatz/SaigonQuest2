@@ -80,10 +80,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -120,6 +122,7 @@ import quest.saigon.shared.model.NotificationDto
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.model.UserPhotoDto
+import quest.saigon.shared.model.WantDto
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.DirectChatCheckResult
 import quest.saigon.shared.store.NotificationStore
@@ -527,10 +530,11 @@ fun SaigonPillChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    selectedBrush: Brush? = null,
 ) {
     val tokens = LocalSaigonTokens.current
     val shape = RoundedCornerShape(999.dp)
-    val borderColor = if (selected) tokens.text else tokens.line
+    val borderColor = if (selected && selectedBrush != null) Color(0xFF178997) else if (selected) tokens.text else tokens.line
     val textColor = if (selected) Color.White else tokens.text
     Box(
         contentAlignment = Alignment.Center,
@@ -540,7 +544,7 @@ fun SaigonPillChip(
             .drawBehind {
                 if (selected) {
                     drawRect(
-                        brush = Brush.linearGradient(
+                        brush = selectedBrush ?: Brush.linearGradient(
                             colors = listOf(SaigonColors.AccentSoft, SaigonColors.Tertiary),
                             start = Offset.Zero,
                             end = Offset(size.width, size.height),
@@ -1040,6 +1044,7 @@ fun UserAvatar(
             if (initial != null) {
                 Text(
                     text = initial,
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = (size.value * 0.42f).sp,
                     color = SaigonColors.Ink,
@@ -1210,7 +1215,7 @@ fun NotificationsSheet(
                                 onClick = {
                                     scope.launch { store.markRead(item.id) }
                                     onDismiss()
-                                    onNavigatePath(NotificationCopy.path(item.type, item.postId, item.chatId))
+                                    onNavigatePath(NotificationCopy.path(item.type, item.postId, item.chatId, item.actorId))
                                 },
                             )
                         }
@@ -1279,8 +1284,11 @@ fun MiniProfileDialog(
     onMessage: (() -> Unit)? = null,
     communities: List<CommunityDto> = emptyList(),
     onOpenCommunity: ((String) -> Unit)? = null,
+    wants: List<WantDto> = emptyList(),
+    onToggleWant: ((String, Boolean) -> Unit)? = null,
 ) {
     val tokens = LocalSaigonTokens.current
+    var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
     SaigonDialog(onDismiss = onDismiss) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1312,6 +1320,12 @@ fun MiniProfileDialog(
                 )
             }
             if (communities.isNotEmpty()) {
+                Text(
+                    text = Copy.text(language, "communitiesJoined", mapOf("name" to name)),
+                    color = tokens.text,
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1333,6 +1347,43 @@ fun MiniProfileDialog(
                                 color = tokens.text,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                    }
+                }
+            }
+            if (wants.isNotEmpty()) {
+                Text(
+                    text = Copy.text(language, "wantsTo", mapOf("name" to name)),
+                    color = tokens.text,
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    wants.forEach { want ->
+                        WantNotebookCard(
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = want.name,
+                                color = tokens.text,
+                                fontWeight = FontWeight.Bold,
+                                fontStyle = FontStyle.Italic,
+                                fontFamily = LivvicFontFamily,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            SaigonPillChip(
+                                label = Copy.text(language, if (want.joined) "wantJoined" else "wantJoin"),
+                                selected = want.joined,
+                                enabled = onToggleWant != null,
+                                onClick = {
+                                    if (want.joined) pendingWantLeave = want else onToggleWant?.invoke(want.id, false)
+                                },
                             )
                         }
                     }
@@ -1366,6 +1417,51 @@ fun MiniProfileDialog(
             }
         }
     }
+    pendingWantLeave?.let { want ->
+        SaigonConfirmDialog(
+            title = Copy.text(language, "leaveWantAsk", mapOf("want" to want.name)),
+            hint = Copy.text(language, "leaveWantHint"),
+            confirmLabel = Copy.text(language, "leaveWant"),
+            cancelLabel = Copy.text(language, "cancel"),
+            onConfirm = {
+                onToggleWant?.invoke(want.id, true)
+                pendingWantLeave = null
+            },
+            onDismiss = { pendingWantLeave = null },
+        )
+    }
+}
+
+@Composable
+fun WantNotebookCard(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val tokens = LocalSaigonTokens.current
+    val shape = RoundedCornerShape(14.dp)
+    val paper = if (tokens.isDark) Color(0xFF2A2521) else Color(0xFFFFFDF7)
+    val rule = if (tokens.isDark) Color.White.copy(alpha = 0.08f) else Color(0xFF658DAA).copy(alpha = 0.2f)
+    val margin = if (tokens.isDark) Color(0xFFE9897C).copy(alpha = 0.6f) else Color(0xFFD66E72).copy(alpha = 0.55f)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier
+            .clip(shape)
+            .background(paper)
+            .drawBehind {
+                val spacing = 24.dp.toPx()
+                var y = spacing
+                while (y < size.height) {
+                    drawLine(rule, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+                    y += spacing
+                }
+                val marginX = 25.dp.toPx()
+                drawLine(margin, Offset(marginX, 0f), Offset(marginX, size.height), 1.5.dp.toPx())
+            }
+            .border(1.dp, tokens.line, shape)
+            .padding(start = 34.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        content = content,
+    )
 }
 
 @Composable

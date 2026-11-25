@@ -377,7 +377,7 @@ internal fun activitiesPreview(shell: HTMLElement, router: HistoryRouter): HTMLE
     return section
 }
 
-internal fun miniProfileActivities(userId: String, router: HistoryRouter, host: HTMLElement): HTMLElement {
+internal fun miniProfileActivities(userId: String, name: String, router: HistoryRouter, host: HTMLElement): HTMLElement {
     val section = el("section", "mini-activities")
     section.asDynamic().hidden = true
     http("GET", "/api/users/${encodeQuery(userId)}/activities?limit=${Limits.MINI_PROFILE_ACTIVITIES}") { status, text ->
@@ -391,7 +391,7 @@ internal fun miniProfileActivities(userId: String, router: HistoryRouter, host: 
             el(
                 "h3",
                 "profile-sheet-count",
-                text = Town.t("activityCount", mapOf("count" to count.toString())),
+                text = Town.t("activitiesInterestedIn", mapOf("name" to name)),
             ),
         )
         val list = el("div", "activity-list mini-activity-list")
@@ -594,23 +594,76 @@ internal fun loadLocationActivities(
     }
 }
 
-internal fun loadDiscoverActivities(list: HTMLElement, host: HTMLElement, router: HistoryRouter) {
-    list.clear()
-    list.appendChild(el("p", "hint", text = Town.t("loading")))
-    http("GET", "/api/activities?limit=50") { status, text ->
+internal fun loadDiscoverActivities(list: HTMLElement, host: HTMLElement, router: HistoryRouter): (String) -> Unit {
+    var generation = 0
+    fun load(query: String) {
+        val request = ++generation
         list.clear()
-        if (status != 200) {
-            list.appendChild(el("p", "hint", text = Town.t("unavailable")))
-            return@http
+        list.appendChild(el("p", "hint", text = Town.t("loading")))
+        val suffix = query.takeIf { it.isNotBlank() }?.let { "&q=${encodeQuery(it)}" }.orEmpty()
+        http("GET", "/api/activities?limit=50$suffix") { status, text ->
+            if (request != generation) return@http
+            list.clear()
+            if (status != 200) {
+                list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                return@http
+            }
+            val items: dynamic = parseJson(text).activities
+            val count = jsLen(items)
+            if (count == 0) {
+                list.appendChild(el("p", "hint", text = Town.t("noActivities")))
+                return@http
+            }
+            for (i in 0 until count) list.appendChild(discoverActivityCard(items[i], host, router) { load(query) })
         }
-        val items: dynamic = parseJson(text).activities
-        val count = jsLen(items)
-        if (count == 0) {
-            list.appendChild(el("p", "hint", text = Town.t("noActivities")))
-            return@http
-        }
-        for (i in 0 until count) list.appendChild(activityCard(items[i], host, router))
     }
+    load("")
+    return ::load
+}
+
+private fun discoverActivityCard(activity: dynamic, host: HTMLElement, router: HistoryRouter, onChanged: () -> Unit): HTMLElement {
+    val photos: dynamic = activity.photoUrls
+    val photoUrl = if (jsLen(photos) > 0) photos[0] as? String else activity.locationPhotoUrl as? String
+    val interestedPeople: dynamic = activity.interestedPeople
+    val interestedCount = jsLen(interestedPeople)
+    val people = (0 until minOf(interestedCount, 5)).map { index ->
+        val person = interestedPeople[index]
+        DiscoverCardPerson(
+            name = person.name as? String ?: "",
+            photoUrl = person.photoUrl as? String,
+        )
+    }.toMutableList()
+    val hostNode: dynamic = activity.host
+    if (people.isEmpty() && hostNode != null && hostNode != undefined) {
+        val hostName = hostNode.name as? String ?: ""
+        if (hostName.isNotBlank()) people += DiscoverCardPerson(hostName, hostNode.photoUrl as? String)
+    }
+    val location = activity.locationName as? String ?: ""
+    val hostName = if (hostNode == null || hostNode == undefined) "" else hostNode.name as? String ?: ""
+    val interested = num(activity.interestedCount).toInt().coerceAtLeast(interestedCount)
+    val details = listOf(
+        DiscoverCardDetail(location, emphasis = true),
+        DiscoverCardDetail(hostName.takeIf { it.isNotBlank() }?.let { "${Town.t("host")}: $it" }.orEmpty()),
+        DiscoverCardDetail(activityScheduleSummary(activity).orEmpty()),
+        DiscoverCardDetail(localizedActivityText(activity, "description")),
+        DiscoverCardDetail(if (interested > 0) "$interested ${Town.t("peopleInterested")}" else ""),
+    )
+    val action = el("button", "primary discover-card-action")
+    action.setAttribute("type", "button")
+    paintInterest(action, activity)
+    stopClick(action) {
+        toggleActivityInterest(host, activity, action) { onChanged() }
+    }
+    val id = activity.id as? String ?: ""
+    return discoverBannerCard(
+        photoUrl = photoUrl,
+        fallback = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨",
+        title = localizedActivityText(activity, "name"),
+        details = details,
+        people = people,
+        action = action,
+        onClick = { if (id.isNotBlank()) openActivitySheet(host, router, id) },
+    )
 }
 
 internal data class ActivityLocationBlock(val root: HTMLElement, val mapBox: HTMLElement?)
@@ -838,7 +891,9 @@ private fun paintInterest(button: HTMLElement, activity: dynamic) {
         Town.t("imInterested")
     }
     val regularSize = button.asDynamic().classList.contains("activity-interest-regular") == true
+    val discoverCardAction = button.asDynamic().classList.contains("discover-card-action") == true
     val style = when {
+        discoverCardAction -> "primary discover-card-action"
         regularSize && activity.interested == true -> "primary activity-interest-regular"
         regularSize -> "secondary activity-interest-regular"
         activity.interested == true -> "tiny selected"

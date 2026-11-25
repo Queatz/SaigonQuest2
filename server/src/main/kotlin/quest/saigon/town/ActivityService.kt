@@ -111,12 +111,13 @@ class ActivityService(
         locationId: String?,
         cursor: String?,
         limit: Int,
+        query: String = "",
     ): Pair<List<ActivityView>, String?> {
         val pageLimit = limit.coerceIn(1, 50)
         val page = if (!locationName.isNullOrBlank() || !placeId.isNullOrBlank() || !locationId.isNullOrBlank()) {
             repo.activitiesForLocation(locationName.orEmpty(), placeId, locationId, cursor, pageLimit)
         } else {
-            repo.searchActivities(cursor, pageLimit)
+            repo.searchActivities(cursor, pageLimit, query)
         }
         val flags = repo.activityLocationFlags()
         return page.items.map { view(ensureTranslations(it), viewerId, includePeople = false, flags = flags) } to page.nextCursor

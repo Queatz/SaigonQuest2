@@ -99,13 +99,21 @@ interface TownRepository {
     fun isMember(communityId: String, userId: String): Boolean
     fun members(communityId: String, cursor: String?, limit: Int): CommunityMemberPage
     fun communityFeed(communityId: String, cursor: String?, limit: Int, viewerId: String? = null): FeedPage
+    fun insertWant(want: WantRecord): WantRecord
+    fun findWant(id: String): WantRecord?
+    fun findWantBySlug(slug: String): WantRecord?
+    fun wantsForUser(userId: String): List<WantRecord>
+    fun wantMembers(wantId: String): List<String>
+    fun joinWant(wantId: String, userId: String, joinedAt: Long): Boolean
+    fun leaveWant(wantId: String, userId: String): Boolean
+    fun isWantMember(wantId: String, userId: String): Boolean
     fun joinEvent(postId: String, userId: String, joinedAt: Long): Boolean
     fun leaveEvent(postId: String, userId: String): Boolean
     fun isAttending(postId: String, userId: String): Boolean
     fun consumeOpenChatSlot(postId: String): Boolean
     fun attendees(postId: String, cursor: String?, limit: Int): EventAttendeePage
     fun attendeeIds(postId: String): List<String>
-    fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int): List<FeedItem>
+    fun upcomingEvents(fromMillis: Long, viewerId: String?, limit: Int, query: String = ""): List<FeedItem>
     fun eventCounts(todayStart: Long, tomorrowStart: Long, tomorrowEnd: Long, weekEnd: Long): EventSummary
     fun insertActivity(activity: ActivityRecord): ActivityRecord
     fun findActivity(id: String): ActivityRecord?
@@ -120,7 +128,7 @@ interface TownRepository {
         cursor: String?,
         limit: Int,
     ): ActivityPage
-    fun searchActivities(cursor: String?, limit: Int): ActivityPage
+    fun searchActivities(cursor: String?, limit: Int, query: String = ""): ActivityPage
     fun addActivityInterest(activityId: String, userId: String, createdAt: Long): Boolean
     fun removeActivityInterest(activityId: String, userId: String): Boolean
     fun isActivityInterested(activityId: String, userId: String): Boolean
@@ -152,7 +160,7 @@ interface TownRepository {
         locationId: String? = null,
     ): FeedPage
     fun countPostsAtPlace(location: String, placeId: String?, viewerId: String? = null, locationId: String? = null): Long
-    fun people(cursor: String?, limit: Int, viewerId: String? = null): CommunityMemberPage
+    fun people(cursor: String?, limit: Int, viewerId: String? = null, query: String = ""): CommunityMemberPage
     fun eventPostsBetween(from: Long, to: Long): List<PostRecord>
     fun markEventReminder(postId: String, hour: Boolean, nowFlag: Boolean)
     fun findPollVote(postId: String, userId: String): PollVote?

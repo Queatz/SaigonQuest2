@@ -72,6 +72,7 @@ object RoutePaths {
         fcmType: String? = null,
         fcmPostId: String? = null,
         fcmChatId: String? = null,
+        fcmActorId: String? = null,
     ): AppRoute? {
         val explicitPath = parsePathFromUriString(saigonRouteUrl)
             ?: parsePathFromUriString(fcmUrl)
@@ -84,6 +85,7 @@ object RoutePaths {
             type = type,
             postId = fcmPostId.orEmpty().trim(),
             chatId = fcmChatId.orEmpty().trim(),
+            actorId = fcmActorId.orEmpty().trim(),
         )
         val matched = matchAppRoute(notificationPath)
         return matched.takeUnless { it is AppRoute.NotFound }
@@ -98,6 +100,7 @@ object RoutePaths {
             fcmType = intent.getStringExtra(EXTRA_FCM_TYPE),
             fcmPostId = intent.getStringExtra(EXTRA_FCM_POST_ID),
             fcmChatId = intent.getStringExtra(EXTRA_FCM_CHAT_ID),
+            fcmActorId = intent.getStringExtra(EXTRA_FCM_ACTOR_ID),
         )
     }
 
@@ -106,4 +109,5 @@ object RoutePaths {
     const val EXTRA_FCM_TYPE = "type"
     const val EXTRA_FCM_POST_ID = "postId"
     const val EXTRA_FCM_CHAT_ID = "chatId"
+    const val EXTRA_FCM_ACTOR_ID = "actorId"
 }

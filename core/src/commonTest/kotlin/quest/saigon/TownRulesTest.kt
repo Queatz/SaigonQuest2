@@ -116,6 +116,29 @@ class TownRulesTest {
     }
 
     @Test
+    fun profileSectionHeadersInterpolateNamesInBothLanguages() {
+        assertEquals("Communities Linh joined", Copy.text(Language.EN, "communitiesJoined", mapOf("name" to "Linh")))
+        assertEquals("Cộng đồng Linh đã tham gia", Copy.text(Language.VI, "communitiesJoined", mapOf("name" to "Linh")))
+        assertEquals("Jacob wants to", Copy.text(Language.EN, "wantsTo", mapOf("name" to "Jacob")))
+        assertEquals("Jacob muốn", Copy.text(Language.VI, "wantsTo", mapOf("name" to "Jacob")))
+        assertEquals("Tôi cũng muốn làm", Copy.text(Language.VI, "wantJoin"))
+        assertEquals("Đã tham gia", Copy.text(Language.VI, "wantJoined"))
+        assertEquals("Leave “Go hiking”?", Copy.text(Language.EN, "leaveWantAsk", mapOf("want" to "Go hiking")))
+        assertEquals("You can join it again anytime.", Copy.text(Language.EN, "leaveWantHint"))
+        assertEquals("Rời khỏi “Đi leo núi”?", Copy.text(Language.VI, "leaveWantAsk", mapOf("want" to "Đi leo núi")))
+        assertEquals("Bạn có thể tham gia lại bất cứ lúc nào.", Copy.text(Language.VI, "leaveWantHint"))
+        assertEquals(80, Limits.WANT_NAME_MAX)
+        assertEquals("Enter a want up to 80 characters.", Copy.text(Language.EN, "invalidWant"))
+        assertEquals("Nhập điều bạn muốn, tối đa 80 ký tự.", Copy.text(Language.VI, "invalidWant"))
+        assertEquals("Activities Linh is interested in", Copy.text(Language.EN, "activitiesInterestedIn", mapOf("name" to "Linh")))
+        assertEquals("Hoạt động Linh quan tâm", Copy.text(Language.VI, "activitiesInterestedIn", mapOf("name" to "Linh")))
+        assertEquals("Lessons Linh offers", Copy.text(Language.EN, "lessonsOffered", mapOf("name" to "Linh")))
+        assertEquals("Buổi học Linh dạy", Copy.text(Language.VI, "lessonsOffered", mapOf("name" to "Linh")))
+        assertEquals("Latest updates from Linh", Copy.text(Language.EN, "latestUpdatesFrom", mapOf("name" to "Linh")))
+        assertEquals("Cập nhật mới nhất từ Linh", Copy.text(Language.VI, "latestUpdatesFrom", mapOf("name" to "Linh")))
+    }
+
+    @Test
     fun bothLanguagesCoverTheSameCopy() {
         Copy.keys().forEach { key ->
             assertTrue(Copy.text(Language.EN, key).isNotBlank())
@@ -207,6 +230,19 @@ class TownRulesTest {
         assertNull(CallToAction.parse("", "Show a product", "product", ""))
         assertNull(CallToAction.parse("", "Open", "website", "javascript:alert(1)"))
         assertNull(CallToAction.parse("", "Open", "email", ""))
+    }
+
+    @Test
+    fun wantsNotificationsUseVietnameseCopyAndOpenTheJoinersProfile() {
+        assertEquals(
+            "Minh also wants \"Go hiking\"",
+            NotificationCopy.title(Language.EN, "want_joined", "Minh", "Go hiking"),
+        )
+        assertEquals(
+            "Minh cũng muốn \"Đi leo núi\"",
+            NotificationCopy.title(Language.VI, "want_joined", "Minh", "Đi leo núi"),
+        )
+        assertEquals("/u/user-123", NotificationCopy.path("want_joined", "", actorId = "user-123"))
     }
 
     @Test

@@ -69,6 +69,7 @@ import quest.saigon.town.TownServices
 import quest.saigon.town.TranslationService
 import quest.saigon.town.UserPhotoRecord
 import quest.saigon.town.UserRecord
+import quest.saigon.town.WantRecord
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -1049,37 +1050,43 @@ fun Route.townApi(services: TownServices) {
 
     get("/events") {
         val viewer = call.user(services)
+        val query = call.request.queryParameters["q"].orEmpty().trim()
         val todayStart = SaigonDays.startMillis(SaigonDays.dayKey(services.clock()))
-        val events = services.repo.upcomingEvents(todayStart, viewer?.id, 100)
-        val people = services.repo.people(call.request.queryParameters["cursor"], 40, viewer?.id)
-        val activityFlags = services.repo.activityLocationFlags()
+        val events = services.repo.upcomingEvents(todayStart, viewer?.id, 100, query)
+        val people = services.repo.people(call.request.queryParameters["cursor"], 40, viewer?.id, query)
+        val locations = if (query.isBlank()) {
+            val activityFlags = services.repo.activityLocationFlags()
+            (
+                services.repo.userLocations().map { location ->
+                    PlaceSuggestion(
+                        name = location.name,
+                        lat = location.lat,
+                        lng = location.lng,
+                        photoPath = services.repo.latestPostPhotoAtPlace(location.name, null, viewer?.id, location.id),
+                        postCount = services.repo.countPostsAtPlace(location.name, null, viewer?.id, location.id),
+                        id = location.id,
+                        custom = true,
+                        hasActivities = location.id in activityFlags.locationIds,
+                        activityCount = activityFlags.locationActivities[location.id]?.count ?: 0,
+                        activityEmojis = activityFlags.locationActivities[location.id]?.emojis.orEmpty(),
+                    )
+                } + services.repo.postedGooglePlaces(viewer?.id).map { place ->
+                    val activitySummary = place.placeId?.let(activityFlags.placeActivities::get)
+                    place.copy(
+                        postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer?.id),
+                        hasActivities = activitySummary != null,
+                        activityCount = activitySummary?.count ?: 0,
+                        activityEmojis = activitySummary?.emojis.orEmpty(),
+                    )
+                }
+            )
+        } else {
+            emptyList()
+        }
         call.respondJson(
             mapOf(
                 "events" to events.map(::postPayload),
-                "locations" to (
-                    services.repo.userLocations().map { location ->
-                        PlaceSuggestion(
-                            name = location.name,
-                            lat = location.lat,
-                            lng = location.lng,
-                            photoPath = services.repo.latestPostPhotoAtPlace(location.name, null, viewer?.id, location.id),
-                            postCount = services.repo.countPostsAtPlace(location.name, null, viewer?.id, location.id),
-                            id = location.id,
-                            custom = true,
-                            hasActivities = location.id in activityFlags.locationIds,
-                            activityCount = activityFlags.locationActivities[location.id]?.count ?: 0,
-                            activityEmojis = activityFlags.locationActivities[location.id]?.emojis.orEmpty(),
-                        )
-                    } + services.repo.postedGooglePlaces(viewer?.id).map { place ->
-                        val activitySummary = place.placeId?.let(activityFlags.placeActivities::get)
-                        place.copy(
-                            postCount = services.repo.countPostsAtPlace(place.name, place.placeId, viewer?.id),
-                            hasActivities = activitySummary != null,
-                            activityCount = activitySummary?.count ?: 0,
-                            activityEmojis = activitySummary?.emojis.orEmpty(),
-                        )
-                    }
-                ).map(::placePayload),
+                "locations" to locations.map(::placePayload),
                 "people" to people.items.map { memberPayload(it, includeLatestPost = true) },
                 "nextPeopleCursor" to people.nextCursor,
             ),
@@ -1097,6 +1104,7 @@ fun Route.townApi(services: TownServices) {
                 call.request.queryParameters["locationId"],
                 call.request.queryParameters["cursor"],
                 limit,
+                call.request.queryParameters["q"].orEmpty().trim(),
             )
         } catch (error: TownException) {
             return@get call.fail(error.code)
@@ -1700,7 +1708,7 @@ fun Route.townApi(services: TownServices) {
         val user = call.user(services)
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 30
         val items = services.repo.searchCommunities(call.request.queryParameters["q"].orEmpty(), user?.id, limit)
-        call.respondJson(mapOf("communities" to items.map { communityPayload(it.community, it.joined, it.latestPosts) }))
+        call.respondJson(mapOf("communities" to items.map { communityPayload(it.community, it.joined, it.latestPosts, it.members) }))
     }
 
     post("/communities/suggest") {
@@ -1823,6 +1831,57 @@ fun Route.townApi(services: TownServices) {
             mapOf(
                 "communities" to services.repo.communitiesForUser(user.id).map { community ->
                     communityPayload(community, viewer != null && services.repo.isMember(community.id, viewer.id))
+                },
+            ),
+        )
+    }
+
+    post("/wants") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val body = Jsons.parse(call.receiveText())
+        val opened = try {
+            services.wants.open(user, Jsons.text(body, "name"))
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(
+            wantPayload(opened.want, joined = true),
+            if (opened.created) HttpStatusCode.Created else HttpStatusCode.OK,
+        )
+    }
+
+    post("/wants/{id}/join") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val want = try {
+            services.wants.join(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(wantPayload(want, joined = true))
+    }
+
+    post("/wants/{id}/leave") {
+        val user = call.user(services) ?: return@post call.fail("unauthorized")
+        val want = try {
+            services.wants.leave(user, call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@post call.fail(error.code)
+        }
+        call.respondJson(wantPayload(want, joined = false))
+    }
+
+    get("/me/wants") {
+        val user = call.user(services) ?: return@get call.fail("unauthorized")
+        call.respondJson(mapOf("wants" to services.repo.wantsForUser(user.id).map { wantPayload(it, joined = true) }))
+    }
+
+    get("/users/{id}/wants") {
+        val profile = services.repo.findUser(call.parameters["id"].orEmpty()) ?: return@get call.fail("not_found")
+        val viewer = call.user(services)
+        call.respondJson(
+            mapOf(
+                "wants" to services.repo.wantsForUser(profile.id).map { want ->
+                    wantPayload(want, joined = viewer != null && services.repo.isWantMember(want.id, viewer.id))
                 },
             ),
         )
@@ -2570,6 +2629,7 @@ private fun communityPayload(
     community: quest.saigon.town.CommunityRecord,
     joined: Boolean,
     latestPosts: List<quest.saigon.town.CommunityPostPhoto> = emptyList(),
+    members: List<quest.saigon.town.CommunityMember> = emptyList(),
 ) = mapOf(
     "id" to community.id,
     "name" to community.name,
@@ -2579,6 +2639,20 @@ private fun communityPayload(
     "joined" to joined,
     "createdAt" to community.createdAt,
     "latestPosts" to latestPosts.map { mapOf("id" to it.id, "photoUrl" to "/media/${it.photoPath}") },
+    "members" to members.map {
+        mapOf(
+            "id" to it.id,
+            "name" to it.name,
+            "photoUrl" to if (it.profilePhotoPath != null) "/api/users/${it.id}/photo" else null,
+        )
+    },
+)
+
+private fun wantPayload(want: WantRecord, joined: Boolean) = mapOf(
+    "id" to want.id,
+    "name" to want.name,
+    "memberCount" to want.memberCount,
+    "joined" to joined,
 )
 
 private fun memberPayload(member: quest.saigon.town.CommunityMember, includeLatestPost: Boolean = false) = mapOf(

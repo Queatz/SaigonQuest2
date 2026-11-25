@@ -82,6 +82,21 @@ class EventBehaviorTest {
         postEvent(linh, "Midweek hang", laterEvent, null, null, null)
         postEvent(linh, "Too far out", tooFarEvent, null, null, null)
 
+        val matchingEvents = mapper.readTree(linh.get("/api/events?q=sUnSeT").bodyAsText())
+        assertEquals(1, matchingEvents.path("events").size())
+        assertEquals("Sunset at the river", matchingEvents.path("events").path(0).path("message").asText())
+        assertEquals(0, matchingEvents.path("locations").size())
+        assertEquals(0, matchingEvents.path("people").size())
+
+        val matchingPeople = mapper.readTree(linh.get("/api/events?q=miNh").bodyAsText())
+        assertEquals(0, matchingPeople.path("events").size())
+        assertEquals(1, matchingPeople.path("people").size())
+        assertEquals("Minh", matchingPeople.path("people").path(0).path("name").asText())
+
+        val noMatches = mapper.readTree(linh.get("/api/events?q=not-a-result").bodyAsText())
+        assertEquals(0, noMatches.path("events").size())
+        assertEquals(0, noMatches.path("people").size())
+
         val summary = mapper.readTree(linh.get("/api/events/summary").bodyAsText())
         assertEquals(1, summary.path("today").asInt())
         assertEquals(1, summary.path("tomorrow").asInt())

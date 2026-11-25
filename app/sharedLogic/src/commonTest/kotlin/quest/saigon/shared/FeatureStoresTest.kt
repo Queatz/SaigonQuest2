@@ -81,6 +81,80 @@ class FeatureStoresTest {
     }
 
     @Test
+    fun discoverSearchesUpdateOnlyTheirListsAndActivitiesSendQuery() = runTest {
+        val requests = mutableListOf<Pair<String, String?>>()
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { req ->
+                val path = req.url.encodedPath
+                val query = req.url.parameters["q"]
+                if (path == "/api/events" || path == "/api/activities" || path == "/api/communities") {
+                    requests += path to query
+                }
+                when (path) {
+                    "/api/events/summary" -> respond("""{}""", HttpStatusCode.OK, jsonHeaders)
+                    "/api/events" -> when (query) {
+                        "river" -> respond(
+                            """{"events":[{"id":"searched-event","message":"River meetup"}],"people":[],"locations":[],"nextPeopleCursor":null}""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                        "linh" -> respond(
+                            """{"events":[],"people":[{"id":"searched-person","name":"Linh"}],"locations":[],"nextPeopleCursor":null}""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                        else -> respond(
+                            """{"events":[{"id":"initial-event","message":"Meetup"}],"people":[{"id":"initial-person","name":"An"}],"locations":[],"nextPeopleCursor":null}""",
+                            HttpStatusCode.OK,
+                            jsonHeaders,
+                        )
+                    }
+                    "/api/checkins" -> respond("""{"checkIns":[]}""", HttpStatusCode.OK, jsonHeaders)
+                    "/api/communities" -> respond(
+                        if (query == "coffee") """{"communities":[{"id":"c2","name":"Coffee"}]}"""
+                        else """{"communities":[{"id":"c1","name":"Initial"}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    "/api/activities" -> respond(
+                        """{"activities":[{"id":"a1","name":"Morning walk"}],"nextCursor":null}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = InMemoryTokenStorage("tok"), serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val discover = DiscoverStore(api, storeScope)
+        val activities = ActivityStore(api, storeScope)
+
+        discover.loadAll()
+        advanceUntilIdle()
+        discover.searchEvents("river")
+        advanceUntilIdle()
+        assertEquals("searched-event", discover.state.value.events.single().id)
+        assertEquals("initial-person", discover.state.value.people.single().id)
+
+        discover.searchPeople("linh")
+        advanceUntilIdle()
+        assertEquals("searched-event", discover.state.value.events.single().id)
+        assertEquals("searched-person", discover.state.value.people.single().id)
+
+        discover.searchCommunities("coffee")
+        activities.loadActivities(query = "walk")
+        advanceUntilIdle()
+        assertEquals("Coffee", discover.state.value.communities.single().name)
+        assertEquals("a1", activities.state.value.activities.single().id)
+        assertTrue(requests.any { it.first == "/api/events" && it.second == "river" })
+        assertTrue(requests.any { it.first == "/api/events" && it.second == "linh" })
+        assertTrue(requests.any { it.first == "/api/communities" && it.second == "coffee" })
+        assertTrue(requests.any { it.first == "/api/activities" && it.second == "walk" })
+    }
+
+    @Test
     fun shopAndActivityStoresCreateMutateAndLocalize() = runTest {
         val engine = MockEngine(MockEngineConfig().apply {
             dispatcher = StandardTestDispatcher(testScheduler)

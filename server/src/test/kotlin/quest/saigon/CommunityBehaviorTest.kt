@@ -122,6 +122,11 @@ class CommunityBehaviorTest {
         val found = mapper.readTree(linh.get("/api/communities?q=veg").bodyAsText()).path("communities")
         assertEquals(1, found.size())
         assertTrue(found.path(0).path("joined").asBoolean())
+        assertEquals(2, found.path(0).path("members").size())
+        assertEquals(setOf("Linh", "Minh"), (0 until found.path(0).path("members").size()).map {
+            found.path(0).path("members").path(it).path("name").asText()
+        }.toSet())
+        assertTrue(found.path(0).path("members").path(0).has("photoUrl"))
 
         val mine = mapper.readTree(linh.get("/api/me/communities").bodyAsText()).path("communities")
         assertEquals(communityId, mine.path(0).path("id").asText())

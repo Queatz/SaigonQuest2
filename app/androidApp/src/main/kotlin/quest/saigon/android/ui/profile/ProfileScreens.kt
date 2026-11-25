@@ -41,8 +41,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -79,6 +81,7 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.WantNotebookCard
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
 import quest.saigon.android.ui.components.rememberDirectMessageOpener
@@ -91,6 +94,7 @@ import quest.saigon.shared.model.OwnedPostDto
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.ProductDto
 import quest.saigon.shared.model.UpdateMeRequest
+import quest.saigon.shared.model.WantDto
 
 @Composable
 fun ProfileScreen(
@@ -127,6 +131,8 @@ fun ProfileScreen(
         )
     }
     var intro by remember(me?.id, me?.intro) { mutableStateOf(me?.intro.orEmpty()) }
+    var wantName by remember(me?.id) { mutableStateOf("") }
+    var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
     var savedMessage by remember { mutableStateOf<String?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
 
@@ -134,6 +140,7 @@ fun ProfileScreen(
         shared.composer.searchPlaces("")
         if (me != null) {
             shared.profile.loadMyOrders()
+            shared.profile.loadMyWants()
         }
     }
 
@@ -269,6 +276,52 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            if (me != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(Copy.text(lang, "yourWants"), color = tokens.text, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                    SaigonTextField(
+                        value = wantName,
+                        onValueChange = { wantName = it.take(Limits.WANT_NAME_MAX) },
+                        placeholder = Copy.text(lang, "wantPlaceholder"),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SaigonPrimaryButton(
+                        text = Copy.text(lang, "addWant"),
+                        enabled = wantName.isNotBlank() && !profileState.isMutating,
+                        onClick = {
+                            scope.launch {
+                                if (shared.profile.createMyWant(wantName.trim()) != null) wantName = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (profileState.myWants.isEmpty()) {
+                        Text(Copy.text(lang, "noWants"), color = tokens.muted, fontSize = 13.sp)
+                    } else {
+                        profileState.myWants.forEach { want ->
+                            WantNotebookCard(
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = want.name,
+                                    color = tokens.text,
+                                    fontWeight = FontWeight.Bold,
+                                    fontStyle = FontStyle.Italic,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SaigonTextButton(
+                                    text = Copy.text(lang, "leaveWant"),
+                                    enabled = !profileState.isMutating,
+                                    danger = true,
+                                    onClick = { pendingWantLeave = want },
+                                )
+                            }
+                        }
+                    }
+                    profileState.error?.let { Text(it, color = tokens.danger, fontSize = 13.sp) }
+                }
+            }
+
             if (hasEdits) {
                 SaigonPrimaryButton(
                     text = Copy.text(lang, "save"),
@@ -366,6 +419,23 @@ fun ProfileScreen(
         }
     }
 
+    pendingWantLeave?.let { want ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "leaveWantAsk", mapOf("want" to want.name)),
+            hint = Copy.text(lang, "leaveWantHint"),
+            confirmLabel = Copy.text(lang, "leaveWant"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = profileState.isMutating,
+            onConfirm = {
+                scope.launch {
+                    shared.profile.leaveMyWant(want.id)
+                    pendingWantLeave = null
+                }
+            },
+            onDismiss = { pendingWantLeave = null },
+        )
+    }
+
     if (showLocationDialog) {
         LocationPickerDialog(
             initialQuery = "",
@@ -405,6 +475,7 @@ fun PublicUserProfileScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var zoomPhoto by remember { mutableStateOf<String?>(null) }
+    var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
     val openDirectMessage = rememberDirectMessageOpener(
         shared = shared,
         onNavigate = onNavigate,
@@ -472,6 +543,12 @@ fun PublicUserProfileScreen(
                             LinkifiedText(text = user.intro, color = tokens.text)
                         }
                         if (profileState.viewedUserCommunities.isNotEmpty()) {
+                            Text(
+                                text = Copy.text(lang, "communitiesJoined", mapOf("name" to user.name)),
+                                color = tokens.text,
+                                style = MaterialTheme.typography.titleMedium,
+                                textAlign = TextAlign.Center,
+                            )
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -498,6 +575,50 @@ fun PublicUserProfileScreen(
                                 }
                             }
                         }
+                        if (profileState.viewedUserWants.isNotEmpty()) {
+                            Text(
+                                text = Copy.text(lang, "wantsTo", mapOf("name" to user.name)),
+                                color = tokens.text,
+                                style = MaterialTheme.typography.titleMedium,
+                                textAlign = TextAlign.Center,
+                            )
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            ) {
+                                profileState.viewedUserWants.forEach { want ->
+                                    WantNotebookCard(
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            text = want.name,
+                                            color = tokens.text,
+                                            fontWeight = FontWeight.Bold,
+                                            fontStyle = FontStyle.Italic,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        SaigonPillChip(
+                                            label = Copy.text(lang, if (want.joined) "wantJoined" else "wantJoin"),
+                                            selected = want.joined,
+                                            enabled = !profileState.isMutating,
+                                            onClick = {
+                                                if (sessionState.me == null) {
+                                                    onRequireAuth()
+                                                } else if (want.joined) {
+                                                    pendingWantLeave = want
+                                                } else {
+                                                    scope.launch {
+                                                        shared.profile.toggleUserWant(user.id, want.id, false)
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         if (sessionState.me?.id != user.id) {
                             Spacer(Modifier.height(6.dp))
                             SaigonPrimaryButton(
@@ -512,7 +633,11 @@ fun PublicUserProfileScreen(
                 // User's activities
                 if (profileState.viewedUserActivities.isNotEmpty()) {
                     item {
-                        Text(Copy.text(lang, "activities"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            Copy.text(lang, "activitiesInterestedIn", mapOf("name" to user.name)),
+                            color = tokens.text,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                     }
                     items(profileState.viewedUserActivities, key = { it.id }) { act ->
                         ActivityCard(
@@ -552,7 +677,11 @@ fun PublicUserProfileScreen(
                 // User's products (.mini-product-row)
                 if (profileState.viewedUserProducts.isNotEmpty()) {
                     item {
-                        Text(Copy.text(lang, "products"), color = tokens.text, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            Copy.text(lang, "lessonsOffered", mapOf("name" to user.name)),
+                            color = tokens.text,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                     }
                     item {
                         Row(
@@ -633,9 +762,8 @@ fun PublicUserProfileScreen(
                 // User's posts (3-column 9:16 grid, never "Your posts")
                 if (profileState.viewedUserPosts.isNotEmpty()) {
                     item {
-                        val total = maxOf(profileState.viewedUserPostsCount, profileState.viewedUserPosts.size.toLong())
                         Text(
-                            Copy.text(lang, "postCount", mapOf("count" to total.toString())),
+                            Copy.text(lang, "latestUpdatesFrom", mapOf("name" to user.name)),
                             color = tokens.text,
                             style = MaterialTheme.typography.titleMedium,
                         )
@@ -662,6 +790,22 @@ fun PublicUserProfileScreen(
     }
 
     zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
+    pendingWantLeave?.let { want ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "leaveWantAsk", mapOf("want" to want.name)),
+            hint = Copy.text(lang, "leaveWantHint"),
+            confirmLabel = Copy.text(lang, "leaveWant"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = profileState.isMutating,
+            onConfirm = {
+                scope.launch {
+                    shared.profile.toggleUserWant(userId, want.id, true)
+                    pendingWantLeave = null
+                }
+            },
+            onDismiss = { pendingWantLeave = null },
+        )
+    }
 }
 
 @Composable

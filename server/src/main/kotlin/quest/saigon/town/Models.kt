@@ -369,6 +369,7 @@ object NotificationType {
     const val EVENT_FRIEND_JOINED = "event_friend_joined"
     const val EVENT_STARTING_SOON = "event_starting_soon"
     const val EVENT_STARTING_NOW = "event_starting_now"
+    const val WANT_JOINED = "want_joined"
     const val POLL_VOTED = "poll_voted"
     const val QUESTION_ANSWERED = "question_answered"
     const val CHAT_MESSAGE = "chat_message"
@@ -746,6 +747,7 @@ data class CommunityView(
     val community: CommunityRecord,
     val joined: Boolean,
     val latestPosts: List<CommunityPostPhoto> = emptyList(),
+    val members: List<CommunityMember> = emptyList(),
 )
 
 data class CommunityPostPhoto(
@@ -767,6 +769,20 @@ data class CommunityMember(
 data class CommunityMemberPage(
     val items: List<CommunityMember>,
     val nextCursor: String?,
+)
+
+data class WantRecord(
+    val id: String,
+    val name: String,
+    val slug: String,
+    val createdAt: Long,
+    val memberCount: Long = 0,
+)
+
+data class WantMember(
+    val wantId: String,
+    val userId: String,
+    val joinedAt: Long,
 )
 
 data class FeatureSuggestionRecord(

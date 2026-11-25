@@ -62,6 +62,7 @@ object ApiErrorMapper {
         "invalid_feature" -> "invalidFeature"
         "invalid_comment" -> "invalidComment"
         "invalid_community" -> "invalidCommunity"
+        "invalid_want" -> "invalidWant"
         "invalid_description" -> "invalidDescription"
         "invalid_event" -> "invalidEvent"
         "invalid_event_end" -> "invalidEventEnd"

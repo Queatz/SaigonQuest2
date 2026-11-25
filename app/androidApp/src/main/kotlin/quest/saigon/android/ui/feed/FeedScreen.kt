@@ -126,6 +126,7 @@ import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CommunityDto
 import quest.saigon.shared.model.CheckInDto
 import quest.saigon.shared.model.PostCardDto
+import quest.saigon.shared.model.WantDto
 import quest.saigon.shared.platform.currentTimeMillis
 import quest.saigon.shared.store.FeedFilter
 import town.saigon.BuildConfig
@@ -191,6 +192,7 @@ fun FeedScreen(
     var zoomPhotoUrl by remember { mutableStateOf<String?>(null) }
     var selectedPerson by remember { mutableStateOf<SelectedPersonModal?>(null) }
     var miniProfileCommunities by remember { mutableStateOf<List<CommunityDto>>(emptyList()) }
+    var miniProfileWants by remember { mutableStateOf<List<WantDto>>(emptyList()) }
     var activeCommunity by remember { mutableStateOf<quest.saigon.shared.model.CommunityDto?>(null) }
     var peeking by remember { mutableStateOf(false) }
     var feedMusicEnabled by remember { mutableStateOf(false) }
@@ -244,10 +246,15 @@ fun FeedScreen(
 
     LaunchedEffect(selectedPerson?.id) {
         miniProfileCommunities = emptyList()
+        miniProfileWants = emptyList()
         val userId = selectedPerson?.id?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
         val result = shared.api.getUserCommunities(userId)
         if (result is quest.saigon.shared.network.ApiResult.Success) {
             miniProfileCommunities = result.value.communities
+        }
+        val wantsResult = shared.api.getUserWants(userId)
+        if (wantsResult is quest.saigon.shared.network.ApiResult.Success) {
+            miniProfileWants = wantsResult.value.wants
         }
     }
 
@@ -1050,6 +1057,19 @@ fun FeedScreen(
             location = person.location,
             intro = person.intro,
             communities = miniProfileCommunities,
+            wants = miniProfileWants,
+            onToggleWant = { wantId, joined ->
+                if (sessionState.me == null) {
+                    onRequireAuth()
+                } else {
+                    scope.launch {
+                        val result = if (joined) shared.api.leaveWant(wantId) else shared.api.joinWant(wantId)
+                        if (result is quest.saigon.shared.network.ApiResult.Success) {
+                            miniProfileWants = miniProfileWants.map { if (it.id == wantId) result.value else it }
+                        }
+                    }
+                }
+            },
             language = lang,
             onDismiss = { selectedPerson = null },
             onOpenProfile = { onNavigate(AppRoute.User(person.id)) },

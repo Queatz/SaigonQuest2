@@ -32,6 +32,7 @@ object Limits {
     const val INTRO_MAX = 280
     const val FEATURE_MAX = 280
     const val COMMUNITY_DESCRIPTION_MAX = 280
+    const val WANT_NAME_MAX = 80
     const val LOCATION_DESCRIPTION_MAX = 280
     const val PASSWORD_MIN = 8
     const val PASSWORD_MAX = 72

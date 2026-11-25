@@ -15,6 +15,7 @@ data class ProfileUiState(
     val myPosts: List<OwnedPostDto> = emptyList(),
     val myPostsNextCursor: String? = null,
     val myCommunities: List<CommunityDto> = emptyList(),
+    val myWants: List<WantDto> = emptyList(),
     val myMusic: List<MusicDto> = emptyList(),
     val myProducts: List<ProductDto> = emptyList(),
     val myProductsNextCursor: String? = null,
@@ -29,6 +30,7 @@ data class ProfileUiState(
     val viewedUserPostsNextCursor: String? = null,
     val viewedUserPostsCount: Long = 0L,
     val viewedUserCommunities: List<CommunityDto> = emptyList(),
+    val viewedUserWants: List<WantDto> = emptyList(),
     val viewedUserActivities: List<ActivityDto> = emptyList(),
     val viewedUserProducts: List<ProductDto> = emptyList(),
     val isLoading: Boolean = false,
@@ -119,6 +121,70 @@ class ProfileStore(
             is ApiResult.Failure -> {
                 _state.update { it.copy(error = res.message) }
                 false
+            }
+        }
+    }
+
+    fun loadMyWants() {
+        scope.launch {
+            _state.update { it.copy(isLoading = true, error = null) }
+            when (val res = api.getMyWants()) {
+                is ApiResult.Success -> _state.update { it.copy(myWants = res.value.wants, isLoading = false) }
+                is ApiResult.Failure -> _state.update { it.copy(isLoading = false, error = res.message) }
+            }
+        }
+    }
+
+    suspend fun createMyWant(name: String): WantDto? {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.createWant(name)) {
+            is ApiResult.Success -> {
+                val want = res.value
+                _state.update { prev ->
+                    prev.copy(myWants = listOf(want) + prev.myWants.filterNot { it.id == want.id }, isMutating = false)
+                }
+                want
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                null
+            }
+        }
+    }
+
+    suspend fun leaveMyWant(wantId: String): Boolean {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.leaveWant(wantId)) {
+            is ApiResult.Success -> {
+                _state.update { prev -> prev.copy(myWants = prev.myWants.filterNot { it.id == wantId }, isMutating = false) }
+                true
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                false
+            }
+        }
+    }
+
+    suspend fun toggleUserWant(userId: String, wantId: String, currentlyJoined: Boolean): WantDto? {
+        _state.update { it.copy(isMutating = true, error = null) }
+        val result = if (currentlyJoined) api.leaveWant(wantId) else api.joinWant(wantId)
+        return when (result) {
+            is ApiResult.Success -> {
+                val wants = (api.getUserWants(userId) as? ApiResult.Success)?.value?.wants
+                _state.update { prev ->
+                    prev.copy(
+                        viewedUserWants = wants ?: prev.viewedUserWants.map {
+                            if (it.id == wantId) it.copy(joined = !currentlyJoined) else it
+                        },
+                        isMutating = false,
+                    )
+                }
+                result.value
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = result.message) }
+                null
             }
         }
     }
@@ -357,6 +423,7 @@ class ProfileStore(
                     viewedUserPosts = emptyList(),
                     viewedUserPostsNextCursor = null,
                     viewedUserCommunities = emptyList(),
+                    viewedUserWants = emptyList(),
                     viewedUserActivities = emptyList(),
                     viewedUserProducts = emptyList(),
                     error = null,
@@ -365,12 +432,14 @@ class ProfileStore(
             val userDef = scope.async { api.getUserProfile(userId) }
             val postsDef = scope.async { api.getUserPosts(userId) }
             val communitiesDef = scope.async { api.getUserCommunities(userId) }
+            val wantsDef = scope.async { api.getUserWants(userId) }
             val activitiesDef = scope.async { api.getUserActivities(userId) }
             val productsDef = scope.async { api.getUserProducts(userId) }
 
             val userRes = userDef.await()
             val postsRes = postsDef.await()
             val communitiesRes = communitiesDef.await()
+            val wantsRes = wantsDef.await()
             val activitiesRes = activitiesDef.await()
             val productsRes = productsDef.await()
 
@@ -384,6 +453,7 @@ class ProfileStore(
                             viewedUserPostsNextCursor = page?.nextCursor,
                             viewedUserPostsCount = page?.count ?: 0L,
                             viewedUserCommunities = (communitiesRes as? ApiResult.Success)?.value?.communities.orEmpty(),
+                            viewedUserWants = (wantsRes as? ApiResult.Success)?.value?.wants.orEmpty(),
                             viewedUserActivities = (activitiesRes as? ApiResult.Success)?.value?.activities.orEmpty(),
                             viewedUserProducts = (productsRes as? ApiResult.Success)?.value?.products.orEmpty(),
                             isLoading = false,

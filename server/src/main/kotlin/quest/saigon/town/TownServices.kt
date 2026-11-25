@@ -37,6 +37,7 @@ class TownServices(
     val pusher: NotificationPusher = NoNotificationPush,
     val replies: QuickReplyService = QuickReplyService(repo),
     val communities: CommunityService = CommunityService(repo, clock),
+    val wants: WantService = WantService(repo, hub, clock, pusher),
     val places: PlaceLookup = NoPlaces,
     val events: EventService = EventService(repo, hub, clock, pusher),
     val polls: PollService = PollService(repo, hub, clock, pusher),

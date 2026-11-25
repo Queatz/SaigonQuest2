@@ -30,16 +30,20 @@ class ActivityStore(
 ) {
     private val _state = MutableStateFlow(ActivityUiState())
     val state: StateFlow<ActivityUiState> = _state.asStateFlow()
+    private var activitiesRequestGeneration = 0
 
     fun loadActivities(
         name: String? = null,
         placeId: String? = null,
         locationId: String? = null,
+        query: String? = null,
     ) {
+        val generation = ++activitiesRequestGeneration
         scope.launch {
             _state.update { it.copy(isLoading = true, isLoadingMore = false, error = null) }
-            when (val res = api.getActivities(name, placeId, locationId, cursor = null, limit = 30)) {
+            when (val res = api.getActivities(name, placeId, locationId, cursor = null, limit = 30, query = query)) {
                 is ApiResult.Success -> {
+                    if (generation != activitiesRequestGeneration) return@launch
                     _state.update {
                         it.copy(
                             activities = res.value.activities,
@@ -49,6 +53,7 @@ class ActivityStore(
                     }
                 }
                 is ApiResult.Failure -> {
+                    if (generation != activitiesRequestGeneration) return@launch
                     _state.update { it.copy(isLoading = false, error = res.message) }
                 }
             }
@@ -59,14 +64,17 @@ class ActivityStore(
         name: String? = null,
         placeId: String? = null,
         locationId: String? = null,
+        query: String? = null,
     ) {
         val current = _state.value
         val cursor = current.nextCursor ?: return
         if (current.isLoading || current.isLoadingMore) return
+        val generation = activitiesRequestGeneration
         scope.launch {
             _state.update { it.copy(isLoadingMore = true, error = null) }
-            when (val res = api.getActivities(name, placeId, locationId, cursor = cursor, limit = 30)) {
+            when (val res = api.getActivities(name, placeId, locationId, cursor = cursor, limit = 30, query = query)) {
                 is ApiResult.Success -> {
+                    if (generation != activitiesRequestGeneration) return@launch
                     _state.update { prev ->
                         val seen = prev.activities.mapTo(HashSet()) { it.id }
                         prev.copy(
@@ -76,7 +84,10 @@ class ActivityStore(
                         )
                     }
                 }
-                is ApiResult.Failure -> _state.update { it.copy(isLoadingMore = false, error = res.message) }
+                is ApiResult.Failure -> {
+                    if (generation != activitiesRequestGeneration) return@launch
+                    _state.update { it.copy(isLoadingMore = false, error = res.message) }
+                }
             }
         }
     }

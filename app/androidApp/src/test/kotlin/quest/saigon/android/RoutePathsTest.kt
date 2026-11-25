@@ -95,6 +95,10 @@ class RoutePathsTest {
             RoutePaths.resolveRouteFromValues(fcmType = "event_joined", fcmPostId = "p99"),
         )
         assertEquals(
+            AppRoute.User("u42"),
+            RoutePaths.resolveRouteFromValues(fcmType = "want_joined", fcmActorId = "u42"),
+        )
+        assertEquals(
             AppRoute.Location("loc5"),
             RoutePaths.resolveRouteFromValues(dataUri = "https://saigon.town/l/loc5"),
         )

@@ -98,6 +98,12 @@ class ActivityBehaviorTest {
         assertEquals(1, listed.path(0).path("interestedPeople").size())
         assertEquals("/media/activities/preview.jpg", listed.path(0).path("photoUrls").path(0).asText())
 
+        val matchingActivities = mapper.readTree(linh.get("/api/activities?q=WORKSHOP").bodyAsText()).path("activities")
+        assertEquals(1, matchingActivities.size())
+        assertEquals(activityId, matchingActivities.path(0).path("id").asText())
+        val noActivityMatches = mapper.readTree(linh.get("/api/activities?q=unrelated").bodyAsText()).path("activities")
+        assertEquals(0, noActivityMatches.size())
+
         val linhActivities = mapper.readTree(linh.get("/api/users/$linhId/activities").bodyAsText()).path("activities")
         assertEquals(1, linhActivities.size())
         assertEquals(activityId, linhActivities.path(0).path("id").asText())

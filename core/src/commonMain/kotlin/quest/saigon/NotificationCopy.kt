@@ -9,6 +9,7 @@ object NotificationCopy {
                 "name" to actorName,
                 "event" to preview,
                 "poll" to preview,
+                "want" to preview,
             ),
         )
 
@@ -16,14 +17,16 @@ object NotificationCopy {
 
     fun path(postId: String): String = "/p/$postId"
 
-    fun path(type: String, postId: String, chatId: String = ""): String = when (type) {
+    fun path(type: String, postId: String, chatId: String = "", actorId: String = ""): String = when (type) {
         "product_order" -> "/profile/orders"
+        "want_joined" -> actorId.takeIf { it.isNotBlank() }?.let { "/u/$it" } ?: "/profile"
         "chat_removed", "chat_deleted" -> "/messages"
         "chat_message", "chat_added" -> if (chatId.isBlank()) "/messages" else "/messages/$chatId"
         else -> path(postId)
     }
 
     fun titleKey(type: String): String = when (type) {
+        "want_joined" -> "notificationWantJoined"
         "comment_reply" -> "notificationCommentReply"
         "thread_comment" -> "notificationThreadComment"
         "event_joined" -> "notificationEventJoined"

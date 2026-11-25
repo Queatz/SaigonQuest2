@@ -9,6 +9,7 @@ data class NotificationDto(
     val postId: String = "",
     val commentId: String = "",
     val chatId: String = "",
+    val actorId: String = "",
     val actorName: String = "",
     val preview: String = "",
     val createdAt: Long = 0L,

@@ -3,6 +3,7 @@ package quest.saigon.web
 import quest.saigon.Limits
 import web.html.HTMLElement
 import web.window.window
+import kotlin.js.unsafeCast
 
 internal data class CommunityPostPreview(
     val id: String,
@@ -17,6 +18,7 @@ internal data class CommunityCard(
     val joined: Boolean = false,
     val description: String = "",
     val latestPosts: List<CommunityPostPreview> = emptyList(),
+    val members: List<DiscoverCardPerson> = emptyList(),
 )
 
 internal class CommunityChoice {
@@ -34,6 +36,14 @@ internal fun communityFrom(node: dynamic): CommunityCard {
         val photoUrl = (latestPost.photoUrl as? String).orEmpty()
         if (id.isNotBlank() && photoUrl.isNotBlank()) latestPosts += CommunityPostPreview(id, photoUrl)
     }
+    val members = mutableListOf<DiscoverCardPerson>()
+    val memberNodes: dynamic = node.members
+    val memberCount = if (memberNodes == null || memberNodes == undefined) 0 else memberNodes.length as? Int ?: 0
+    for (i in 0 until memberCount) {
+        val member = memberNodes.unsafeCast<Array<dynamic>>()[i]
+        val name = (member.name as? String).orEmpty()
+        if (name.isNotBlank()) members += DiscoverCardPerson(name, member.photoUrl as? String)
+    }
     return CommunityCard(
         id = (node.id as? String).orEmpty(),
         name = (node.name as? String).orEmpty(),
@@ -42,6 +52,7 @@ internal fun communityFrom(node: dynamic): CommunityCard {
         joined = node.joined == true,
         description = (node.description as? String).orEmpty(),
         latestPosts = latestPosts,
+        members = members,
     )
 }
 

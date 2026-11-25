@@ -206,6 +206,14 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     learnCol.appendChild(learnCatalog(shell, router))
     val peopleList = el("div", "member-list")
     val communityList = el("div", "community-list")
+    val eventSearch = discoverSearchInput("searchEvents")
+    val activitySearch = discoverSearchInput("searchActivities")
+    val peopleSearch = discoverSearchInput("searchDiscoverPeople")
+    val communitySearch = discoverSearchInput("searchCommunities")
+    eventCol.appendChild(eventSearch)
+    activityCol.appendChild(activitySearch)
+    peopleCol.appendChild(peopleSearch)
+    communityCol.appendChild(communitySearch)
     eventCol.appendChild(eventList)
     activityCol.appendChild(activityList)
     peopleCol.appendChild(peopleList)
@@ -285,26 +293,97 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
     communitiesChip.onClick { selectTab(communitiesChip) }
     loadGoogleMaps { }
 
+    var eventSearchGeneration = 0
+    var peopleSearchGeneration = 0
+    var communitySearchGeneration = 0
+    fun loadEvents(query: String) {
+        val generation = ++eventSearchGeneration
+        eventList.clear()
+        http("GET", discoverSearchUrl("/api/events", query)) { status, text ->
+            if (generation != eventSearchGeneration) return@http
+            if (status != 200) {
+                eventList.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                return@http
+            }
+            val events = readPosts(parseJson(text).events)
+            if (events.isEmpty()) {
+                eventList.appendChild(el("p", "hint", text = Town.t("noEvents")))
+            } else {
+                renderDiscoverEventCards(eventList, events, shell, router) { loadEvents(query) }
+            }
+        }
+    }
+    fun loadPeople(query: String) {
+        val generation = ++peopleSearchGeneration
+        peopleList.clear()
+        http("GET", discoverSearchUrl("/api/events", query)) { status, text ->
+            if (generation != peopleSearchGeneration) return@http
+            if (status != 200) {
+                peopleList.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                return@http
+            }
+            val people = parseJson(text).people
+            val length = people?.length as? Int ?: 0
+            if (length == 0) {
+                peopleList.appendChild(el("p", "hint", text = Town.t("noMembers")))
+            } else {
+                for (i in 0 until length) peopleList.appendChild(discoverPersonCard(people[i], shell, router))
+            }
+        }
+    }
+    fun loadCommunities(query: String = (communitySearch.asDynamic().value as? String).orEmpty().trim()) {
+        val generation = ++communitySearchGeneration
+        http("GET", "/api/communities?limit=50&q=${encodeQuery(query)}") { status, body ->
+            if (generation != communitySearchGeneration) return@http
+            communityList.clear()
+            if (status != 200) {
+                communityList.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                return@http
+            }
+            val items = readCommunities(parseJson(body).communities)
+            if (items.isEmpty()) {
+                communityList.appendChild(el("p", "hint", text = Town.t("noCommunities")))
+                return@http
+            }
+            items.forEach { community ->
+                communityList.appendChild(discoverCommunityCard(router, community))
+            }
+        }
+    }
+    bindDiscoverSearch(eventSearch, ::loadEvents)
+    bindDiscoverSearch(peopleSearch, ::loadPeople)
+    bindDiscoverSearch(communitySearch, ::loadCommunities)
+    val loadActivities = loadDiscoverActivities(activityList, shell, router)
+    bindDiscoverSearch(activitySearch, loadActivities)
+
+    val initialEventGeneration = eventSearchGeneration
+    val initialPeopleGeneration = peopleSearchGeneration
     http("GET", "/api/events") { status, text ->
         if (status != 200) {
-            eventList.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            if (initialEventGeneration == eventSearchGeneration) {
+                eventList.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            }
             return@http
         }
         val parsed = parseJson(text)
         val events = readPosts(parsed.events)
-        if (events.isEmpty()) {
-            eventList.appendChild(el("p", "hint", text = Town.t("noEvents")))
-            selectTab(activitiesChip)
-        } else {
-            renderGroupedEvents(eventList, events, router)
+        if (initialEventGeneration == eventSearchGeneration) {
+            if (events.isEmpty()) {
+                eventList.appendChild(el("p", "hint", text = Town.t("noEvents")))
+                selectTab(activitiesChip)
+            } else {
+                renderDiscoverEventCards(eventList, events, shell, router) {
+                    loadEvents((eventSearch.asDynamic().value as? String).orEmpty().trim())
+                }
+            }
         }
-        val people = parsed.people
-        val length = people?.length as? Int ?: 0
-        if (length == 0) {
-            peopleList.appendChild(el("p", "hint", text = Town.t("noMembers")))
-        } else {
-            for (i in 0 until length) {
-                peopleList.appendChild(peopleRow(people[i], shell, router))
+        if (initialPeopleGeneration == peopleSearchGeneration) {
+            val people = parsed.people
+            val length = people?.length as? Int ?: 0
+            if (length == 0) {
+                peopleList.appendChild(el("p", "hint", text = Town.t("noMembers")))
+            } else {
+                for (i in 0 until length) peopleList.appendChild(discoverPersonCard(people[i], shell, router))
             }
         }
         val locations = readUserLocations(parsed.locations).toMutableList()
@@ -335,28 +414,114 @@ internal fun eventsScreen(router: HistoryRouter): HTMLElement {
             pendingMapNavigation = null
         }
     }
-    fun loadCommunities() {
-        http("GET", "/api/communities?limit=50") { status, body ->
-            communityList.clear()
-            if (status != 200) {
-                communityList.appendChild(el("p", "hint", text = Town.t("unavailable")))
-                return@http
-            }
-            val items = readCommunities(parseJson(body).communities)
-            if (items.isEmpty()) {
-                communityList.appendChild(el("p", "hint", text = Town.t("noCommunities")))
-                return@http
-            }
-            items.forEach { community ->
-                communityList.appendChild(
-                    communityActionRow(shell, router, community, leaving = community.joined) { loadCommunities() },
-                )
-            }
-        }
-    }
     loadCommunities()
-    loadDiscoverActivities(activityList, shell, router)
     return shell
+}
+
+private fun discoverSearchInput(key: String): HTMLElement = el("input", "discover-search").apply {
+    setAttribute("type", "search")
+    setAttribute("placeholder", Town.t(key))
+    setAttribute("aria-label", Town.t(key))
+    setAttribute("autocomplete", "off")
+}
+
+private fun discoverSearchUrl(path: String, query: String): String =
+    if (query.isBlank()) path else "$path?q=${encodeQuery(query)}"
+
+private fun bindDiscoverSearch(input: HTMLElement, onSearch: (String) -> Unit) {
+    var timer: dynamic = null
+    input.asDynamic().oninput = {
+        if (timer != null && timer != undefined) window.asDynamic().clearTimeout(timer)
+        timer = window.asDynamic().setTimeout({
+            timer = null
+            onSearch((input.asDynamic().value as? String).orEmpty().trim())
+        }, 220)
+    }
+}
+
+private fun renderDiscoverEventCards(
+    list: HTMLElement,
+    events: List<PostCard>,
+    host: HTMLElement,
+    router: HistoryRouter,
+    onChanged: () -> Unit,
+) {
+    var lastDay = ""
+    events.forEach { post ->
+        val start = post.eventStartAt ?: return@forEach
+        val day = eventDayHeading(start)
+        if (day != lastDay) {
+            list.appendChild(el("h4", "event-day", text = day))
+            lastDay = day
+        }
+        val action = el("button", "primary discover-card-action", text = Town.t(if (post.joined) "leaveEvent" else "joinEvent"))
+        action.setAttribute("type", "button")
+        action.onClick {
+            val toggle = {
+                action.setAttribute("disabled", "disabled")
+                val endpoint = if (post.joined) "leave" else "join"
+                http("POST", "/api/posts/${post.id}/$endpoint") { status, body ->
+                    action.removeAttribute("disabled")
+                    if (status == 200) onChanged() else toast(host, errorText(body, status))
+                }
+            }
+            if (Town.me == null) showAuthDialog(host, onSuccess = toggle) else toggle()
+        }
+        val detail = listOf(
+            eventScheduleLabel(start, post.eventEndAt),
+            post.location,
+            post.eventPrice?.takeIf { it > 0L }?.let(::productPrice),
+        ).filterNotNull()
+        list.appendChild(
+            discoverBannerCard(
+                photoUrl = post.photoUrl,
+                fallback = post.communityEmoji ?: EVENT_ICON,
+                title = post.message.ifBlank { post.location },
+                details = detail.map { DiscoverCardDetail(it) },
+                people = post.attendees.map { DiscoverCardPerson(it.name, it.photoUrl) },
+                action = action,
+                onClick = { router.navigate("/p/${post.id}") },
+            ),
+        )
+    }
+}
+
+private fun discoverPersonCard(node: dynamic, host: HTMLElement, router: HistoryRouter): HTMLElement {
+    val person = eventPersonFrom(node)
+    val action = el("button", "primary discover-card-action", text = Town.t("openProfile"))
+    action.setAttribute("type", "button")
+    action.onClick { router.navigate("/u/${person.id}") }
+    val photo = person.latestPostPhotoUrl?.takeIf { it.isNotBlank() } ?: person.photoUrl
+    return discoverBannerCard(
+        photoUrl = photo,
+        fallback = person.name.take(1).uppercase(),
+        title = person.name,
+        details = listOf(person.location, person.intro).map { DiscoverCardDetail(it) },
+        titlePerson = DiscoverCardPerson(person.name, person.photoUrl),
+        action = action,
+        onClick = { openMiniProfile(host, person.name, person.photoUrl, person.location, person.intro, person.id, router) },
+    )
+}
+
+private fun discoverCommunityCard(router: HistoryRouter, community: CommunityCard): HTMLElement {
+    val action = el("button", "primary discover-card-action", text = Town.t("viewCommunity"))
+    action.setAttribute("type", "button")
+    action.onClick { router.navigate("/c/${community.id}") }
+    val photo = community.latestPosts.firstOrNull()?.photoUrl
+    return discoverBannerCard(
+        photoUrl = photo,
+        fallback = community.emoji,
+        title = "${community.emoji} ${community.name}",
+        details = listOf(
+            DiscoverCardDetail(community.description, expanded = true),
+            DiscoverCardDetail("${community.memberCount} ${Town.t("communityMembers")}"),
+        ),
+        people = community.members,
+        photos = community.latestPosts.drop(1).map { DiscoverCardPhoto(it.id, it.photoUrl) },
+        action = action,
+        onClick = { router.navigate("/c/${community.id}") },
+        onPhotoClick = { router.navigate("/p/$it") },
+    )
 }
 
 internal fun eventsSummaryButton(router: HistoryRouter): HTMLElement {

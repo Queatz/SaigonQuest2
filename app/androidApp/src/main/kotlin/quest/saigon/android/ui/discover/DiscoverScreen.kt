@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +49,7 @@ import quest.saigon.android.media.ImagePreparer
 import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.theme.SaigonColors
 import quest.saigon.android.ui.components.ActivityCard
+import quest.saigon.android.ui.components.activityScheduleSummary
 import quest.saigon.android.ui.components.ActivityEditorDialog
 import quest.saigon.android.ui.components.AndroidIntents
 import quest.saigon.android.ui.components.CheckInBubbleItem
@@ -71,16 +73,16 @@ import quest.saigon.android.ui.components.SaigonPrimaryButton
 import quest.saigon.android.ui.components.SaigonSpinner
 import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
-import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.dashedBorder
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
-import quest.saigon.android.ui.shop.LearnProductCard
 import quest.saigon.encodeLocationToken
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CheckInDto
+import quest.saigon.shared.model.CommunityPostPhotoDto
+import quest.saigon.shared.model.EventPersonDto
 import quest.saigon.shared.model.PlaceSuggestionDto
 import quest.saigon.shared.model.PostCardDto
 import quest.saigon.shared.model.UserPhotoDto
@@ -122,8 +124,15 @@ fun DiscoverScreen(
     var startedInitialLoad by remember { mutableStateOf(false) }
     var mapTouched by remember { mutableStateOf(false) }
     var activeCheckIn by remember { mutableStateOf<CheckInDto?>(null) }
+    var eventQuery by rememberSaveable { mutableStateOf("") }
+    var activityQuery by rememberSaveable { mutableStateOf("") }
+    var peopleQuery by rememberSaveable { mutableStateOf("") }
     var communityQuery by remember { mutableStateOf("") }
     var learnQuery by remember { mutableStateOf("") }
+    var eventSearchStarted by remember { mutableStateOf(false) }
+    var activitySearchStarted by remember { mutableStateOf(false) }
+    var peopleSearchStarted by remember { mutableStateOf(false) }
+    var communitySearchStarted by remember { mutableStateOf(false) }
     var showCreateCommunity by remember { mutableStateOf(false) }
     var showPlaceSearch by remember { mutableStateOf(false) }
     var showPostSearch by remember { mutableStateOf(false) }
@@ -137,6 +146,27 @@ fun DiscoverScreen(
         shared.discover.loadAll()
         shared.activity.loadActivities()
         shared.shop.loadInitial()
+    }
+
+    LaunchedEffect(selectedTab, eventSearchStarted, eventQuery) {
+        if (selectedTab != DiscoverTab.EVENTS || !eventSearchStarted) return@LaunchedEffect
+        delay(220)
+        shared.discover.searchEvents(eventQuery)
+    }
+    LaunchedEffect(selectedTab, activitySearchStarted, activityQuery) {
+        if (selectedTab != DiscoverTab.ACTIVITIES || !activitySearchStarted) return@LaunchedEffect
+        delay(220)
+        shared.activity.loadActivities(query = activityQuery)
+    }
+    LaunchedEffect(selectedTab, peopleSearchStarted, peopleQuery) {
+        if (selectedTab != DiscoverTab.PEOPLE || !peopleSearchStarted) return@LaunchedEffect
+        delay(220)
+        shared.discover.searchPeople(peopleQuery)
+    }
+    LaunchedEffect(selectedTab, communitySearchStarted, communityQuery) {
+        if (selectedTab != DiscoverTab.COMMUNITIES || !communitySearchStarted) return@LaunchedEffect
+        delay(220)
+        shared.discover.searchCommunities(communityQuery)
     }
 
     LaunchedEffect(discoverState.isLoading, discoverState.events.size, discoverState.error) {
@@ -365,6 +395,18 @@ fun DiscoverScreen(
             } else {
                 when (selectedTab) {
                     DiscoverTab.EVENTS -> {
+                        item {
+                            SaigonTextField(
+                                value = eventQuery,
+                                onValueChange = {
+                                    eventQuery = it
+                                    eventSearchStarted = true
+                                },
+                                placeholder = Copy.text(lang, "searchEvents"),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                            )
+                        }
                         if (discoverState.events.isEmpty()) {
                             item {
                                 Text(
@@ -390,9 +432,21 @@ fun DiscoverScreen(
                                     }
                                 }
                                 items(dayEvents, key = { it.id }) { ev ->
-                                    DiscoverEventRow(
-                                        event = ev,
-                                        language = lang,
+                                    DiscoverItemCard(
+                                        photoUrl = ev.photoUrl,
+                                        fallback = ev.communityEmoji ?: "📅",
+                                        title = ev.message.ifBlank { ev.location },
+                                        details = listOfNotNull(
+                                            ev.eventStartAt?.let(::discoverEventClock),
+                                            ev.location,
+                                            ev.eventPrice?.takeIf { it > 0L }?.let(::formatVnd),
+                                        ).map { DiscoverCardDetail(it) },
+                                        people = ev.attendees,
+                                        actionLabel = Copy.text(lang, if (ev.joined) "leaveEvent" else "joinEvent"),
+                                        onAction = {
+                                            if (sessionState.me == null) onRequireAuth()
+                                            else scope.launch { shared.discover.toggleEventMembership(ev.id, ev.joined) }
+                                        },
                                         onClick = { onNavigate(AppRoute.Post(ev.id)) },
                                         modifier = Modifier.padding(horizontal = 18.dp),
                                     )
@@ -402,6 +456,18 @@ fun DiscoverScreen(
                     }
 
                     DiscoverTab.ACTIVITIES -> {
+                        item {
+                            SaigonTextField(
+                                value = activityQuery,
+                                onValueChange = {
+                                    activityQuery = it
+                                    activitySearchStarted = true
+                                },
+                                placeholder = Copy.text(lang, "searchActivities"),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                            )
+                        }
                         if (activityState.activities.isEmpty()) {
                             item {
                                 Text(
@@ -412,32 +478,28 @@ fun DiscoverScreen(
                             }
                         } else {
                             items(activityState.activities, key = { it.id }) { act ->
-                                ActivityCard(
-                                    activity = act,
-                                    language = lang,
-                                    viewerId = sessionState.me?.id,
-                                    showLocation = true,
-                                    isMutating = activityState.isMutating,
-                                    onOpen = { onNavigate(AppRoute.Activity(act.id)) },
-                                    onToggleInterest = {
-                                        if (sessionState.me == null) {
-                                            onRequireAuth()
-                                        } else {
-                                            scope.launch { shared.activity.toggleInterest(act.id, act.interested) }
-                                        }
+                                val interestedLabel = Copy.text(
+                                    lang,
+                                    "interestedCount",
+                                    mapOf("count" to act.interestedCount.toString()),
+                                )
+                                DiscoverItemCard(
+                                    photoUrl = act.photoUrls.firstOrNull() ?: act.locationPhotoUrl,
+                                    fallback = act.emoji,
+                                    title = ActivityStore.localizedName(act, lang),
+                                    details = listOfNotNull(
+                                        act.locationName.takeIf { it.isNotBlank() }?.let { DiscoverCardDetail(it, emphasis = true) },
+                                        act.host?.name?.takeIf { it.isNotBlank() }?.let { DiscoverCardDetail("${Copy.text(lang, "host")}: $it") },
+                                        activityScheduleSummary(act.schedule, lang)?.let { DiscoverCardDetail(it) },
+                                        ActivityStore.localizedDescription(act, lang).takeIf { it.isNotBlank() }?.let { DiscoverCardDetail(it) },
+                                    ),
+                                    people = act.interestedPeople.ifEmpty { listOfNotNull(act.host) },
+                                    actionLabel = interestedLabel,
+                                    onAction = {
+                                        if (sessionState.me == null) onRequireAuth()
+                                        else scope.launch { shared.activity.toggleInterest(act.id, act.interested) }
                                     },
-                                    onOpenLocation = {
-                                        val token = openLocationDestination(
-                                            shared = shared,
-                                            name = act.locationName,
-                                            placeId = act.placeId,
-                                            locationId = act.locationId,
-                                            lat = act.lat,
-                                            lng = act.lng,
-                                        )
-                                        onNavigate(AppRoute.Location(token))
-                                    },
-                                    onOpenPhoto = { url -> zoomPhoto = url },
+                                    onClick = { onNavigate(AppRoute.Activity(act.id)) },
                                     modifier = Modifier.padding(horizontal = 18.dp),
                                 )
                             }
@@ -471,20 +533,25 @@ fun DiscoverScreen(
                                 )
                             }
                             else -> {
-                                items(shopState.products.chunked(2), key = { row -> row.first().id }) { rowProducts ->
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
-                                    ) {
-                                        rowProducts.forEach { product ->
-                                            LearnProductCard(
-                                                product = product,
-                                                onClick = { onNavigate(AppRoute.Product(product.id)) },
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                        }
-                                        if (rowProducts.size == 1) Spacer(Modifier.weight(1f))
-                                    }
+                                items(shopState.products, key = { it.id }) { product ->
+                                    DiscoverItemCard(
+                                        photoUrl = product.photoUrls.firstOrNull(),
+                                        fallback = "🛍️",
+                                        title = product.name,
+                                        details = listOfNotNull(
+                                            DiscoverCardDetail(formatVnd(product.price), emphasis = true),
+                                            product.description.takeIf { it.isNotBlank() }?.let { DiscoverCardDetail(it) },
+                                        ),
+                                        people = listOfNotNull(
+                                            product.sellerName?.takeIf { it.isNotBlank() }?.let { name ->
+                                                quest.saigon.shared.model.EventPersonDto(name = name, photoUrl = product.sellerPhotoUrl)
+                                            },
+                                        ),
+                                        actionLabel = Copy.text(lang, "viewProduct"),
+                                        onAction = { onNavigate(AppRoute.Product(product.id)) },
+                                        onClick = { onNavigate(AppRoute.Product(product.id)) },
+                                        modifier = Modifier.padding(horizontal = 18.dp),
+                                    )
                                 }
                                 if (shopState.nextCursor != null) {
                                     item {
@@ -500,6 +567,18 @@ fun DiscoverScreen(
                     }
 
                     DiscoverTab.PEOPLE -> {
+                        item {
+                            SaigonTextField(
+                                value = peopleQuery,
+                                onValueChange = {
+                                    peopleQuery = it
+                                    peopleSearchStarted = true
+                                },
+                                placeholder = Copy.text(lang, "searchDiscoverPeople"),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                            )
+                        }
                         if (discoverState.people.isEmpty()) {
                             item {
                                 Text(
@@ -510,52 +589,20 @@ fun DiscoverScreen(
                             }
                         } else {
                             items(discoverState.people, key = { it.id }) { person ->
-                                SaigonCard(
+                                DiscoverItemCard(
+                                    photoUrl = person.latestPostPhotoUrl ?: person.photoUrl,
+                                    fallback = person.name.take(1).uppercase(),
+                                    title = person.name,
+                                    titlePerson = EventPersonDto(name = person.name, photoUrl = person.photoUrl),
+                                    details = listOfNotNull(
+                                        person.location.takeIf { it.isNotBlank() },
+                                        person.intro.takeIf { it.isNotBlank() },
+                                    ).map { DiscoverCardDetail(it) },
+                                    actionLabel = Copy.text(lang, "openProfile"),
+                                    onAction = { onNavigate(AppRoute.User(person.id)) },
                                     onClick = { onNavigate(AppRoute.User(person.id)) },
-                                    borderWidth = 1.dp,
-                                    cornerRadius = 14.dp,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 18.dp),
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    ) {
-                                        UserAvatar(photoUrl = person.photoUrl, name = person.name, size = 44.dp, borderWidth = 0.dp)
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
-                                            Text(person.name, color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                                            if (person.location.isNotBlank()) {
-                                                Text(person.location, fontSize = 12.sp, color = tokens.muted)
-                                            }
-                                            if (person.intro.isNotBlank()) {
-                                                Text(
-                                                    person.intro,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    fontSize = 13.sp,
-                                                    color = tokens.text,
-                                                )
-                                            }
-                                        }
-                                        val latestPhoto = person.latestPostPhotoUrl
-                                        val latestId = person.latestPostId
-                                        if (!latestPhoto.isNullOrBlank() && !latestId.isNullOrBlank()) {
-                                            AsyncImage(
-                                                model = latestPhoto,
-                                                contentDescription = null,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier
-                                                    .width(48.dp)
-                                                    .aspectRatio(9f / 16f)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(tokens.bg)
-                                                    .clickable { onNavigate(AppRoute.Post(latestId)) },
-                                            )
-                                        }
-                                    }
-                                }
+                                    modifier = Modifier.padding(horizontal = 18.dp),
+                                )
                             }
                         }
                     }
@@ -573,7 +620,7 @@ fun DiscoverScreen(
                                     value = communityQuery,
                                     onValueChange = {
                                         communityQuery = it
-                                        shared.discover.searchCommunities(it)
+                                        communitySearchStarted = true
                                     },
                                     placeholder = Copy.text(lang, "searchCommunities"),
                                     singleLine = true,
@@ -597,69 +644,22 @@ fun DiscoverScreen(
                             }
                         } else {
                             items(discoverState.communities, key = { it.id }) { comm ->
-                                SaigonCard(
+                                DiscoverItemCard(
+                                    photoUrl = comm.latestPosts.firstOrNull()?.photoUrl,
+                                    fallback = comm.emoji,
+                                    title = "${comm.emoji} ${comm.name}",
+                                    people = comm.members.map { EventPersonDto(id = it.id, name = it.name, photoUrl = it.photoUrl) },
+                                    details = listOf(
+                                        DiscoverCardDetail(comm.description, expanded = true),
+                                        DiscoverCardDetail("${comm.memberCount} ${Copy.text(lang, "communityMembers")}"),
+                                    ),
+                                    photoPreviews = comm.latestPosts.drop(1),
+                                    onPhotoClick = { onNavigate(AppRoute.Post(it)) },
+                                    actionLabel = Copy.text(lang, "viewCommunity"),
+                                    onAction = { onNavigate(AppRoute.Community(comm.id)) },
                                     onClick = { onNavigate(AppRoute.Community(comm.id)) },
-                                    borderWidth = 1.dp,
-                                    cornerRadius = 14.dp,
-                                    contentPadding = PaddingValues(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 18.dp),
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            Text(comm.emoji, fontSize = 24.sp)
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(comm.name, color = tokens.text, fontWeight = FontWeight.ExtraBold)
-                                                Text(
-                                                    "${comm.memberCount} ${Copy.text(lang, "communityMembers")}",
-                                                    fontSize = 12.sp,
-                                                    color = tokens.muted,
-                                                )
-                                            }
-                                            SaigonTinyPill(
-                                                label = Copy.text(lang, if (comm.joined) "leaveCommunity" else "joinCommunity"),
-                                                danger = comm.joined,
-                                                onClick = {
-                                                    if (sessionState.me == null) {
-                                                        onRequireAuth()
-                                                    } else {
-                                                        scope.launch { shared.discover.toggleCommunityMembership(comm.id, comm.joined) }
-                                                    }
-                                                },
-                                            )
-                                        }
-                                        if (comm.description.isNotBlank()) {
-                                            LinkifiedText(
-                                                text = comm.description,
-                                                color = tokens.muted,
-                                                style = MaterialTheme.typography.bodySmall,
-                                            )
-                                        }
-                                        if (comm.latestPosts.isNotEmpty()) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                            ) {
-                                                comm.latestPosts.take(Limits.COMMUNITY_CARD_PHOTO_LIMIT).forEach { postPhoto ->
-                                                    AsyncImage(
-                                                        model = postPhoto.photoUrl,
-                                                        contentDescription = null,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier
-                                                            .size(56.dp)
-                                                            .clip(RoundedCornerShape(9.dp))
-                                                            .background(tokens.surface)
-                                                            .clickable { onNavigate(AppRoute.Post(postPhoto.id)) },
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                    modifier = Modifier.padding(horizontal = 18.dp),
+                                )
                             }
                         }
                     }
@@ -879,10 +879,24 @@ fun DiscoverScreen(
     }
 }
 
+private data class DiscoverCardDetail(
+    val text: String,
+    val emphasis: Boolean = false,
+    val expanded: Boolean = false,
+)
+
 @Composable
-private fun DiscoverEventRow(
-    event: PostCardDto,
-    language: Language,
+private fun DiscoverItemCard(
+    photoUrl: String?,
+    fallback: String,
+    title: String,
+    details: List<DiscoverCardDetail>,
+    people: List<EventPersonDto> = emptyList(),
+    titlePerson: EventPersonDto? = null,
+    photoPreviews: List<CommunityPostPhotoDto> = emptyList(),
+    onPhotoClick: ((String) -> Unit)? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -890,61 +904,108 @@ private fun DiscoverEventRow(
     SaigonCard(
         onClick = onClick,
         borderWidth = 1.dp,
-        cornerRadius = 14.dp,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        cornerRadius = 18.dp,
+        contentPadding = PaddingValues(0.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = event.communityEmoji ?: "📅",
-                fontSize = 18.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
-                Text(
-                    event.message.ifBlank { event.location },
-                    color = tokens.text,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-                val timePart = event.eventStartAt?.let { discoverEventClock(it) }
-                val meta = listOfNotNull(timePart, event.location.takeIf { it.isNotBlank() }).joinToString(" · ")
-                if (meta.isNotBlank()) {
-                    Text(meta, fontSize = 12.sp, color = tokens.muted)
+        Column {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(122.dp)
+                    .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFFDCE8E7), Color(0xFFB9CED2)))),
+            ) {
+                if (!photoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = photoUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(fallback, color = Color(0xFF24484C), fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
                 }
-                event.eventPrice?.takeIf { it > 0L }?.let { price ->
-                    Text(formatVnd(price), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = tokens.accent)
+            }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    titlePerson?.let { person ->
+                        UserAvatar(
+                            photoUrl = person.photoUrl,
+                            name = person.name,
+                            size = 30.dp,
+                        )
+                    }
+                    Text(
+                        title,
+                        color = tokens.text,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                details.filter { it.text.isNotBlank() }.forEach { detail ->
+                    Text(
+                        detail.text,
+                        color = tokens.muted,
+                        fontSize = 12.sp,
+                        fontWeight = if (detail.emphasis) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = if (detail.expanded) Int.MAX_VALUE else 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (photoPreviews.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 3.dp),
+                    ) {
+                        photoPreviews.forEach { photo ->
+                            AsyncImage(
+                                model = photo.photoUrl,
+                                contentDescription = title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .clickable { onPhotoClick?.invoke(photo.id) },
+                            )
+                        }
+                    }
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 ) {
-                    val shown = event.attendees.take(5)
-                    if (shown.isNotEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy((-5).dp)) {
-                            shown.forEach { person ->
-                                UserAvatar(
-                                    photoUrl = person.photoUrl,
-                                    name = person.name,
-                                    size = 20.dp,
-                                    borderColor = tokens.surface,
-                                    borderWidth = 1.dp,
-                                )
-                            }
+                    Row(horizontalArrangement = Arrangement.spacedBy((-5).dp)) {
+                        people.take(5).forEach { person ->
+                            UserAvatar(
+                                photoUrl = person.photoUrl,
+                                name = person.name,
+                                size = 28.dp,
+                                borderColor = tokens.surface,
+                                borderWidth = 2.dp,
+                            )
                         }
                     }
-                    val count = maxOf(event.attendeeCount, shown.size)
-                    Text(
-                        text = if (count > 0) "${Copy.text(language, "attendees")} · $count" else Copy.text(language, "attendees"),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = tokens.accent,
-                    )
+                    Spacer(Modifier.weight(1f))
+                    if (!actionLabel.isNullOrBlank() && onAction != null) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Brush.linearGradient(listOf(Color(0xFF31BBA9), Color(0xFF178997))))
+                                .clickable(onClick = onAction)
+                                .padding(horizontal = 13.dp, vertical = 8.dp),
+                        ) {
+                            Text(actionLabel, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                    }
                 }
             }
         }

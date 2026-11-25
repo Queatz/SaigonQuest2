@@ -53,7 +53,7 @@ internal fun learnCatalog(host: HTMLElement, router: HistoryRouter): HTMLElement
                 val key = if (activeQuery.isBlank()) "noProducts" else "noProductMatches"
                 grid.appendChild(el("p", "hint", text = Town.t(key)))
             } else {
-                for (i in 0 until count) grid.appendChild(productCard(products[i], host, router, vertical = true))
+                for (i in 0 until count) grid.appendChild(discoverProductCard(products[i], host, router))
             }
             cursor = parsed.nextCursor as? String
             if (cursor.isNullOrBlank()) done = true
@@ -147,7 +147,7 @@ internal fun productsPreview(shell: HTMLElement, router: HistoryRouter): HTMLEle
     return section
 }
 
-internal fun miniProfileProducts(userId: String, router: HistoryRouter, host: HTMLElement): HTMLElement {
+internal fun miniProfileProducts(userId: String, name: String, router: HistoryRouter, host: HTMLElement): HTMLElement {
     val section = el("section", "mini-products")
     section.asDynamic().hidden = true
     http("GET", "/api/users/${encodeQuery(userId)}/products?limit=3") { status, text ->
@@ -161,7 +161,7 @@ internal fun miniProfileProducts(userId: String, router: HistoryRouter, host: HT
             el(
                 "h3",
                 "profile-sheet-count",
-                text = Town.t("productCount", mapOf("count" to num(parsed.count).toLong().toString())),
+                text = Town.t("lessonsOffered", mapOf("name" to name)),
             ),
         )
         val row = el("div", "mini-product-row")
@@ -370,6 +370,33 @@ private fun productCard(product: dynamic, host: HTMLElement, router: HistoryRout
         openProductDetails(host, router, product)
     })
     return card
+}
+
+private fun discoverProductCard(product: dynamic, host: HTMLElement, router: HistoryRouter): HTMLElement {
+    val photos = product.photoUrls
+    val photoUrl = if (photos != null && photos != undefined && (photos.length as Int) > 0) {
+        photos.unsafeCast<Array<String>>()[0]
+    } else {
+        null
+    }
+    val sellerName = (product.sellerName as? String).orEmpty()
+    val action = el("button", "primary discover-card-action", text = Town.t("viewProduct"))
+    action.setAttribute("type", "button")
+    action.onClick { openProductDetails(host, router, product) }
+    return discoverBannerCard(
+        photoUrl = photoUrl,
+        fallback = "🛍️",
+        title = product.name as? String ?: "",
+        details = listOf(
+            DiscoverCardDetail(productPrice(product.price), emphasis = true),
+            DiscoverCardDetail(product.description as? String ?: ""),
+        ),
+        people = listOfNotNull(sellerName.takeIf { it.isNotBlank() }?.let {
+            DiscoverCardPerson(it, product.sellerPhotoUrl as? String)
+        }),
+        action = action,
+        onClick = { openProductDetails(host, router, product) },
+    )
 }
 
 private fun productEditorForm(host: HTMLElement, router: HistoryRouter, initial: dynamic = null): HTMLElement {
@@ -735,6 +762,6 @@ private fun repositionProductOrderCard(card: HTMLElement, unresolved: Boolean) {
     }
 }
 
-private fun productPrice(value: dynamic): String = formatVnd(num(value).toLong())
+internal fun productPrice(value: dynamic): String = formatVnd(num(value).toLong())
 
 private fun productCount(items: dynamic): Int = if (items == null || items == undefined) 0 else items.length as Int

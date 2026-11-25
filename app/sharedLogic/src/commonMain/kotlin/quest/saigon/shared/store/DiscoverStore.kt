@@ -56,9 +56,15 @@ class DiscoverStore(
 ) {
     private val _state = MutableStateFlow(DiscoverUiState())
     val state: StateFlow<DiscoverUiState> = _state.asStateFlow()
+    private var eventsSearchGeneration = 0
+    private var peopleSearchGeneration = 0
+    private var communitySearchGeneration = 0
 
     fun loadAll() {
         scope.launch {
+            val eventsSearchAtStart = eventsSearchGeneration
+            val peopleSearchAtStart = peopleSearchGeneration
+            val communitySearchAtStart = communitySearchGeneration
             _state.update { it.copy(isLoading = true, error = null) }
             val summaryDef = scope.async { api.getEventsSummary() }
             val discoveryDef = scope.async { api.getDiscovery() }
@@ -76,12 +82,12 @@ class DiscoverStore(
                     _state.update { prev ->
                         prev.copy(
                             summary = summary ?: prev.summary,
-                            events = d.events,
+                            events = if (eventsSearchGeneration == eventsSearchAtStart) d.events else prev.events,
                             locations = d.locations,
-                            people = d.people,
-                            nextPeopleCursor = d.nextPeopleCursor,
+                            people = if (peopleSearchGeneration == peopleSearchAtStart) d.people else prev.people,
+                            nextPeopleCursor = if (peopleSearchGeneration == peopleSearchAtStart) d.nextPeopleCursor else prev.nextPeopleCursor,
                             checkIns = checkIns ?: prev.checkIns,
-                            communities = communities ?: prev.communities,
+                            communities = if (communitySearchGeneration == communitySearchAtStart) communities ?: prev.communities else prev.communities,
                             isLoading = false,
                             error = null,
                         )
@@ -92,7 +98,7 @@ class DiscoverStore(
                         prev.copy(
                             summary = summary ?: prev.summary,
                             checkIns = checkIns ?: prev.checkIns,
-                            communities = communities ?: prev.communities,
+                            communities = if (communitySearchGeneration == communitySearchAtStart) communities ?: prev.communities else prev.communities,
                             isLoading = false,
                             error = discovery.message,
                         )
@@ -128,14 +134,56 @@ class DiscoverStore(
         }
     }
 
-    fun searchCommunities(query: String) {
+    fun searchEvents(query: String) {
+        val generation = ++eventsSearchGeneration
         scope.launch {
-            _state.update { it.copy(communityQuery = query, isLoadingCommunities = true, error = null) }
+            when (val res = api.getDiscovery(query = query.trim())) {
+                is ApiResult.Success -> if (generation == eventsSearchGeneration) {
+                    _state.update { it.copy(events = res.value.events) }
+                }
+                is ApiResult.Failure -> Unit
+            }
+        }
+    }
+
+    fun searchPeople(query: String) {
+        val generation = ++peopleSearchGeneration
+        scope.launch {
+            when (val res = api.getDiscovery(query = query.trim())) {
+                is ApiResult.Success -> if (generation == peopleSearchGeneration) {
+                    _state.update { it.copy(people = res.value.people, nextPeopleCursor = res.value.nextPeopleCursor) }
+                }
+                is ApiResult.Failure -> Unit
+            }
+        }
+    }
+
+    suspend fun toggleEventMembership(postId: String, currentlyJoined: Boolean): PostCardDto? {
+        val result = if (currentlyJoined) api.leaveEvent(postId) else api.joinEvent(postId)
+        return when (result) {
+            is ApiResult.Success -> {
+                val updated = result.value
+                _state.update { prev -> prev.copy(events = prev.events.map { if (it.id == updated.id) updated else it }) }
+                updated
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(error = result.message) }
+                null
+            }
+        }
+    }
+
+    fun searchCommunities(query: String) {
+        val generation = ++communitySearchGeneration
+        scope.launch {
+            if (generation == communitySearchGeneration) {
+                _state.update { it.copy(communityQuery = query, isLoadingCommunities = true, error = null) }
+            }
             when (val res = api.getCommunities(query = query)) {
-                is ApiResult.Success -> _state.update {
+                is ApiResult.Success -> if (generation == communitySearchGeneration) _state.update {
                     it.copy(communities = res.value.communities, isLoadingCommunities = false)
                 }
-                is ApiResult.Failure -> _state.update {
+                is ApiResult.Failure -> if (generation == communitySearchGeneration) _state.update {
                     it.copy(isLoadingCommunities = false, error = res.message)
                 }
             }

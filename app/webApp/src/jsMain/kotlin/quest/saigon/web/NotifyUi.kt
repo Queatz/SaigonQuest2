@@ -169,9 +169,10 @@ internal fun openNotifications(router: HistoryRouter, host: HTMLElement) {
                 val id = note.id as String
                 val postId = note.postId as String
                 val chatId = (note.chatId as? String).orEmpty()
+                val actorId = (note.actorId as? String).orEmpty()
                 NotifyInbox.markRead(id) {
                     backdrop.asDynamic().remove()
-                    router.navigate(NotificationCopy.path(type, postId, chatId))
+                    router.navigate(NotificationCopy.path(type, postId, chatId, actorId))
                 }
             }
             list.appendChild(item)

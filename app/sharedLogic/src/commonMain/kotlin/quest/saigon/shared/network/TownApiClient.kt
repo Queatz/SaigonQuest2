@@ -409,8 +409,8 @@ class TownApiClient(
     suspend fun getEventsSummary(): ApiResult<EventsSummaryDto> =
         get("/api/events/summary", EventsSummaryDto.serializer())
 
-    suspend fun getDiscovery(cursor: String? = null): ApiResult<EventsDiscoveryResponse> =
-        get(buildQuery("/api/events", mapOf("cursor" to cursor)), EventsDiscoveryResponse.serializer()).map { res ->
+    suspend fun getDiscovery(cursor: String? = null, query: String? = null): ApiResult<EventsDiscoveryResponse> =
+        get(buildQuery("/api/events", mapOf("cursor" to cursor, "q" to query?.takeIf { it.isNotBlank() })), EventsDiscoveryResponse.serializer()).map { res ->
             res.copy(
                 events = res.events.map(::normalizePostUrls),
                 locations = res.locations.map(::normalizePlaceUrls),
@@ -567,6 +567,21 @@ class TownApiClient(
             res.copy(communities = res.communities.map(::normalizeCommunityUrls))
         }
 
+    suspend fun createWant(name: String): ApiResult<WantDto> =
+        postJson("/api/wants", WantDto.serializer(), CreateWantRequest(name), CreateWantRequest.serializer())
+
+    suspend fun joinWant(id: String): ApiResult<WantDto> =
+        postJson("/api/wants/$id/join", WantDto.serializer(), Unit, EmptySerializer)
+
+    suspend fun leaveWant(id: String): ApiResult<WantDto> =
+        postJson("/api/wants/$id/leave", WantDto.serializer(), Unit, EmptySerializer)
+
+    suspend fun getMyWants(): ApiResult<WantsResponse> =
+        get("/api/me/wants", WantsResponse.serializer())
+
+    suspend fun getUserWants(userId: String): ApiResult<WantsResponse> =
+        get("/api/users/$userId/wants", WantsResponse.serializer())
+
     // --- Shop & Products ---
 
     suspend fun searchProducts(query: String = "", cursor: String? = null, limit: Int = 50): ApiResult<ProductsPageDto> =
@@ -658,10 +673,11 @@ class TownApiClient(
         locationId: String? = null,
         cursor: String? = null,
         limit: Int = 30,
+        query: String? = null,
     ): ApiResult<ActivitiesPageDto> = get(
         buildQuery(
             "/api/activities",
-            mapOf("name" to name, "placeId" to placeId, "locationId" to locationId, "cursor" to cursor, "limit" to limit.toString()),
+            mapOf("name" to name, "placeId" to placeId, "locationId" to locationId, "cursor" to cursor, "limit" to limit.toString(), "q" to query?.takeIf { it.isNotBlank() }),
         ),
         ActivitiesPageDto.serializer(),
     ).map { page -> page.copy(activities = page.activities.map(::normalizeActivityUrls)) }
@@ -909,6 +925,7 @@ class TownApiClient(
 
     private fun normalizeCommunityUrls(community: CommunityDto): CommunityDto = community.copy(
         latestPosts = community.latestPosts.map { it.copy(photoUrl = resolveUrl(it.photoUrl)) },
+        members = community.members.map { it.copy(photoUrl = it.photoUrl?.let(::resolveUrl)) },
     )
 
     private fun normalizeCommunityMemberUrls(member: CommunityMemberDto): CommunityMemberDto = member.copy(

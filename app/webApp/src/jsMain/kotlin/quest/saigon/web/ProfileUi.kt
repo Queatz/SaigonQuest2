@@ -158,6 +158,7 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     body.appendChild(intro.root)
     body.appendChild(error)
     body.appendChild(communitiesPanel(shell, router))
+    body.appendChild(wantsPanel(shell))
     body.appendChild(productsPreview(shell, router))
     body.appendChild(activitiesPreview(shell, router))
     body.appendChild(el("h3", text = Town.t("createAvatar")))
@@ -194,6 +195,87 @@ internal fun profileScreen(router: HistoryRouter): HTMLElement {
     shell.appendChild(bar)
     updateSaveVisibility()
     return shell
+}
+
+private fun wantsPanel(host: HTMLElement): HTMLElement {
+    val box = el("section", "community-panel wants-panel")
+    box.appendChild(el("h3", text = Town.t("yourWants")))
+    val list = el("div", "community-list")
+    val input = el("input")
+    input.setAttribute("type", "text")
+    input.setAttribute("maxlength", Limits.WANT_NAME_MAX.toString())
+    input.setAttribute("placeholder", Town.t("wantPlaceholder"))
+    val add = el("button", "secondary", text = Town.t("addWant"))
+    add.setAttribute("type", "button")
+
+    fun load() {
+        list.clear()
+        http("GET", "/api/me/wants") { status, body ->
+            if (status != 200) {
+                list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+                return@http
+            }
+            val wants = parseJson(body).wants
+            val count = wants.length as Int
+            if (count == 0) {
+                list.appendChild(el("p", "hint", text = Town.t("noWants")))
+                return@http
+            }
+            for (i in 0 until count) {
+                val want = wants[i]
+                val id = (want.id as? String).orEmpty()
+                val row = el("div", "community-row want-notebook")
+                val header = el("div", "community-row-header")
+                val info = el("div", "community-row-info")
+                info.appendChild(el("span", "want-notebook-name", text = (want.name as? String).orEmpty()))
+                val leave = el("button", "tiny danger community-action", text = Town.t("leaveWant"))
+                leave.setAttribute("type", "button")
+                leave.onClick {
+                    confirmDialog(
+                        host,
+                        Town.t("leaveWantAsk", mapOf("want" to (want.name as? String).orEmpty())),
+                        Town.t("leaveWantHint"),
+                        Town.t("leaveWant"),
+                    ) {
+                        leave.setAttribute("disabled", "disabled")
+                        http("POST", "/api/wants/${encodeQuery(id)}/leave") { leaveStatus, leaveBody ->
+                            if (leaveStatus == 200) load() else {
+                                leave.removeAttribute("disabled")
+                                toast(host, errorText(leaveBody, leaveStatus))
+                            }
+                        }
+                    }
+                }
+                header.appendChild(info)
+                header.appendChild(leave)
+                row.appendChild(header)
+                list.appendChild(row)
+            }
+        }
+    }
+
+    add.onClick {
+        val name = (input.asDynamic().value as? String).orEmpty().trim()
+        if (name.isBlank()) return@onClick
+        add.setAttribute("disabled", "disabled")
+        val payload = js("({})")
+        payload.name = name
+        http("POST", "/api/wants", jsonStringify(payload)) { status, body ->
+            add.removeAttribute("disabled")
+            if (status == 200 || status == 201) {
+                input.asDynamic().value = ""
+                load()
+            } else {
+                toast(host, errorText(body, status))
+            }
+        }
+    }
+
+    box.appendChild(input)
+    box.appendChild(add)
+    box.appendChild(list)
+    load()
+    return box
 }
 
 private fun avatarStudio(host: HTMLElement, router: HistoryRouter, me: Me): HTMLElement {

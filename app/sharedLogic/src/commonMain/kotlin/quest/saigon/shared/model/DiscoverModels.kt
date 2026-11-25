@@ -49,6 +49,13 @@ data class CommunityPostPhotoDto(
 )
 
 @Serializable
+data class CommunityCardMemberDto(
+    val id: String,
+    val name: String = "",
+    val photoUrl: String? = null,
+)
+
+@Serializable
 data class CommunityDto(
     val id: String,
     val name: String = "",
@@ -58,11 +65,30 @@ data class CommunityDto(
     val joined: Boolean = false,
     val createdAt: Long = 0L,
     val latestPosts: List<CommunityPostPhotoDto> = emptyList(),
+    val members: List<CommunityCardMemberDto> = emptyList(),
 )
 
 @Serializable
 data class CommunitiesResponse(
     val communities: List<CommunityDto> = emptyList(),
+)
+
+@Serializable
+data class WantDto(
+    val id: String,
+    val name: String = "",
+    val memberCount: Long = 0L,
+    val joined: Boolean = false,
+)
+
+@Serializable
+data class WantsResponse(
+    val wants: List<WantDto> = emptyList(),
+)
+
+@Serializable
+data class CreateWantRequest(
+    val name: String,
 )
 
 @Serializable
