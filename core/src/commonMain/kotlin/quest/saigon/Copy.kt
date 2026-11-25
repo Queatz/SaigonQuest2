@@ -418,7 +418,7 @@ object Copy {
         "weekdayFri" to "Fri",
         "weekdaySat" to "Sat",
         "weekdaySun" to "Sun",
-        "myActivities" to "My activities",
+        "myActivities" to "Your activities",
         "activityCount.one" to "{count} activity",
         "activityCount.many" to "{count} activities",
         "peopleNamesAndMore" to "{first}, {second}, and {count} more",

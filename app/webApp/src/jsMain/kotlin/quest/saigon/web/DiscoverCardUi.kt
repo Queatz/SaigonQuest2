@@ -1,9 +1,17 @@
 package quest.saigon.web
 
+import quest.saigon.CalmGradients
 import web.html.HTMLElement
 
 internal data class DiscoverCardPerson(val name: String, val photoUrl: String? = null)
 internal data class DiscoverCardPhoto(val id: String, val photoUrl: String)
+
+internal fun calmGradientCss(key: String): String {
+    val gradient = CalmGradients.forKey(key)
+    fun Long.cssColor() = "#${(this and 0xFFFFFFL).toString(16).padStart(6, '0')}"
+    return "linear-gradient(130deg, ${gradient.startArgb.cssColor()}, ${gradient.endArgb.cssColor()})"
+}
+
 internal data class DiscoverCardDetail(
     val text: String,
     val emphasis: Boolean = false,
@@ -21,9 +29,11 @@ internal fun discoverBannerCard(
     action: HTMLElement? = null,
     onClick: (() -> Unit)? = null,
     onPhotoClick: ((String) -> Unit)? = null,
+    gradientKey: String = title,
 ): HTMLElement {
     val card = el("article", if (onClick == null) "discover-card" else "discover-card is-clickable")
     val banner = el("div", "discover-card-banner")
+    banner.asDynamic().style.background = calmGradientCss(gradientKey)
     if (photoUrl.isNullOrBlank()) {
         banner.appendChild(el("span", "discover-card-fallback", text = fallback))
     } else {

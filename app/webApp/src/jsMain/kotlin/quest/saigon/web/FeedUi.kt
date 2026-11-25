@@ -971,6 +971,9 @@ internal fun openMiniProfile(
     val chrome = SheetChrome("comment-sheet profile-sheet", name)
     val body = el("div", "profile-sheet-body")
     val head = el("div", "profile-sheet-head")
+    val cover = el("div", "profile-sheet-cover")
+    cover.asDynamic().style.background = calmGradientCss(userId.ifBlank { name })
+    head.appendChild(cover)
     if (!photoUrl.isNullOrBlank()) {
         val face = el("img", "face large")
         face.setAttribute("alt", "")
@@ -1081,6 +1084,16 @@ internal fun openMiniProfile(
             updatesHead.textContent = Town.t("latestUpdatesFrom", mapOf("name" to name))
             updatesHead.asDynamic().hidden = false
             val posts = readLocationPosts(parsed.posts)
+            if (next.isNullOrBlank()) {
+                val latestPhoto = posts.firstOrNull()?.allPhotoUrls()?.firstOrNull()
+                if (!latestPhoto.isNullOrBlank()) {
+                    val image = el("img", "profile-sheet-cover-photo")
+                    image.setAttribute("src", latestPhoto)
+                    image.setAttribute("alt", "")
+                    image.setAttribute("loading", "lazy")
+                    cover.appendChild(image)
+                }
+            }
             if (posts.isEmpty() && grid.childElementCount == 0) {
                 grid.appendChild(el("p", "hint", text = Town.t("noPosts")))
             } else {

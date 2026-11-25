@@ -477,6 +477,7 @@ private fun renderDiscoverEventCards(
                 photoUrl = post.photoUrl,
                 fallback = post.communityEmoji ?: EVENT_ICON,
                 title = post.message.ifBlank { post.location },
+                gradientKey = post.id,
                 details = detail.map { DiscoverCardDetail(it) },
                 people = post.attendees.map { DiscoverCardPerson(it.name, it.photoUrl) },
                 action = action,
@@ -496,6 +497,7 @@ private fun discoverPersonCard(node: dynamic, host: HTMLElement, router: History
         photoUrl = photo,
         fallback = person.name.take(1).uppercase(),
         title = person.name,
+        gradientKey = person.id,
         details = listOf(person.location, person.intro).map { DiscoverCardDetail(it) },
         titlePerson = DiscoverCardPerson(person.name, person.photoUrl),
         action = action,
@@ -512,6 +514,7 @@ private fun discoverCommunityCard(router: HistoryRouter, community: CommunityCar
         photoUrl = photo,
         fallback = community.emoji,
         title = "${community.emoji} ${community.name}",
+        gradientKey = community.id,
         details = listOf(
             DiscoverCardDetail(community.description, expanded = true),
             DiscoverCardDetail("${community.memberCount} ${Town.t("communityMembers")}"),

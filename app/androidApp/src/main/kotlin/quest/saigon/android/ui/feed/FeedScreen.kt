@@ -192,6 +192,7 @@ fun FeedScreen(
     var fullMessagePost by remember { mutableStateOf<PostCardDto?>(null) }
     var zoomPhotoUrl by remember { mutableStateOf<String?>(null) }
     var selectedPerson by remember { mutableStateOf<SelectedPersonModal?>(null) }
+    var miniProfileCoverPhoto by remember { mutableStateOf<String?>(null) }
     var miniProfileCommunities by remember { mutableStateOf<List<CommunityDto>>(emptyList()) }
     var miniProfileWants by remember { mutableStateOf<List<WantDto>>(emptyList()) }
     var wantSheetId by remember { mutableStateOf<String?>(null) }
@@ -247,6 +248,7 @@ fun FeedScreen(
     }
 
     LaunchedEffect(selectedPerson?.id) {
+        miniProfileCoverPhoto = null
         miniProfileCommunities = emptyList()
         miniProfileWants = emptyList()
         val userId = selectedPerson?.id?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
@@ -257,6 +259,10 @@ fun FeedScreen(
         val wantsResult = shared.api.getUserWants(userId)
         if (wantsResult is quest.saigon.shared.network.ApiResult.Success) {
             miniProfileWants = wantsResult.value.wants
+        }
+        val postsResult = shared.api.getUserPosts(userId, limit = 1)
+        if (postsResult is quest.saigon.shared.network.ApiResult.Success) {
+            miniProfileCoverPhoto = postsResult.value.posts.firstOrNull()?.allPhotoUrls()?.firstOrNull()
         }
     }
 
@@ -1056,6 +1062,8 @@ fun FeedScreen(
         MiniProfileDialog(
             name = person.name,
             photoUrl = person.photoUrl,
+            coverPhotoUrl = miniProfileCoverPhoto,
+            gradientKey = person.id,
             location = person.location,
             intro = person.intro,
             communities = miniProfileCommunities,

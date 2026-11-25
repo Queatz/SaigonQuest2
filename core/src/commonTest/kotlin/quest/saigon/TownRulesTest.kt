@@ -7,6 +7,17 @@ import kotlin.test.assertTrue
 
 class TownRulesTest {
     @Test
+    fun calmGradientsAreStableForTheSameKey() {
+        assertEquals(CalmGradients.forKey("profile-123"), CalmGradients.forKey("profile-123"))
+    }
+
+    @Test
+    fun profileSettingsCopyUsesRequestedLabels() {
+        assertEquals("Your activities", Copy.text(Language.EN, "myActivities"))
+        assertEquals("Suggest a feature", Copy.text(Language.EN, "suggestFeature"))
+    }
+
+    @Test
     fun locationTokensRoundTripNamesAndRejectInvalidTokens() {
         listOf("Cafe", "  Quán cà phê  ").forEach { name ->
             assertEquals(name.trim(), decodeLocationToken(encodeLocationToken(name)))

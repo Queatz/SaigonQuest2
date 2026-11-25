@@ -42,6 +42,7 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import quest.saigon.AppRoute
+import quest.saigon.CalmGradients
 import quest.saigon.Copy
 import quest.saigon.Language
 import quest.saigon.Limits
@@ -436,6 +437,7 @@ fun DiscoverScreen(
                                         photoUrl = ev.photoUrl,
                                         fallback = ev.communityEmoji ?: "📅",
                                         title = ev.message.ifBlank { ev.location },
+                                        gradientKey = ev.id,
                                         details = listOfNotNull(
                                             ev.eventStartAt?.let(::discoverEventClock),
                                             ev.location,
@@ -486,7 +488,8 @@ fun DiscoverScreen(
                                 DiscoverItemCard(
                                     photoUrl = act.photoUrls.firstOrNull() ?: act.locationPhotoUrl,
                                     fallback = act.emoji,
-                                    title = ActivityStore.localizedName(act, lang),
+                                    title = "${act.emoji.ifBlank { "✨" }} ${ActivityStore.localizedName(act, lang)}",
+                                    gradientKey = act.id,
                                     details = listOfNotNull(
                                         act.locationName.takeIf { it.isNotBlank() }?.let { DiscoverCardDetail(it, emphasis = true) },
                                         act.host?.name?.takeIf { it.isNotBlank() }?.let { DiscoverCardDetail("${Copy.text(lang, "host")}: $it") },
@@ -538,6 +541,7 @@ fun DiscoverScreen(
                                         photoUrl = product.photoUrls.firstOrNull(),
                                         fallback = "🛍️",
                                         title = product.name,
+                                        gradientKey = product.id,
                                         details = listOfNotNull(
                                             DiscoverCardDetail(formatVnd(product.price), emphasis = true),
                                             product.description.takeIf { it.isNotBlank() }?.let { DiscoverCardDetail(it) },
@@ -593,6 +597,7 @@ fun DiscoverScreen(
                                     photoUrl = person.latestPostPhotoUrl ?: person.photoUrl,
                                     fallback = person.name.take(1).uppercase(),
                                     title = person.name,
+                                    gradientKey = person.id,
                                     titlePerson = EventPersonDto(name = person.name, photoUrl = person.photoUrl),
                                     details = listOfNotNull(
                                         person.location.takeIf { it.isNotBlank() },
@@ -648,6 +653,7 @@ fun DiscoverScreen(
                                     photoUrl = comm.latestPosts.firstOrNull()?.photoUrl,
                                     fallback = comm.emoji,
                                     title = "${comm.emoji} ${comm.name}",
+                                    gradientKey = comm.id,
                                     people = comm.members.map { EventPersonDto(id = it.id, name = it.name, photoUrl = it.photoUrl) },
                                     details = listOf(
                                         DiscoverCardDetail(comm.description, expanded = true),
@@ -708,6 +714,7 @@ fun DiscoverScreen(
                     items(shownPlaces) { place ->
                         PlaceRowCard(
                             place = place,
+                            language = lang,
                             onClick = {
                                 showPlaceSearch = false
                                 val token = openLocationDestination(
@@ -890,6 +897,7 @@ private fun DiscoverItemCard(
     photoUrl: String?,
     fallback: String,
     title: String,
+    gradientKey: String = title,
     details: List<DiscoverCardDetail>,
     people: List<EventPersonDto> = emptyList(),
     titlePerson: EventPersonDto? = null,
@@ -901,6 +909,7 @@ private fun DiscoverItemCard(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalSaigonTokens.current
+    val gradient = CalmGradients.forKey(gradientKey)
     SaigonCard(
         onClick = onClick,
         borderWidth = 1.dp,
@@ -915,7 +924,7 @@ private fun DiscoverItemCard(
                     .fillMaxWidth()
                     .height(122.dp)
                     .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xFFDCE8E7), Color(0xFFB9CED2)))),
+                    .background(Brush.linearGradient(listOf(Color(gradient.startArgb), Color(gradient.endArgb)))),
             ) {
                 if (!photoUrl.isNullOrBlank()) {
                     AsyncImage(
@@ -1130,8 +1139,10 @@ private fun PostSearchSheet(
 }
 
 @Composable
-private fun PlaceRowCard(place: PlaceSuggestionDto, onClick: () -> Unit) {
+private fun PlaceRowCard(place: PlaceSuggestionDto, language: Language, onClick: () -> Unit) {
     val tokens = LocalSaigonTokens.current
+    val photoUrl = place.photoUrl ?: place.googlePhotoUrl
+    val gradient = CalmGradients.forKey(place.id ?: place.placeId ?: place.name)
     SaigonCard(
         onClick = onClick,
         borderWidth = 1.dp,
@@ -1143,20 +1154,34 @@ private fun PlaceRowCard(place: PlaceSuggestionDto, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            AsyncImage(
-                model = place.photoUrl ?: place.googlePhotoUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(SaigonColors.Card),
-            )
+            if (!photoUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = photoUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)),
+                )
+            } else {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Brush.linearGradient(listOf(Color(gradient.startArgb), Color(gradient.endArgb)))),
+                ) {
+                    Text(place.activityEmojis.firstOrNull() ?: "📍", fontSize = 20.sp)
+                }
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(place.name, color = tokens.text, fontWeight = FontWeight.ExtraBold)
                 if (place.address.isNotBlank()) {
                     Text(place.address, fontSize = 12.sp, color = tokens.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                Text(
+                    Copy.text(language, "postCount", mapOf("count" to place.postCount.coerceAtLeast(0).toString())),
+                    fontSize = 12.sp,
+                    color = tokens.muted,
+                )
             }
             if (place.activityEmojis.isNotEmpty()) {
                 Text(place.activityEmojis.joinToString(" "))

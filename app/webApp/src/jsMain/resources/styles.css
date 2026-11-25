@@ -977,6 +977,24 @@ small, .hint { color: var(--muted); font-size: 13px; }
     gap: 8px;
 }
 
+.profile-sheet-cover {
+    position: relative;
+    width: 100%;
+    height: 138px;
+    margin-bottom: -48px;
+    overflow: hidden;
+    border-radius: 17px;
+}
+
+.profile-sheet-cover-photo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.profile-sheet-head > .face.large { position: relative; }
+
 .dialog.visitor-welcome {
     text-align: center;
     display: grid;
@@ -4103,9 +4121,9 @@ span.event-face {
 .events-current-location-dot {
     position: absolute;
     transform: translate(-50%, -50%);
-    width: 16px;
-    height: 16px;
-    border: 3px solid #fff;
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid #fff;
     border-radius: 50%;
     background: #4285f4;
     box-shadow: 0 2px 8px rgba(0, 0, 0, .35);

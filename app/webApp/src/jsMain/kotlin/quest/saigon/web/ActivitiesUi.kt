@@ -655,10 +655,12 @@ private fun discoverActivityCard(activity: dynamic, host: HTMLElement, router: H
         toggleActivityInterest(host, activity, action) { onChanged() }
     }
     val id = activity.id as? String ?: ""
+    val emoji = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨"
     return discoverBannerCard(
         photoUrl = photoUrl,
-        fallback = (activity.emoji as? String)?.ifBlank { "✨" } ?: "✨",
-        title = localizedActivityText(activity, "name"),
+        fallback = emoji,
+        title = "$emoji ${localizedActivityText(activity, "name")}",
+        gradientKey = id,
         details = details,
         people = people,
         action = action,

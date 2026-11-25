@@ -66,6 +66,7 @@ import quest.saigon.android.ui.components.LinkifiedText
 import quest.saigon.android.ui.components.LocationInputRow
 import quest.saigon.android.ui.components.LocationPickerDialog
 import quest.saigon.android.ui.components.PhotoViewerDialog
+import quest.saigon.android.ui.components.ProfileCoverPhoto
 import quest.saigon.android.ui.components.PostGridRows
 import quest.saigon.android.ui.components.SaigonCard
 import quest.saigon.android.ui.components.SaigonConfirmDialog
@@ -387,9 +388,9 @@ fun ProfileScreen(
                 add(Copy.text(lang, "yourCommunities") to AppRoute.MyCommunities)
                 add(Copy.text(lang, "yourMusic") to AppRoute.MyMusic)
                 add(Copy.text(lang, "yourLessons") to AppRoute.MyProducts)
-                add(Copy.text(lang, "myActivities") to AppRoute.MyActivities)
                 add(ordersLabel to AppRoute.MyOrders)
-                add(Copy.text(lang, "allFeatures") to AppRoute.FeatureSuggestions)
+                add(Copy.text(lang, "myActivities") to AppRoute.MyActivities)
+                add(Copy.text(lang, "suggestFeature") to AppRoute.FeatureSuggestions)
                 add(Copy.text(lang, "stats") to AppRoute.Stats)
                 if (me?.admin == true) add(Copy.text(lang, "admin") to AppRoute.Admin)
             }
@@ -526,6 +527,7 @@ fun PublicUserProfileScreen(
                 SaigonSpinner()
             }
         } else if (user != null) {
+            val coverPhotoUrl = profileState.viewedUserPosts.firstOrNull()?.allPhotoUrls()?.firstOrNull()
             LazyColumn(
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 28.dp + bottomInset),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -537,21 +539,33 @@ fun PublicUserProfileScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        UserAvatar(
-                            photoUrl = user.photoUrl,
-                            name = user.name,
-                            size = 96.dp,
-                            borderWidth = 0.dp,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .then(
-                                    if (!user.photoUrl.isNullOrBlank()) {
-                                        Modifier.clickable { zoomPhoto = user.photoUrl }
-                                    } else {
-                                        Modifier
-                                    },
-                                ),
-                        )
+                        Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                            ProfileCoverPhoto(
+                                photoUrl = coverPhotoUrl,
+                                gradientKey = user.id,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(132.dp)
+                                    .align(Alignment.TopCenter)
+                                    .clip(RoundedCornerShape(18.dp)),
+                            )
+                            UserAvatar(
+                                photoUrl = user.photoUrl,
+                                name = user.name,
+                                size = 96.dp,
+                                borderWidth = 0.dp,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (!user.photoUrl.isNullOrBlank()) {
+                                            Modifier.clickable { zoomPhoto = user.photoUrl }
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                            )
+                        }
                         Text(user.name, color = tokens.text, style = MaterialTheme.typography.titleLarge)
                         if (user.location.isNotBlank()) {
                             Text(user.location, color = tokens.muted, fontWeight = FontWeight.Bold)

@@ -886,11 +886,11 @@ private fun NativeGoogleMapView(
                 val locationBitmap = rememberComposeBitmap("currentLocation") {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
-                            .shadow(4.dp, CircleShape)
+                            .size(12.dp)
+                            .shadow(2.dp, CircleShape)
                             .clip(CircleShape)
                             .background(Color(0xFF4285F4))
-                            .border(3.dp, Color.White, CircleShape),
+                            .border(1.5.dp, Color.White, CircleShape),
                     )
                 }
                 val locationIcon = remember(locationBitmap) { BitmapDescriptorFactory.fromBitmap(locationBitmap) }

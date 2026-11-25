@@ -387,6 +387,7 @@ private fun discoverProductCard(product: dynamic, host: HTMLElement, router: His
         photoUrl = photoUrl,
         fallback = "🛍️",
         title = product.name as? String ?: "",
+        gradientKey = (product.id as? String).orEmpty(),
         details = listOf(
             DiscoverCardDetail(productPrice(product.price), emphasis = true),
             DiscoverCardDetail(product.description as? String ?: ""),

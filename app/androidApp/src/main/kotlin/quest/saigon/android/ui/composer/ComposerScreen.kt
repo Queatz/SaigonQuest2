@@ -141,6 +141,7 @@ fun ComposerScreen(
     var activePhotoIdx by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf("") }
     var firstComment by remember { mutableStateOf("") }
+    var firstCommentEnabled by remember { mutableStateOf(false) }
     var locationText by remember { mutableStateOf(sessionState.me?.location.orEmpty()) }
     var selectedPlace by remember(sessionState.me?.id) {
         val me = sessionState.me
@@ -325,7 +326,7 @@ fun ComposerScreen(
         val fields = buildMap {
             put("message", message.trim())
             put("location", locName)
-            if (firstComment.isNotBlank()) put("firstComment", firstComment.trim())
+            if (firstCommentEnabled && firstComment.isNotBlank()) put("firstComment", firstComment.trim())
             val placeId = selectedPlace?.placeId?.takeIf { it.isNotBlank() }
             val locationId = selectedPlace?.id?.takeIf { selectedPlace?.custom == true && placeId == null }
             placeId?.let { put("placeId", it) }
@@ -525,17 +526,6 @@ fun ComposerScreen(
                 }
             }
 
-            SaigonTextField(
-                value = firstComment,
-                onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
-                label = "💭 ${Copy.text(lang, "firstComment")}",
-                singleLine = false,
-                minLines = 2,
-                maxLines = 4,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // Community, Avatar, Music quick pickers
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -557,22 +547,47 @@ fun ComposerScreen(
                     contentColor = if (composerState.selectedMusic != null) tokens.accent else tokens.text,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 )
-            }
-
-            if (selectedCommunity != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(vertical = 2.dp),
-                ) {
-                    SaigonSwitch(checked = communityOnly, onCheckedChange = { communityOnly = it })
-                    Text(
-                        Copy.text(lang, "communityOnly"),
-                        color = tokens.text,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
+                SaigonPillChip(
+                    selected = firstCommentEnabled,
+                    onClick = {
+                        firstCommentEnabled = !firstCommentEnabled
+                        if (!firstCommentEnabled) firstComment = ""
+                    },
+                    label = "💭 ${Copy.text(lang, "firstComment")}",
+                )
+                if (selectedCommunity != null) {
+                    SaigonPillChip(
+                        selected = communityOnly,
+                        onClick = { communityOnly = !communityOnly },
+                        label = Copy.text(lang, "communityOnly"),
                     )
                 }
+                SaigonPillChip(
+                    selected = enableEvent,
+                    onClick = {
+                        enableEvent = !enableEvent
+                        if (enableEvent && eventStartAt == null) {
+                            eventStartAt = defaultEventStartMillis()
+                        }
+                    },
+                    label = "📅 ${Copy.text(lang, "addEvent")}",
+                )
+                SaigonPillChip(selected = enablePoll, onClick = { enablePoll = !enablePoll }, label = "📊 ${Copy.text(lang, "addPoll")}")
+                SaigonPillChip(selected = enableQuestion, onClick = { enableQuestion = !enableQuestion }, label = "❓ ${Copy.text(lang, "askQuestion")}")
+                SaigonPillChip(selected = enableCta, onClick = { enableCta = !enableCta }, label = "📣 ${Copy.text(lang, "addCallToAction")}")
+                SaigonPillChip(selected = enableOpenChat, onClick = { enableOpenChat = !enableOpenChat }, label = "💬 ${Copy.text(lang, "addOpenChat")}")
+            }
+
+            if (firstCommentEnabled) {
+                SaigonTextField(
+                    value = firstComment,
+                    onValueChange = { if (it.length <= Limits.COMMENT_MAX) firstComment = it },
+                    label = "💭 ${Copy.text(lang, "firstComment")}",
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             val suggestion = composerState.communitySuggestion
@@ -631,25 +646,6 @@ fun ComposerScreen(
 
             HorizontalDivider(color = tokens.line, thickness = 1.dp)
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            ) {
-                SaigonPillChip(
-                    selected = enableEvent,
-                    onClick = {
-                        enableEvent = !enableEvent
-                        if (enableEvent && eventStartAt == null) {
-                            eventStartAt = defaultEventStartMillis()
-                        }
-                    },
-                    label = "📅 ${Copy.text(lang, "addEvent")}",
-                )
-                SaigonPillChip(selected = enablePoll, onClick = { enablePoll = !enablePoll }, label = "📊 ${Copy.text(lang, "addPoll")}")
-                SaigonPillChip(selected = enableQuestion, onClick = { enableQuestion = !enableQuestion }, label = "❓ ${Copy.text(lang, "askQuestion")}")
-                SaigonPillChip(selected = enableCta, onClick = { enableCta = !enableCta }, label = "📣 ${Copy.text(lang, "addCallToAction")}")
-                SaigonPillChip(selected = enableOpenChat, onClick = { enableOpenChat = !enableOpenChat }, label = "💬 ${Copy.text(lang, "addOpenChat")}")
-            }
 
             if (enableEvent) {
                 val startMs = eventStartAt ?: defaultEventStartMillis()

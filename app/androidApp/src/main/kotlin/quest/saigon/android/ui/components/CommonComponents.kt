@@ -101,6 +101,7 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import quest.saigon.AppRoute
+import quest.saigon.CalmGradients
 import quest.saigon.CheckIns
 import quest.saigon.Copy
 import quest.saigon.Language
@@ -1288,6 +1289,8 @@ fun MiniProfileDialog(
     wants: List<WantDto> = emptyList(),
     onToggleWant: ((String, Boolean) -> Unit)? = null,
     onOpenWant: ((String) -> Unit)? = null,
+    coverPhotoUrl: String? = null,
+    gradientKey: String = name,
 ) {
     val tokens = LocalSaigonTokens.current
     var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
@@ -1297,7 +1300,24 @@ fun MiniProfileDialog(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            UserAvatar(photoUrl = photoUrl, name = name, size = 96.dp, borderWidth = 0.dp)
+            Box(modifier = Modifier.fillMaxWidth().height(176.dp)) {
+                ProfileCoverPhoto(
+                    photoUrl = coverPhotoUrl,
+                    gradientKey = gradientKey,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(128.dp)
+                        .align(Alignment.TopCenter)
+                        .clip(RoundedCornerShape(16.dp)),
+                )
+                UserAvatar(
+                    photoUrl = photoUrl,
+                    name = name,
+                    size = 96.dp,
+                    borderWidth = 0.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
             Text(
                 text = name,
                 color = tokens.text,
@@ -1437,6 +1457,29 @@ fun MiniProfileDialog(
             },
             onDismiss = { pendingWantLeave = null },
         )
+    }
+}
+
+@Composable
+fun ProfileCoverPhoto(
+    photoUrl: String?,
+    gradientKey: String,
+    modifier: Modifier = Modifier,
+) {
+    val gradient = CalmGradients.forKey(gradientKey)
+    Box(
+        modifier = modifier.background(
+            Brush.linearGradient(listOf(Color(gradient.startArgb), Color(gradient.endArgb))),
+        ),
+    ) {
+        if (!photoUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = photoUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
