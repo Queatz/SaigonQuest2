@@ -43,4 +43,54 @@ class WantSpaceLayoutTest {
         }
         assertTrue(abs(list.first().x) < 40.0 && abs(list.first().y) < 40.0)
     }
+
+    @Test
+    fun zoomBoundsAndHueShiftAreBounded() {
+        assertEquals(0.25, WantSpaceLayout.clampZoom(0.05))
+        assertEquals(1.0, WantSpaceLayout.clampZoom(1.0))
+        assertEquals(1.5, WantSpaceLayout.clampZoom(3.2))
+
+        assertEquals(229.0, WantSpaceLayout.shiftedHue(229.0, 0.0), 0.001)
+        val mid = WantSpaceLayout.shiftedHue(229.0, 10.0)
+        assertEquals(309.0, mid, 0.001)
+        val wrapped = WantSpaceLayout.shiftedHue(229.0, 20.0)
+        assertEquals(29.0, wrapped, 0.001)
+    }
+
+    @Test
+    fun zoomInertiaGlidesSmoothlyAndRespectsBoundsAndIdleCutoff() {
+        var vel = 0.0
+        repeat(5) {
+            vel = WantSpaceLayout.updateZoomVelocity(vel, zoomFactor = 1.04, dtMs = 16.0)
+        }
+        assertTrue(vel > 0.0 && vel <= WantSpaceLayout.MAX_ZOOM_LOG_VEL)
+
+        val releasedPromptly = WantSpaceLayout.releaseZoomVelocity(vel, idleMs = 16.0)
+        assertTrue(releasedPromptly > 0.0)
+        assertEquals(0.0, WantSpaceLayout.releaseZoomVelocity(vel, idleMs = 200.0))
+
+        var zoom = 1.0
+        var coastVel = releasedPromptly
+        var frames = 0
+        while (coastVel != 0.0 && frames < 120) {
+            val step = WantSpaceLayout.stepZoomInertia(zoom, coastVel, dtMs = 16.0)
+            assertTrue(step.zoom >= zoom)
+            zoom = step.zoom
+            coastVel = step.velocity
+            frames++
+        }
+        assertTrue(zoom > 1.02 && zoom <= WantSpaceLayout.MAX_ZOOM)
+        assertEquals(0.0, coastVel)
+
+        val clampedHigh = WantSpaceLayout.stepZoomInertia(1.49, 0.04, dtMs = 16.0)
+        assertEquals(WantSpaceLayout.MAX_ZOOM, clampedHigh.zoom)
+        assertEquals(0.0, clampedHigh.velocity)
+
+        val clampedLow = WantSpaceLayout.stepZoomInertia(0.255, -0.04, dtMs = 16.0)
+        assertEquals(WantSpaceLayout.MIN_ZOOM, clampedLow.zoom)
+        assertEquals(0.0, clampedLow.velocity)
+
+        val wheelVel = WantSpaceLayout.wheelZoomVelocity(0.0, totalLogDelta = 0.2)
+        assertTrue(wheelVel > 0.0 && wheelVel <= WantSpaceLayout.MAX_ZOOM_LOG_VEL)
+    }
 }

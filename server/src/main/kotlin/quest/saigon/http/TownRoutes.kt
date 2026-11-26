@@ -2035,6 +2035,28 @@ fun Route.townApi(services: TownServices) {
         call.respondJson(mapOf("ok" to true))
     }
 
+    get("/admin/wants") {
+        val admin = call.requireAdmin(services) ?: return@get
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50
+        val page = services.repo.adminWants(call.request.queryParameters["cursor"], limit)
+        call.respondJson(
+            mapOf(
+                "wants" to page.items.map { wantPayload(services.wants.view(it, admin.id)) },
+                "nextCursor" to page.nextCursor,
+            ),
+        )
+    }
+
+    delete("/admin/wants/{id}") {
+        call.requireAdmin(services) ?: return@delete
+        try {
+            services.wants.delete(call.parameters["id"].orEmpty())
+        } catch (error: TownException) {
+            return@delete call.fail(error.code)
+        }
+        call.respondJson(mapOf("ok" to true))
+    }
+
     get("/chats") {
         val user = call.user(services) ?: return@get call.fail("unauthorized")
         val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 50

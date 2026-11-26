@@ -1303,6 +1303,29 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         return CommentPage(items, next, db.collection(COMMENTS).count().count)
     }
 
+    override fun adminWants(cursor: String?, limit: Int): WantPage {
+        val parsed = Cursors.parse(cursor)
+        val bind = mapOf(
+            "limit" to limit + 1,
+            "hasCursor" to (parsed != null),
+            "cursorAt" to (parsed?.first ?: 0L),
+            "cursorKey" to (parsed?.second ?: ""),
+        )
+        val rows = queryList(
+            """
+            FOR w IN $WANTS
+              FILTER @hasCursor == false OR w.createdAt < @cursorAt OR (w.createdAt == @cursorAt AND w._key < @cursorKey)
+              SORT w.createdAt DESC, w._key DESC
+              LIMIT @limit
+              RETURN w
+            """.trimIndent(),
+            bind,
+        )
+        val items = rows.take(limit).map(::wantFrom)
+        val next = if (rows.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        return WantPage(items, next)
+    }
+
     private fun bumpDaily(day: String, field: String) {
         val fieldName = DAILY_FIELDS.find { it == field } ?: return
         val visitor = if (fieldName == "visitorVisits") 1 else 0
@@ -1557,6 +1580,16 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         "FOR w IN $WANTS FILTER w.slug == @slug LIMIT 1 RETURN w",
         mapOf("slug" to slug),
     )?.let(::wantFrom)
+
+    override fun deleteWant(id: String): WantRecord? {
+        val existing = findWant(id) ?: return null
+        exec(
+            "FOR m IN $WANT_MEMBERSHIPS FILTER m.wantKey == @wantKey REMOVE m IN $WANT_MEMBERSHIPS RETURN OLD",
+            mapOf("wantKey" to id),
+        )
+        db.collection(WANTS).deleteDocument(id)
+        return existing
+    }
 
     override fun allWants(): List<WantRecord> = queryList(
         """

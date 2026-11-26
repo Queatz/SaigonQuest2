@@ -1,9 +1,11 @@
 package quest.saigon.android.ui.admin
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -35,9 +37,10 @@ import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.AdminPostDto
 import quest.saigon.shared.model.CommentCardDto
+import quest.saigon.shared.model.WantDto
 import quest.saigon.shared.platform.currentTimeMillis
 
-private enum class AdminTab { USERS, POSTS, COMMENTS }
+private enum class AdminTab { USERS, POSTS, COMMENTS, WANTS }
 
 @Composable
 fun AdminScreen(
@@ -51,12 +54,14 @@ fun AdminScreen(
     var tab by remember { mutableStateOf(AdminTab.USERS) }
     var pendingDeletePost by remember { mutableStateOf<AdminPostDto?>(null) }
     var pendingDeleteComment by remember { mutableStateOf<CommentCardDto?>(null) }
+    var pendingDeleteWant by remember { mutableStateOf<WantDto?>(null) }
 
     LaunchedEffect(Unit) {
         if (shared.admin.verifyAdmin()) {
             shared.admin.loadUsers()
             shared.admin.loadPosts()
             shared.admin.loadComments()
+            shared.admin.loadWants()
         }
     }
 
@@ -77,11 +82,14 @@ fun AdminScreen(
             } else {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 8.dp),
                 ) {
                     SaigonPillChip(selected = tab == AdminTab.USERS, onClick = { tab = AdminTab.USERS }, label = Copy.text(lang, "adminUsers"))
                     SaigonPillChip(selected = tab == AdminTab.POSTS, onClick = { tab = AdminTab.POSTS }, label = Copy.text(lang, "adminPosts"))
                     SaigonPillChip(selected = tab == AdminTab.COMMENTS, onClick = { tab = AdminTab.COMMENTS }, label = Copy.text(lang, "adminComments"))
+                    SaigonPillChip(selected = tab == AdminTab.WANTS, onClick = { tab = AdminTab.WANTS }, label = Copy.text(lang, "adminWants"))
                 }
 
                 when (tab) {
@@ -334,6 +342,68 @@ fun AdminScreen(
                             }
                         }
                     }
+
+                    AdminTab.WANTS -> if (state.isLoading && state.wants.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { SaigonSpinner() }
+                    } else if (state.wants.isEmpty()) {
+                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Text(Copy.text(lang, "noWants"), color = tokens.muted)
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.navigationBarsPadding(),
+                        ) {
+                            items(state.wants, key = { it.id }) { want ->
+                                SaigonCard(
+                                    borderWidth = 1.dp,
+                                    cornerRadius = 16.dp,
+                                    contentPadding = PaddingValues(10.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        if (!want.photoUrl.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = want.photoUrl,
+                                                contentDescription = null,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(width = 64.dp, height = 44.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(tokens.line),
+                                            )
+                                        }
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                                            Text(want.name, color = tokens.text, fontWeight = FontWeight.ExtraBold)
+                                            Text(
+                                                Copy.text(lang, "wantMembersCount", mapOf("count" to want.memberCount.toString())),
+                                                fontSize = 13.sp,
+                                                color = tokens.muted,
+                                            )
+                                        }
+                                        SaigonTinyPill(
+                                            label = Copy.text(lang, "delete"),
+                                            danger = true,
+                                            onClick = { pendingDeleteWant = want },
+                                        )
+                                    }
+                                }
+                            }
+                            if (state.wantsNextCursor != null) {
+                                item {
+                                    SaigonTextButton(
+                                        text = Copy.text(lang, "loadMore"),
+                                        onClick = { shared.admin.loadWants(loadMore = true) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -372,6 +442,24 @@ fun AdminScreen(
                 }
             },
             onDismiss = { pendingDeleteComment = null },
+        )
+    }
+
+    pendingDeleteWant?.let { target ->
+        SaigonConfirmDialog(
+            title = Copy.text(lang, "deleteWantAsk"),
+            hint = Copy.text(lang, "deleteWantHint"),
+            confirmLabel = Copy.text(lang, "delete"),
+            cancelLabel = Copy.text(lang, "cancel"),
+            loading = state.isMutating,
+            onConfirm = {
+                scope.launch {
+                    if (shared.admin.deleteWant(target.id)) {
+                        pendingDeleteWant = null
+                    }
+                }
+            },
+            onDismiss = { pendingDeleteWant = null },
         )
     }
 }

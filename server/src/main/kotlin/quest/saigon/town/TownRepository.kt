@@ -88,6 +88,7 @@ interface TownRepository {
     fun setUserPaused(userId: String, paused: Boolean): UserRecord?
     fun adminPosts(cursor: String?, limit: Int): AdminPostPage
     fun adminComments(cursor: String?, limit: Int): CommentPage
+    fun adminWants(cursor: String?, limit: Int): WantPage
     fun insertCommunity(community: CommunityRecord): CommunityRecord
     fun findCommunity(id: String): CommunityRecord?
     fun findCommunityBySlug(slug: String): CommunityRecord?
@@ -102,6 +103,7 @@ interface TownRepository {
     fun insertWant(want: WantRecord): WantRecord
     fun findWant(id: String): WantRecord?
     fun findWantBySlug(slug: String): WantRecord?
+    fun deleteWant(id: String): WantRecord?
     fun allWants(): List<WantRecord>
     fun wantsWithoutPhoto(): List<WantRecord>
     fun updateWantPhoto(wantId: String, photoPath: String?, photoBlocked: Boolean = false): WantRecord?

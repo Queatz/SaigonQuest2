@@ -369,6 +369,12 @@ class FeatureStoresTest {
                         jsonHeaders,
                     )
                     path == "/api/admin/users/u2/pause" -> respond("""{"id":"u2","paused":true}""", HttpStatusCode.OK, jsonHeaders)
+                    path == "/api/admin/wants" && req.method == HttpMethod.Get -> respond(
+                        """{"wants":[{"id":"w1","name":"Go hiking","photoUrl":"/media/wants/hike.jpg","memberCount":2,"joined":false}],"nextCursor":null}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/admin/wants/w1" && req.method == HttpMethod.Delete -> respond("""{"ok":true}""", HttpStatusCode.OK, jsonHeaders)
                     else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
                 }
             }
@@ -393,9 +399,14 @@ class FeatureStoresTest {
 
         assertTrue(admin.verifyAdmin())
         admin.loadUsers()
+        admin.loadWants()
         advanceUntilIdle()
         assertTrue(admin.setUserPaused("u2", true))
         assertTrue(admin.state.value.users.first().paused)
+        assertEquals(1, admin.state.value.wants.size)
+        assertEquals("https://saigon.town/media/wants/hike.jpg", admin.state.value.wants.first().photoUrl)
+        assertTrue(admin.deleteWant("w1"))
+        assertTrue(admin.state.value.wants.isEmpty())
     }
 
     @Test

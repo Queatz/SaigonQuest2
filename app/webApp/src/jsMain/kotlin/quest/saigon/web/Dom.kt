@@ -101,8 +101,29 @@ private fun bindKeyboardOverlays() {
     viewport.addEventListener("scroll", sync)
 }
 
+private var escapeOverlaysBound = false
+
+private fun bindEscapeOverlays() {
+    if (escapeOverlaysBound) return
+    escapeOverlaysBound = true
+    document.asDynamic().addEventListener("keydown", { event: dynamic ->
+        if (event.defaultPrevented == true || event.key != "Escape") return@addEventListener
+        val openBackdrops = document.asDynamic().querySelectorAll(".dialog-backdrop:not(.closing)")
+        val length = openBackdrops.length as Int
+        if (length <= 0) return@addEventListener
+        val top = openBackdrops[length - 1]
+        val close = top?.__saigonClose
+        if (close != null && close != undefined) {
+            event.preventDefault()
+            close()
+        }
+    })
+}
+
 internal fun HTMLElement.closeOnOutsideClick(onClose: () -> Unit) {
     keepAboveKeyboard()
+    bindEscapeOverlays()
+    asDynamic().__saigonClose = onClose
     asDynamic().addEventListener("click", { event: dynamic ->
         if (event.target == event.currentTarget) onClose()
     })

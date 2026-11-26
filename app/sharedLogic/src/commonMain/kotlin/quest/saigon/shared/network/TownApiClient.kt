@@ -926,6 +926,13 @@ class TownApiClient(
     suspend fun deleteAdminComment(commentId: String): ApiResult<OkResponse> =
         delete("/api/admin/comments/$commentId", OkResponse.serializer())
 
+    suspend fun getAdminWants(cursor: String? = null, limit: Int = 50): ApiResult<AdminWantsPageDto> =
+        get(buildQuery("/api/admin/wants", mapOf("cursor" to cursor, "limit" to limit.toString())), AdminWantsPageDto.serializer())
+            .map { page -> page.copy(wants = page.wants.map(::normalizeWantUrls)) }
+
+    suspend fun deleteAdminWant(wantId: String): ApiResult<OkResponse> =
+        delete("/api/admin/wants/$wantId", OkResponse.serializer())
+
     // --- URL normalization helpers ---
 
     private fun normalizePlaceUrls(place: PlaceSuggestionDto): PlaceSuggestionDto = place.copy(

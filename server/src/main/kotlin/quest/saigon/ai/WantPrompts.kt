@@ -74,13 +74,13 @@ object WantPrompts {
         require(clean.isNotEmpty() && isLocallySafe(clean)) { "unsafe_want_prompt" }
         return "Hand-drawn ink pen and soft watercolor sketchbook illustration, warm cozy Saigon journal style, " +
             "expressive hand-drawn line work, gentle watercolor washes, soft natural light, " +
-            "no text, no letters, no words, no numbers, no logos, no watermark, no frame. Scene: $clean"
+            "no text, no signature, no letters, no words, no numbers, no logos, no watermark, no frame.\n\nScene: $clean"
     }
 
     private fun extractJsonObject(text: String): String? {
         val start = text.indexOf('{')
         val end = text.lastIndexOf('}')
-        if (start < 0 || end <= start) return null
+        if (start !in 0..<end) return null
         return text.substring(start, end + 1)
     }
 

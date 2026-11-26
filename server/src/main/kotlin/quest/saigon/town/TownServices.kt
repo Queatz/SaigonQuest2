@@ -44,7 +44,7 @@ class TownServices(
     val questions: QuestionService = QuestionService(repo, hub, clock, pusher),
     val chatHub: NotificationHub = NotificationHub(),
     val chats: ChatService = ChatService(repo, chatHub, clock, pusher),
-    val wants: WantService = WantService(repo, hub, clock, pusher, chats),
+    val wants: WantService = WantService(repo, hub, clock, pusher, chats, uploads),
     val products: ProductService = ProductService(repo, uploads, hub, clock, pusher, chats),
     val translations: TranslationService = TranslationService(),
     val activities: ActivityService = ActivityService(repo, chats, clock, translations, uploads),

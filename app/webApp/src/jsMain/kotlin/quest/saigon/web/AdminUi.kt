@@ -28,9 +28,12 @@ private fun paintAdmin(body: HTMLElement, shell: HTMLElement, router: HistoryRou
     postsChip.setAttribute("type", "button")
     val commentsChip = el("button", "chip", text = Town.t("adminComments"))
     commentsChip.setAttribute("type", "button")
+    val wantsChip = el("button", "chip", text = Town.t("adminWants"))
+    wantsChip.setAttribute("type", "button")
     chips.appendChild(usersChip)
     chips.appendChild(postsChip)
     chips.appendChild(commentsChip)
+    chips.appendChild(wantsChip)
     val pane = el("div", "admin-pane")
     body.appendChild(chips)
     body.appendChild(pane)
@@ -39,6 +42,7 @@ private fun paintAdmin(body: HTMLElement, shell: HTMLElement, router: HistoryRou
         usersChip.asDynamic().classList.toggle("selected", tab == "users")
         postsChip.asDynamic().classList.toggle("selected", tab == "posts")
         commentsChip.asDynamic().classList.toggle("selected", tab == "comments")
+        wantsChip.asDynamic().classList.toggle("selected", tab == "wants")
         pane.clear()
         when (tab) {
             "users" -> {
@@ -51,6 +55,11 @@ private fun paintAdmin(body: HTMLElement, shell: HTMLElement, router: HistoryRou
                 pane.appendChild(list)
                 loadAdminPosts(list, shell, router, null)
             }
+            "wants" -> {
+                val list = el("div", "admin-wants")
+                pane.appendChild(list)
+                loadAdminWants(list, shell, null)
+            }
             else -> {
                 val list = el("div", "admin-comments")
                 pane.appendChild(list)
@@ -62,6 +71,7 @@ private fun paintAdmin(body: HTMLElement, shell: HTMLElement, router: HistoryRou
     usersChip.onClick { select("users") }
     postsChip.onClick { select("posts") }
     commentsChip.onClick { select("comments") }
+    wantsChip.onClick { select("wants") }
     select("users")
 }
 
@@ -271,6 +281,71 @@ private fun adminCommentRow(comment: dynamic, shell: HTMLElement): HTMLElement {
         button.onClick {
             confirmDialog(shell, Town.t("deleteCommentAsk"), Town.t("deleteCommentHint")) {
                 http("DELETE", "/api/admin/comments/${card.id}") { code, body ->
+                    if (code == 200) row.asDynamic().remove()
+                    else toast(shell, errorText(body, code))
+                }
+            }
+        }
+    })
+    return row
+}
+
+private fun loadAdminWants(list: HTMLElement, shell: HTMLElement, cursor: String?) {
+    val query = if (cursor.isNullOrBlank()) {
+        "/api/admin/wants?limit=50"
+    } else {
+        "/api/admin/wants?limit=50&cursor=${encodeQuery(cursor)}"
+    }
+    http("GET", query) { status, text ->
+        if (status != 200) {
+            if (list.childNodes.length == 0) list.appendChild(el("p", "hint", text = Town.t("unavailable")))
+            return@http
+        }
+        val parsed = parseJson(text)
+        val wants = parsed.wants
+        val length = nodeCount(wants)
+        if (length == 0 && list.childNodes.length == 0) {
+            list.appendChild(el("p", "hint", text = Town.t("noWants")))
+            return@http
+        }
+        for (i in 0 until length) list.appendChild(adminWantRow(wants[i], shell))
+        val next = parsed.nextCursor as? String
+        if (!next.isNullOrBlank()) {
+            list.appendChild(el("button", "text-button", text = Town.t("loadMore")) { button ->
+                button.setAttribute("type", "button")
+                button.onClick {
+                    button.asDynamic().remove()
+                    loadAdminWants(list, shell, next)
+                }
+            })
+        }
+    }
+}
+
+private fun adminWantRow(wantNode: dynamic, shell: HTMLElement): HTMLElement {
+    val want = parseWantCardData(wantNode)
+    val row = el("article", "admin-want")
+    val main = el("div", "admin-want-main")
+    if (!want.photoUrl.isNullOrBlank()) {
+        main.appendChild(el("img", "admin-want-thumb") { img ->
+            img.setAttribute("src", prefixServerOrigin(want.photoUrl))
+            img.setAttribute("alt", "")
+        })
+    }
+    val copy = el("div", "admin-user-copy")
+    val title = el("div", "admin-user-title")
+    title.appendChild(el("strong", text = want.name))
+    copy.appendChild(title)
+    copy.appendChild(
+        el("p", "admin-user-count", text = Town.t("wantMembersCount", mapOf("count" to want.memberCount.toString()))),
+    )
+    main.appendChild(copy)
+    row.appendChild(main)
+    row.appendChild(el("button", "tiny danger", text = Town.t("delete")) { button ->
+        button.setAttribute("type", "button")
+        button.onClick {
+            confirmDialog(shell, Town.t("deleteWantAsk"), Town.t("deleteWantHint")) {
+                http("DELETE", "/api/admin/wants/${encodeQuery(want.id)}") { code, body ->
                     if (code == 200) row.asDynamic().remove()
                     else toast(shell, errorText(body, code))
                 }

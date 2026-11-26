@@ -59,8 +59,10 @@ class AdminBehaviorTest {
         assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/users").status)
         assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/posts").status)
         assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/comments").status)
+        assertEquals(HttpStatusCode.Forbidden, other.get("/api/admin/wants").status)
         assertEquals(HttpStatusCode.Forbidden, other.post("/api/admin/users/missing/pause").status)
         assertEquals(HttpStatusCode.Forbidden, other.delete("/api/admin/comments/missing").status)
+        assertEquals(HttpStatusCode.Forbidden, other.delete("/api/admin/wants/missing").status)
     }
 
     @Test
@@ -199,8 +201,68 @@ class AdminBehaviorTest {
         assertEquals(HttpStatusCode.NotFound, admin.delete("/api/admin/comments/${older.id}").status)
     }
 
+    @Test
+    fun adminListsWantsAndDeletingWantRemovesAllJoinsAndPhoto() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+
+        val admin = createClient { install(HttpCookies) }
+        admin.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Linh","phone":"0901112233","password":"secretpass"}""")
+        }
+        assertEquals(HttpStatusCode.OK, admin.get("/api/admin/me").status)
+
+        val member = createClient { install(HttpCookies) }
+        member.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"An","phone":"0903334455","password":"secretpass"}""")
+        }
+        val adminId = mapper.readTree(admin.get("/api/me").bodyAsText()).path("id").asText()
+        val memberId = mapper.readTree(member.get("/api/me").bodyAsText()).path("id").asText()
+
+        val firstWant = mapper.readTree(
+            admin.post("/api/wants") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Go kayaking"}""")
+            }.bodyAsText(),
+        ).path("id").asText()
+        val secondWant = mapper.readTree(
+            member.post("/api/wants") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Bake croissants"}""")
+            }.bodyAsText(),
+        ).path("id").asText()
+        member.post("/api/wants/$firstWant/join")
+        val photoPath = services.uploads.writeWant(byteArrayOf(1, 2, 3))
+        services.repo.updateWantPhoto(firstWant, photoPath, photoBlocked = false)
+
+        val page1 = mapper.readTree(admin.get("/api/admin/wants?limit=1").bodyAsText())
+        assertEquals(1, page1.path("wants").size())
+        assertEquals(secondWant, page1.path("wants").path(0).path("id").asText())
+        assertTrue(page1.path("nextCursor").asText().isNotBlank())
+
+        val page2 = mapper.readTree(admin.get("/api/admin/wants?limit=1&cursor=${page1.path("nextCursor").asText()}").bodyAsText())
+        assertEquals(1, page2.path("wants").size())
+        assertEquals(firstWant, page2.path("wants").path(0).path("id").asText())
+        assertEquals(2, page2.path("wants").path(0).path("memberCount").asInt())
+        assertTrue(page2.path("nextCursor").isNull)
+
+        assertEquals(HttpStatusCode.Forbidden, member.delete("/api/admin/wants/$firstWant").status)
+        assertEquals(HttpStatusCode.OK, admin.delete("/api/admin/wants/$firstWant").status)
+        assertNull(services.repo.findWant(firstWant))
+        assertTrue(services.repo.wantMembers(firstWant).isEmpty())
+        assertFalse(services.repo.isWantMember(firstWant, adminId))
+        assertFalse(services.repo.isWantMember(firstWant, memberId))
+        assertTrue(services.repo.wantsForUser(adminId).isEmpty())
+        assertEquals(listOf(secondWant), services.repo.wantsForUser(memberId).map { it.id })
+        assertNull(services.uploads.publicFile("wants", photoPath.removePrefix("wants/")))
+        assertEquals(HttpStatusCode.NotFound, admin.delete("/api/admin/wants/$firstWant").status)
+    }
+
     private fun services(): TownServices {
-        val clock = { 1_700_000_000_000L }
+        var now = 1_700_000_000_000L
+        val clock = { now++ }
         val repo = InMemoryTownRepository()
         val uploads = UploadStore(File.createTempFile("sq-admin", "").apply {
             delete()

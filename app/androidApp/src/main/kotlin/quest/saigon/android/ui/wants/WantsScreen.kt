@@ -8,7 +8,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,6 +44,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
@@ -102,6 +109,15 @@ fun WantsOverlayScreen(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
+    DisposableEffect(Unit) {
+        val musicPlayer = try {
+            WantsSpaceMusicPlayer().also { it.start() }
+        } catch (_: Exception) {
+            null
+        }
+        onDispose { musicPlayer?.stop() }
+    }
+
     val reducedMotion = remember(context) {
         try {
             Settings.Global.getFloat(
@@ -117,9 +133,14 @@ fun WantsOverlayScreen(
     var pendingWantLeave by remember { mutableStateOf<WantDto?>(null) }
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
+    var zoom by remember { mutableFloatStateOf(1f) }
     var velX by remember { mutableFloatStateOf(0f) }
     var velY by remember { mutableFloatStateOf(0f) }
+    var zoomVel by remember { mutableFloatStateOf(0f) }
+    var zoomFocalOffsetX by remember { mutableFloatStateOf(0f) }
+    var zoomFocalOffsetY by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    var pinching by remember { mutableStateOf(false) }
 
     var startFrameMs by remember { mutableLongStateOf(0L) }
     var currentFrameMs by remember { mutableLongStateOf(0L) }
@@ -168,6 +189,17 @@ fun WantsOverlayScreen(
                     velX *= 0.92f
                     velY *= 0.92f
                 }
+                if (!pinching && abs(zoomVel) >= WantSpaceLayout.MIN_ZOOM_LOG_VEL.toFloat()) {
+                    val oldZoom = zoom
+                    val step = WantSpaceLayout.stepZoomInertia(oldZoom.toDouble(), zoomVel.toDouble(), dt.toDouble())
+                    val newZoom = step.zoom.toFloat()
+                    if (newZoom != oldZoom) {
+                        panX = zoomFocalOffsetX - ((zoomFocalOffsetX - panX) / oldZoom) * newZoom
+                        panY = zoomFocalOffsetY - ((zoomFocalOffsetY - panY) / oldZoom) * newZoom
+                        zoom = newZoom
+                    }
+                    zoomVel = step.velocity.toFloat()
+                }
             }
         }
     }
@@ -215,7 +247,16 @@ fun WantsOverlayScreen(
         }
     }
 
-    val wants = wantsState.wants
+    val rawWants = wantsState.wants
+    val randomizedIds = remember(wantsState.loadGeneration) {
+        rawWants.map { it.id }.shuffled()
+    }
+    val wants = remember(rawWants, randomizedIds) {
+        val byId = rawWants.associateBy { it.id }
+        val ordered = randomizedIds.mapNotNull { byId[it] }
+        val seen = ordered.mapTo(HashSet()) { it.id }
+        ordered + rawWants.filter { it.id !in seen }
+    }
     val positions = remember(wants.map { it.id }) {
         WantSpaceLayout.layout(wants.map { it.id })
     }
@@ -224,44 +265,139 @@ fun WantsOverlayScreen(
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer { alpha = overlayAlpha }
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF191F3B),
-                        Color(0xFF0D1022),
-                        Color(0xFF060711),
-                    ),
-                ),
-            )
+            .background(Color(0xFF060711))
             .then(
                 if (interactive) {
                     Modifier.pointerInput(Unit) {
-                        var velocityTracker = VelocityTracker()
-                        detectDragGestures(
-                            onDragStart = {
-                                dragging = true
-                                velX = 0f
-                                velY = 0f
-                                velocityTracker = VelocityTracker()
-                            },
-                            onDragEnd = {
-                                dragging = false
+                        awaitEachGesture {
+                            val velocityTracker = VelocityTracker()
+                            var zoomTouchSlop = 1f
+                            var panTouchSlop = Offset.Zero
+                            var pastTouchSlop = false
+                            val touchSlop = viewConfiguration.touchSlop
+                            var hadMultiTouch = false
+                            var gestureCanceled = false
+                            var lastEventTimeMs = 0L
+                            var lastPinchUptimeMs = 0L
+                            var lastZoomMoveUptimeMs = 0L
+                            var localZoomVel = 0.0
+
+                            awaitFirstDown(requireUnconsumed = false)
+                            dragging = true
+                            pinching = false
+                            velX = 0f
+                            velY = 0f
+                            zoomVel = 0f
+
+                            do {
+                                val event = awaitPointerEvent()
+                                val canceled = event.changes.any { it.isConsumed }
+                                gestureCanceled = canceled
+                                val eventTimeMs = event.changes.maxOfOrNull { it.uptimeMillis } ?: lastEventTimeMs
+                                lastEventTimeMs = eventTimeMs
+                                if (!canceled) {
+                                    val pressedChanges = event.changes.filter { it.pressed }
+                                    if (pressedChanges.size >= 2) {
+                                        hadMultiTouch = true
+                                        pinching = true
+                                    }
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+
+                                    if (!pastTouchSlop) {
+                                        zoomTouchSlop *= zoomChange
+                                        panTouchSlop += panChange
+                                        val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                                        val zoomMotion = abs(1f - zoomTouchSlop) * centroidSize
+                                        val panMotion = panTouchSlop.getDistance()
+                                        if (zoomMotion > touchSlop || panMotion > touchSlop) {
+                                            pastTouchSlop = true
+                                        }
+                                    }
+
+                                    if (pastTouchSlop) {
+                                        if (pressedChanges.size >= 2) {
+                                            val dtMs = if (lastPinchUptimeMs > 0L) {
+                                                (eventTimeMs - lastPinchUptimeMs).coerceAtLeast(1L).toDouble()
+                                            } else {
+                                                16.0
+                                            }
+                                            lastPinchUptimeMs = eventTimeMs
+                                            val centroid = event.calculateCentroid(useCurrent = false)
+                                            if (centroid != Offset.Unspecified) {
+                                                val centerX = size.width / 2f
+                                                val centerY = size.height / 2f
+                                                val fx = centroid.x - centerX
+                                                val fy = centroid.y - centerY
+                                                zoomFocalOffsetX = fx
+                                                zoomFocalOffsetY = fy
+                                                if (zoomChange != 1f) {
+                                                    val oldZoom = zoom
+                                                    val newZoom = WantSpaceLayout.clampZoom((oldZoom * zoomChange).toDouble()).toFloat()
+                                                    if (newZoom != oldZoom) {
+                                                        panX = fx - ((fx - panX) / oldZoom) * newZoom
+                                                        panY = fy - ((fy - panY) / oldZoom) * newZoom
+                                                        zoom = newZoom
+                                                    }
+                                                }
+                                            }
+                                            if (zoomChange != 1f && !reducedMotion) {
+                                                localZoomVel = WantSpaceLayout.updateZoomVelocity(
+                                                    currentVelocity = localZoomVel,
+                                                    zoomFactor = zoomChange.toDouble(),
+                                                    dtMs = dtMs,
+                                                )
+                                                if (abs(zoomChange - 1f) > 0.001f) {
+                                                    lastZoomMoveUptimeMs = eventTimeMs
+                                                }
+                                            }
+                                        } else if (pinching) {
+                                            pinching = false
+                                            val idleMs = if (lastZoomMoveUptimeMs > 0L) {
+                                                (eventTimeMs - lastZoomMoveUptimeMs).coerceAtLeast(0L).toDouble()
+                                            } else {
+                                                999.0
+                                            }
+                                            zoomVel = if (reducedMotion) {
+                                                0f
+                                            } else {
+                                                WantSpaceLayout.releaseZoomVelocity(localZoomVel, idleMs).toFloat()
+                                            }
+                                            localZoomVel = 0.0
+                                        }
+                                        if (panChange != Offset.Zero) {
+                                            panX += panChange.x
+                                            panY += panChange.y
+                                        }
+                                        if (pressedChanges.size == 1 && !hadMultiTouch) {
+                                            val ch = pressedChanges.first()
+                                            velocityTracker.addPosition(ch.uptimeMillis, ch.position)
+                                        }
+                                        event.changes.forEach {
+                                            if (it.positionChanged()) it.consume()
+                                        }
+                                    }
+                                }
+                            } while (!canceled && event.changes.any { it.pressed })
+
+                            dragging = false
+                            if (pinching) {
+                                pinching = false
+                                if (!gestureCanceled && pastTouchSlop && !reducedMotion) {
+                                    val idleMs = if (lastZoomMoveUptimeMs > 0L) {
+                                        (lastEventTimeMs - lastZoomMoveUptimeMs).coerceAtLeast(0L).toDouble()
+                                    } else {
+                                        999.0
+                                    }
+                                    zoomVel = WantSpaceLayout.releaseZoomVelocity(localZoomVel, idleMs).toFloat()
+                                }
+                            }
+                            if (pastTouchSlop && !hadMultiTouch) {
                                 val v = velocityTracker.calculateVelocity()
                                 velX = (v.x * 0.016f).coerceIn(-65f, 65f)
                                 velY = (v.y * 0.016f).coerceIn(-65f, 65f)
-                            },
-                            onDragCancel = {
-                                dragging = false
-                                velX = 0f
-                                velY = 0f
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                panX += dragAmount.x
-                                panY += dragAmount.y
-                                velocityTracker.addPosition(change.uptimeMillis, change.position)
-                            },
-                        )
+                            }
+                        }
                     }
                 } else {
                     Modifier
@@ -271,10 +407,25 @@ fun WantsOverlayScreen(
         val elapsedSec = ((currentFrameMs - startFrameMs).coerceAtLeast(0L)).toFloat() / 1000f
         val animElapsedMs = if (loadStartFrameMs > 0L) (currentFrameMs - loadStartFrameMs).coerceAtLeast(0L) else 0L
 
-        // Twinkling starry background
+        // Hue-shifting circular haze + twinkling starry background
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width.coerceAtLeast(1f)
             val h = size.height.coerceAtLeast(1f)
+            val hueElapsed = if (reducedMotion) 0.0 else elapsedSec.toDouble()
+            val h1 = WantSpaceLayout.shiftedHue(229.0, hueElapsed).toFloat().coerceIn(0f, 360f)
+            val h2 = WantSpaceLayout.shiftedHue(231.0, hueElapsed).toFloat().coerceIn(0f, 360f)
+            val h3 = WantSpaceLayout.shiftedHue(235.0, hueElapsed).toFloat().coerceIn(0f, 360f)
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.hsl(h1, 0.42f, 0.17f),
+                        Color.hsl(h2, 0.46f, 0.095f),
+                        Color.hsl(h3, 0.48f, 0.045f),
+                    ),
+                    center = Offset(w * 0.5f, h * 0.42f),
+                    radius = maxOf(w, h) * 0.72f,
+                ),
+            )
             stars.forEach { star ->
                 val rawX = star.xFrac * w + panX * star.depth
                 val rawY = star.yFrac * h + panY * star.depth
@@ -328,6 +479,7 @@ fun WantsOverlayScreen(
                             interactive = interactive,
                             isMutating = want.id in wantsState.mutatingWantIds,
                             enterProgress = enterEased,
+                            zoomScale = zoom,
                             tiltDeg = tiltDeg,
                             onOpen = { onOpenWant(want) },
                             onToggleJoin = {
@@ -365,8 +517,8 @@ fun WantsOverlayScreen(
                         val pos = positions[want.id] ?: return@forEachIndexed
                         val dxFloat = if (reducedMotion) 0.0 else sin(tSec * pos.floatSpeedX + pos.floatPhaseX) * pos.floatAmpX
                         val dyFloat = if (reducedMotion) 0.0 else cos(tSec * pos.floatSpeedY + pos.floatPhaseY) * pos.floatAmpY
-                        val worldX = with(density) { (pos.x + dxFloat).dp.toPx() }
-                        val worldY = with(density) { (pos.y + dyFloat).dp.toPx() }
+                        val worldX = with(density) { (pos.x + dxFloat).dp.toPx() } * zoom
+                        val worldY = with(density) { (pos.y + dyFloat).dp.toPx() } * zoom
                         val px = (centerX + panX + worldX - placeable.width / 2f).roundToInt()
                         val py = (centerY + panY + worldY - placeable.height / 2f).roundToInt()
                         placeable.placeRelative(px, py)
@@ -464,14 +616,15 @@ private fun WantFloatingCard(
     interactive: Boolean,
     isMutating: Boolean,
     enterProgress: Float,
+    zoomScale: Float,
     tiltDeg: Float,
     onOpen: () -> Unit,
     onToggleJoin: () -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
     val paper = if (tokens.isDark) Color(0xFF2A2521) else Color(0xFFFFFDF7)
-    val scale = 0.65f + 0.35f * enterProgress
-    val liftPx = with(LocalDensity.current) { (18f * (1f - enterProgress)).dp.toPx() }
+    val scale = (0.65f + 0.35f * enterProgress) * zoomScale
+    val liftPx = with(LocalDensity.current) { (18f * (1f - enterProgress)).dp.toPx() } * zoomScale
 
     Box(
         modifier = Modifier

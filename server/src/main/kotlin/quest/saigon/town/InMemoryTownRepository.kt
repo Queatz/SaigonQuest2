@@ -686,6 +686,21 @@ class InMemoryTownRepository : TownRepository {
         return CommentPage(items, next, comments.size.toLong())
     }
 
+    override fun adminWants(cursor: String?, limit: Int): WantPage = synchronized(this) {
+        val parsed = Cursors.parse(cursor)
+        val sorted = wants.values.sortedWith(compareByDescending<WantRecord> { it.createdAt }.thenByDescending { it.id })
+        val filtered = if (parsed == null) {
+            sorted
+        } else {
+            val (createdAt, id) = parsed
+            sorted.filter { it.createdAt < createdAt || (it.createdAt == createdAt && it.id < id) }
+        }
+        val page = filtered.take(limit + 1)
+        val items = page.take(limit)
+        val next = if (page.size > limit) items.lastOrNull()?.let { Cursors.encode(it.createdAt, it.id) } else null
+        WantPage(items, next)
+    }
+
     override fun insertCommunity(community: CommunityRecord): CommunityRecord {
         if (communities.values.any { it.slug == community.slug }) throw TownException("community_taken")
         val stored = if (community.id.isBlank()) community.copy(id = newId()) else community
@@ -776,6 +791,12 @@ class InMemoryTownRepository : TownRepository {
     override fun findWant(id: String): WantRecord? = wants[id]
 
     override fun findWantBySlug(slug: String): WantRecord? = wants.values.firstOrNull { it.slug == slug }
+
+    override fun deleteWant(id: String): WantRecord? = synchronized(this) {
+        val removed = wants.remove(id) ?: return@synchronized null
+        wantMemberships.entries.removeIf { it.value.wantId == id }
+        removed
+    }
 
     override fun allWants(): List<WantRecord> = synchronized(this) {
         wants.values.sortedWith(compareByDescending<WantRecord> { it.memberCount }.thenByDescending { it.createdAt })

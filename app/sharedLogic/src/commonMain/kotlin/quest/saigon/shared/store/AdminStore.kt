@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import quest.saigon.shared.model.AdminPostDto
 import quest.saigon.shared.model.AdminUserDto
 import quest.saigon.shared.model.CommentCardDto
+import quest.saigon.shared.model.WantDto
 import quest.saigon.shared.network.ApiResult
 import quest.saigon.shared.network.TownApiClient
 
@@ -21,6 +22,8 @@ data class AdminUiState(
     val postsNextCursor: String? = null,
     val comments: List<CommentCardDto> = emptyList(),
     val commentsNextCursor: String? = null,
+    val wants: List<WantDto> = emptyList(),
+    val wantsNextCursor: String? = null,
     val isLoading: Boolean = false,
     val isMutating: Boolean = false,
     val error: String? = null,
@@ -150,6 +153,42 @@ class AdminStore(
             is ApiResult.Success -> {
                 _state.update { prev ->
                     prev.copy(comments = prev.comments.filterNot { it.id == commentId }, isMutating = false)
+                }
+                true
+            }
+            is ApiResult.Failure -> {
+                _state.update { it.copy(isMutating = false, error = res.message) }
+                false
+            }
+        }
+    }
+
+    fun loadWants(loadMore: Boolean = false) {
+        val current = _state.value
+        val cursor = if (loadMore) current.wantsNextCursor ?: return else null
+        scope.launch {
+            _state.update { it.copy(isLoading = true, error = null) }
+            when (val res = api.getAdminWants(cursor = cursor)) {
+                is ApiResult.Success -> _state.update { prev ->
+                    val items = if (loadMore) {
+                        val seen = prev.wants.mapTo(HashSet()) { it.id }
+                        prev.wants + res.value.wants.filter { seen.add(it.id) }
+                    } else {
+                        res.value.wants
+                    }
+                    prev.copy(wants = items, wantsNextCursor = res.value.nextCursor, isLoading = false)
+                }
+                is ApiResult.Failure -> _state.update { it.copy(isLoading = false, error = res.message) }
+            }
+        }
+    }
+
+    suspend fun deleteWant(wantId: String): Boolean {
+        _state.update { it.copy(isMutating = true, error = null) }
+        return when (val res = api.deleteAdminWant(wantId)) {
+            is ApiResult.Success -> {
+                _state.update { prev ->
+                    prev.copy(wants = prev.wants.filterNot { it.id == wantId }, isMutating = false)
                 }
                 true
             }

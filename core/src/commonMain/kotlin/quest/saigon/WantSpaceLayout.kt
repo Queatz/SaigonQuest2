@@ -3,6 +3,9 @@ package quest.saigon
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -18,11 +21,84 @@ data class WantSpacePosition(
     val tiltDeg: Double,
 )
 
+data class ZoomInertiaStep(
+    val zoom: Double,
+    val velocity: Double,
+)
+
 object WantSpaceLayout {
     const val ANIMATE_IN_WINDOW_MS = 2000L
     const val ANIMATE_IN_ITEM_MS = 350L
     const val CARD_WIDTH_PX = 264.0
     const val CARD_HEIGHT_PX = 112.0
+    const val MIN_ZOOM = 0.25
+    const val MAX_ZOOM = 1.5
+    const val HUE_SHIFT_DEG_PER_SEC = 8.0
+    const val ZOOM_VELOCITY_DECAY = 0.86
+    const val ZOOM_RELEASE_GAIN = 0.65
+    const val MAX_ZOOM_LOG_VEL = 0.045
+    const val MIN_ZOOM_LOG_VEL = 0.0004
+    const val ZOOM_IDLE_CUTOFF_MS = 140.0
+
+    fun clampZoom(zoom: Double): Double = zoom.coerceIn(MIN_ZOOM, MAX_ZOOM)
+
+    fun updateZoomVelocity(
+        currentVelocity: Double,
+        zoomFactor: Double,
+        dtMs: Double,
+    ): Double {
+        if (zoomFactor <= 0.0 || !zoomFactor.isFinite() || dtMs <= 0.0) return currentVelocity
+        val frames = (dtMs / 16.0).coerceAtLeast(0.25)
+        val instVel = (ln(zoomFactor) / frames) * ZOOM_RELEASE_GAIN
+        return (currentVelocity * 0.4 + instVel * 0.6).coerceIn(-MAX_ZOOM_LOG_VEL, MAX_ZOOM_LOG_VEL)
+    }
+
+    fun wheelZoomVelocity(
+        currentVelocity: Double,
+        totalLogDelta: Double,
+    ): Double {
+        if (!totalLogDelta.isFinite() || totalLogDelta == 0.0) return currentVelocity
+        val impulse = totalLogDelta * 0.55 * (1.0 - ZOOM_VELOCITY_DECAY)
+        return (currentVelocity + impulse).coerceIn(-MAX_ZOOM_LOG_VEL, MAX_ZOOM_LOG_VEL)
+    }
+
+    fun releaseZoomVelocity(
+        currentVelocity: Double,
+        idleMs: Double,
+    ): Double {
+        if (idleMs >= ZOOM_IDLE_CUTOFF_MS) return 0.0
+        if (idleMs <= 0.0) return currentVelocity
+        val next = currentVelocity * ZOOM_VELOCITY_DECAY.pow(idleMs / 16.0)
+        return if (abs(next) < MIN_ZOOM_LOG_VEL) 0.0 else next
+    }
+
+    fun stepZoomInertia(
+        zoom: Double,
+        velocity: Double,
+        dtMs: Double,
+    ): ZoomInertiaStep {
+        if (abs(velocity) < MIN_ZOOM_LOG_VEL || dtMs <= 0.0) {
+            return ZoomInertiaStep(clampZoom(zoom), 0.0)
+        }
+        val frameScale = (dtMs / 16.0).coerceIn(0.0, 4.0)
+        val rawZoom = zoom * exp(velocity * frameScale)
+        val nextZoom = clampZoom(rawZoom)
+        val hitMin = nextZoom <= MIN_ZOOM && velocity < 0.0
+        val hitMax = nextZoom >= MAX_ZOOM && velocity > 0.0
+        if (hitMin || hitMax) {
+            return ZoomInertiaStep(nextZoom, 0.0)
+        }
+        val nextVel = velocity * ZOOM_VELOCITY_DECAY.pow(frameScale)
+        return ZoomInertiaStep(
+            zoom = nextZoom,
+            velocity = if (abs(nextVel) < MIN_ZOOM_LOG_VEL) 0.0 else nextVel,
+        )
+    }
+
+    fun shiftedHue(baseHueDeg: Double, elapsedSec: Double): Double {
+        val raw = (baseHueDeg + elapsedSec.coerceAtLeast(0.0) * HUE_SHIFT_DEG_PER_SEC) % 360.0
+        return if (raw < 0.0) raw + 360.0 else raw
+    }
 
     fun animateInDelayMs(
         index: Int,

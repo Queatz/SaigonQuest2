@@ -99,3 +99,9 @@ data class AdminCommentsPageDto(
     val comments: List<CommentCardDto> = emptyList(),
     val nextCursor: String? = null,
 )
+
+@Serializable
+data class AdminWantsPageDto(
+    val wants: List<WantDto> = emptyList(),
+    val nextCursor: String? = null,
+)

@@ -273,6 +273,33 @@ class WantBehaviorTest {
         assertNull(services.repo.findWant(potteryId)?.let { if (it.photoPath == null) "missing" else null })
     }
 
+    @Test
+    fun wantsListRandomizesOrderAcrossRequests() = testApplication {
+        val services = services()
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+        val linh = createClient { install(HttpCookies) }
+        register(linh, "Linh", "0905550031")
+
+        val expectedIds = (1..12).map { index ->
+            mapper.readTree(
+                linh.post("/api/wants") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"name":"Want item $index"}""")
+                }.bodyAsText(),
+            ).path("id").asText()
+        }.toSet()
+
+        val orders = (1..8).map {
+            val arr = mapper.readTree(linh.get("/api/wants").bodyAsText()).path("wants")
+            (0 until arr.size()).map { arr.path(it).path("id").asText() }
+        }
+        orders.forEach { order ->
+            assertEquals(expectedIds, order.toSet())
+            assertEquals(expectedIds.size, order.size)
+        }
+        assertTrue(orders.distinct().size > 1)
+    }
+
     private suspend fun register(client: io.ktor.client.HttpClient, name: String, phone: String) {
         client.post("/api/auth/register") {
             contentType(ContentType.Application.Json)

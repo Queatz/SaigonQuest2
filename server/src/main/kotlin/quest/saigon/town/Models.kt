@@ -805,6 +805,11 @@ data class WantMember(
     val joinedAt: Long,
 )
 
+data class WantPage(
+    val items: List<WantRecord>,
+    val nextCursor: String?,
+)
+
 data class FeatureSuggestionRecord(
     val id: String,
     val userId: String,

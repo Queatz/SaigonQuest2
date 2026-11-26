@@ -97,7 +97,13 @@ class WantService(
     }
 
     fun listAll(viewerId: String?): List<WantView> =
-        repo.allWants().map { view(it, viewerId) }
+        repo.allWants().shuffled().map { view(it, viewerId) }
+
+    fun delete(wantId: String) {
+        val removed = repo.deleteWant(wantId) ?: throw TownException("not_found")
+        inFlight.remove(wantId)
+        removed.photoPath?.takeIf { it.isNotBlank() }?.let { uploads?.delete(it) }
+    }
 
     fun retryMissingPhotos() {
         if (!configured || renderer == null || uploads == null) return

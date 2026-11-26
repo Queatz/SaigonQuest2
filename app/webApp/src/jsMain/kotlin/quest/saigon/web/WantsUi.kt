@@ -1,14 +1,20 @@
+@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+
 package quest.saigon.web
 
 import quest.saigon.WantSpaceLayout
 import quest.saigon.WantSpacePosition
 import web.dom.document
+import web.history.history
 import web.html.HTMLElement
 import web.window.window
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.hypot
+import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 internal class WantsSpaceOverlay(
@@ -32,8 +38,10 @@ internal class WantsSpaceOverlay(
 
     private var panX = 0.0
     private var panY = 0.0
+    private var zoom = 1.0
     private var dragging = false
     private var panned = false
+    private var pinching = false
     private var suppressClick = false
     private var startX = 0.0
     private var startY = 0.0
@@ -42,7 +50,19 @@ internal class WantsSpaceOverlay(
     private var lastTime = 0.0
     private var velX = 0.0
     private var velY = 0.0
+    private var zoomVel = 0.0
+    private var zoomFocalX = 0.0
+    private var zoomFocalY = 0.0
+    private var lastPinchTime = 0.0
+    private var lastZoomMoveTime = 0.0
+    private var gesturePinching = false
+    private var lastGestureTime = 0.0
     private var activePointerId: dynamic = null
+    private val activePointers = linkedMapOf<Int, Pair<Double, Double>>()
+    private var lastPinchDist = 0.0
+    private var lastPinchMidX = 0.0
+    private var lastPinchMidY = 0.0
+    private var gestureBaseZoom = 1.0
 
     private data class StarNode(
         val el: HTMLElement,
@@ -62,6 +82,7 @@ internal class WantsSpaceOverlay(
     private val cards = mutableListOf<FloatingCard>()
     private var startTimeMs = perfNow()
     private lateinit var keyHandler: (dynamic) -> Unit
+    private var musicPlayer: WantsSpaceMusicPlayer? = null
 
     init {
         starsLayer.setAttribute("aria-hidden", "true")
@@ -91,6 +112,7 @@ internal class WantsSpaceOverlay(
         }
 
         host.appendChild(root)
+        musicPlayer = WantsSpaceMusicPlayer()
         if (pushHistoryEntry) {
             removeHistoryEntry = pushOverlayHistory(
                 url = "/wants",
@@ -113,8 +135,13 @@ internal class WantsSpaceOverlay(
         closed = true
         cleanupTimersAndListeners()
         if (updateHistory) {
-            removeHistoryEntry?.let { popOverlayHistory(it) }
+            val remove = removeHistoryEntry
             removeHistoryEntry = null
+            if (remove != null) {
+                popOverlayHistory(remove)
+            } else if (router.currentPath() == "/wants") {
+                history.replaceState(null, "", "/")
+            }
         } else {
             removeHistoryEntry?.invoke()
             removeHistoryEntry = null
@@ -144,6 +171,8 @@ internal class WantsSpaceOverlay(
     }
 
     private fun cleanupTimersAndListeners() {
+        musicPlayer?.stop()
+        musicPlayer = null
         timers.forEach { window.asDynamic().clearTimeout(it) }
         timers.clear()
         if (rafId != null) {
@@ -209,24 +238,85 @@ internal class WantsSpaceOverlay(
 
     private fun bindInteractions() {
         viewport.asDynamic().addEventListener("pointerdown", { event: dynamic ->
-            if (dialogOpen() || event.button != 0) return@addEventListener
+            if (dialogOpen()) return@addEventListener
+            val pointerType = event.pointerType as? String
+            if (pointerType == "mouse" && event.button != 0) return@addEventListener
+            val pointerId = num(event.pointerId).toInt()
+            val px = num(event.clientX)
+            val py = num(event.clientY)
+            activePointers[pointerId] = px to py
+            zoomVel = 0.0
+
+            if (activePointers.size >= 2) {
+                dragging = false
+                pinching = true
+                panned = true
+                suppressClick = true
+                velX = 0.0
+                velY = 0.0
+                viewport.asDynamic().classList.remove("is-panning")
+                val pair = activePointers.values.take(2)
+                lastPinchDist = hypot(pair[1].first - pair[0].first, pair[1].second - pair[0].second)
+                lastPinchMidX = (pair[0].first + pair[1].first) / 2.0
+                lastPinchMidY = (pair[0].second + pair[1].second) / 2.0
+                lastPinchTime = num(event.timeStamp)
+                lastZoomMoveTime = 0.0
+                return@addEventListener
+            }
+
             if (event.target.closest("button") != null) return@addEventListener
             dragging = true
             panned = false
             suppressClick = false
             velX = 0.0
             velY = 0.0
-            startX = num(event.clientX)
-            startY = num(event.clientY)
-            lastX = startX
-            lastY = startY
+            startX = px
+            startY = py
+            lastX = px
+            lastY = py
             lastTime = num(event.timeStamp)
             activePointerId = event.pointerId
         })
         viewport.asDynamic().addEventListener("pointermove", { event: dynamic ->
-            if (!dragging) return@addEventListener
+            val pointerId = num(event.pointerId).toInt()
             val x = num(event.clientX)
             val y = num(event.clientY)
+            if (activePointers.containsKey(pointerId)) {
+                activePointers[pointerId] = x to y
+            }
+
+            if (pinching && activePointers.size >= 2) {
+                val time = num(event.timeStamp)
+                val dt = (time - lastPinchTime).coerceAtLeast(1.0)
+                lastPinchTime = time
+                val pair = activePointers.values.take(2)
+                val newDist = hypot(pair[1].first - pair[0].first, pair[1].second - pair[0].second)
+                val newMidX = (pair[0].first + pair[1].first) / 2.0
+                val newMidY = (pair[0].second + pair[1].second) / 2.0
+                if (lastPinchDist > 4.0 && newDist > 4.0) {
+                    val factor = newDist / lastPinchDist
+                    zoomAround(
+                        newZoomRaw = zoom * factor,
+                        screenX = newMidX,
+                        screenY = newMidY,
+                        prevScreenX = lastPinchMidX,
+                        prevScreenY = lastPinchMidY,
+                    )
+                    zoomFocalX = newMidX
+                    zoomFocalY = newMidY
+                    if (!prefersReducedMotion()) {
+                        zoomVel = WantSpaceLayout.updateZoomVelocity(zoomVel, factor, dt)
+                        if (abs(factor - 1.0) > 0.001) lastZoomMoveTime = time
+                    }
+                }
+                lastPinchDist = newDist
+                lastPinchMidX = newMidX
+                lastPinchMidY = newMidY
+                event.preventDefault()
+                return@addEventListener
+            }
+
+            if (!dragging) return@addEventListener
             if (!panned) {
                 if (hypot(x - startX, y - startY) < 7.0) return@addEventListener
                 panned = true
@@ -252,7 +342,18 @@ internal class WantsSpaceOverlay(
             lastTime = time
             event.preventDefault()
         })
-        val endPointer = { _: dynamic ->
+        val endPointer = { event: dynamic ->
+            val pointerId = num(event.pointerId).toInt()
+            activePointers.remove(pointerId)
+            if (pinching && activePointers.size < 2) {
+                pinching = false
+                lastPinchDist = 0.0
+                val idleMs = if (lastZoomMoveTime > 0.0) (num(event.timeStamp) - lastZoomMoveTime).coerceAtLeast(0.0) else 999.0
+                zoomVel = if (prefersReducedMotion()) 0.0 else WantSpaceLayout.releaseZoomVelocity(zoomVel, idleMs)
+                if (suppressClick) {
+                    timers.add(window.asDynamic().setTimeout({ suppressClick = false }, 80))
+                }
+            }
             if (dragging) {
                 dragging = false
                 activePointerId = null
@@ -270,14 +371,74 @@ internal class WantsSpaceOverlay(
             event.preventDefault()
             velX = 0.0
             velY = 0.0
-            panX -= num(event.deltaX)
-            panY -= num(event.deltaY)
+            if (event.ctrlKey == true) {
+                val totalLogDelta = -num(event.deltaY) * 0.004
+                val cx = num(event.clientX)
+                val cy = num(event.clientY)
+                if (prefersReducedMotion()) {
+                    zoomVel = 0.0
+                    zoomAround(zoom * exp(totalLogDelta), cx, cy)
+                } else {
+                    zoomAround(zoom * exp(totalLogDelta * 0.6), cx, cy)
+                    zoomFocalX = cx
+                    zoomFocalY = cy
+                    zoomVel = WantSpaceLayout.wheelZoomVelocity(zoomVel, totalLogDelta)
+                }
+            } else {
+                zoomVel = 0.0
+                panX -= num(event.deltaX)
+                panY -= num(event.deltaY)
+            }
+        }, js("({passive:false})"))
+
+        viewport.asDynamic().addEventListener("gesturestart", { event: dynamic ->
+            if (dialogOpen()) return@addEventListener
+            event.preventDefault()
+            velX = 0.0
+            velY = 0.0
+            zoomVel = 0.0
+            gesturePinching = true
+            gestureBaseZoom = zoom
+            lastGestureTime = perfNow()
+            lastZoomMoveTime = 0.0
+        }, js("({passive:false})"))
+        viewport.asDynamic().addEventListener("gesturechange", { event: dynamic ->
+            if (dialogOpen()) return@addEventListener
+            event.preventDefault()
+            val scale = num(event.scale)
+            if (scale > 0.0) {
+                val now = perfNow()
+                val dt = (now - lastGestureTime).coerceAtLeast(1.0)
+                lastGestureTime = now
+                val targetZoomRaw = gestureBaseZoom * scale
+                val factor = if (zoom > 0.0) targetZoomRaw / zoom else 1.0
+                val cx = num(event.clientX)
+                val cy = num(event.clientY)
+                zoomAround(targetZoomRaw, cx, cy)
+                zoomFocalX = cx
+                zoomFocalY = cy
+                if (!prefersReducedMotion()) {
+                    zoomVel = WantSpaceLayout.updateZoomVelocity(zoomVel, factor, dt)
+                    if (abs(factor - 1.0) > 0.001) lastZoomMoveTime = now
+                }
+            }
+        }, js("({passive:false})"))
+        viewport.asDynamic().addEventListener("gestureend", { event: dynamic ->
+            if (!gesturePinching) return@addEventListener
+            event.preventDefault()
+            gesturePinching = false
+            val idleMs = if (lastZoomMoveTime > 0.0) (perfNow() - lastZoomMoveTime).coerceAtLeast(0.0) else 999.0
+            zoomVel = if (prefersReducedMotion()) 0.0 else WantSpaceLayout.releaseZoomVelocity(zoomVel, idleMs)
         }, js("({passive:false})"))
 
         keyHandler = { event ->
-            if (!closed && !dialogOpen()) {
+            if (!closed && event.defaultPrevented != true && !dialogOpen()) {
                 val step = 56.0
                 when (event.key as? String) {
+                    "Escape" -> {
+                        event.preventDefault()
+                        close(updateHistory = true)
+                    }
                     "ArrowLeft" -> {
                         panX += step
                         event.preventDefault()
@@ -325,7 +486,7 @@ internal class WantsSpaceOverlay(
             for (i in 0 until count) {
                 items += parseWantCardData(parsed[i])
             }
-            renderWants(items)
+            renderWants(items.shuffled())
         }
     }
 
@@ -380,14 +541,26 @@ internal class WantsSpaceOverlay(
 
     private fun startFrameLoop() {
         startTimeMs = perfNow()
+        var lastFrameMs = startTimeMs
         fun tick() {
             if (closed) return
             val now = perfNow()
+            val dt = (now - lastFrameMs).coerceIn(1.0, 64.0)
+            lastFrameMs = now
             if (!dragging && (abs(velX) > 0.1 || abs(velY) > 0.1)) {
-                panX += velX
-                panY += velY
-                velX *= 0.92
-                velY *= 0.92
+                val frameScale = dt / 16.0
+                panX += velX * frameScale
+                panY += velY * frameScale
+                val decay = 0.92.pow(frameScale)
+                velX *= decay
+                velY *= decay
+            }
+            if (!pinching && !gesturePinching && abs(zoomVel) >= WantSpaceLayout.MIN_ZOOM_LOG_VEL) {
+                val step = WantSpaceLayout.stepZoomInertia(zoom, zoomVel, dt)
+                if (step.zoom != zoom) {
+                    zoomAround(step.zoom, zoomFocalX, zoomFocalY)
+                }
+                zoomVel = step.velocity
             }
             paintPositions(now)
             rafId = window.asDynamic().requestAnimationFrame { tick() }
@@ -395,11 +568,39 @@ internal class WantsSpaceOverlay(
         rafId = window.asDynamic().requestAnimationFrame { tick() }
     }
 
+    private fun zoomAround(
+        newZoomRaw: Double,
+        screenX: Double,
+        screenY: Double,
+        prevScreenX: Double = screenX,
+        prevScreenY: Double = screenY,
+    ) {
+        val rect = viewport.asDynamic().getBoundingClientRect()
+        val centerX = num(rect.left) + num(rect.width) / 2.0
+        val centerY = num(rect.top) + num(rect.height) / 2.0
+        val oldZoom = zoom
+        val newZoom = WantSpaceLayout.clampZoom(newZoomRaw)
+        val worldX = (prevScreenX - centerX - panX) / oldZoom
+        val worldY = (prevScreenY - centerY - panY) / oldZoom
+        panX = (screenX - centerX) - worldX * newZoom
+        panY = (screenY - centerY) - worldY * newZoom
+        zoom = newZoom
+    }
+
     private fun paintPositions(nowMs: Double) {
         val w = num(root.asDynamic().clientWidth).takeIf { it > 40 } ?: 400.0
         val h = num(root.asDynamic().clientHeight).takeIf { it > 40 } ?: 720.0
         val t = (nowMs - startTimeMs) / 1000.0
         val reducedMotion = prefersReducedMotion()
+
+        val hueElapsed = if (reducedMotion) 0.0 else t
+        val h1 = (WantSpaceLayout.shiftedHue(229.0, hueElapsed) * 100.0).roundToInt() / 100.0
+        val h2 = (WantSpaceLayout.shiftedHue(231.0, hueElapsed) * 100.0).roundToInt() / 100.0
+        val h3 = (WantSpaceLayout.shiftedHue(235.0, hueElapsed) * 100.0).roundToInt() / 100.0
+        val rootStyle = root.asDynamic().style
+        rootStyle.setProperty("--wants-h1", "$h1")
+        rootStyle.setProperty("--wants-h2", "$h2")
+        rootStyle.setProperty("--wants-h3", "$h3")
 
         stars.forEach { s ->
             val rawX = s.baseXFrac * w + panX * s.depth
@@ -414,15 +615,15 @@ internal class WantsSpaceOverlay(
             val dx = if (reducedMotion) 0.0 else sin(t * p.floatSpeedX + p.floatPhaseX) * p.floatAmpX
             val dy = if (reducedMotion) 0.0 else cos(t * p.floatSpeedY + p.floatPhaseY) * p.floatAmpY
             val tilt = if (reducedMotion) 0.0 else p.tiltDeg
-            val tx = panX + p.x + dx
-            val ty = panY + p.y + dy
+            val tx = panX + (p.x + dx) * zoom
+            val ty = panY + (p.y + dy) * zoom
             card.wrapper.asDynamic().style.transform =
-                "translate3d(calc(-50% + ${tx}px), calc(-50% + ${ty}px), 0) rotate(${tilt}deg)"
+                "translate3d(calc(-50% + ${tx}px), calc(-50% + ${ty}px), 0) scale(${zoom}) rotate(${tilt}deg)"
         }
     }
 
     private fun dialogOpen(): Boolean {
-        val dialog = document.asDynamic().querySelector(".dialog-backdrop")
+        val dialog = document.asDynamic().querySelector(".dialog-backdrop:not(.closing)")
         return dialog != null && dialog != undefined
     }
 

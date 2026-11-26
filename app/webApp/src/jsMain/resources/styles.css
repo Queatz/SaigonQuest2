@@ -2804,7 +2804,39 @@ button.busy .avatar-spinner {
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
-    white-space: pre-wrap;
+}
+
+.admin-wants {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-want {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 16px;
+    padding: 10px;
+}
+
+.admin-want-main {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.admin-want-thumb {
+    width: 64px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    flex: 0 0 auto;
+    background: var(--bg);
 }
 
 .topbar.community-top {
@@ -5734,7 +5766,12 @@ span.event-face {
     z-index: 7;
     overflow: hidden;
     user-select: none;
-    background: radial-gradient(circle at 50% 42%, #191f3b 0%, #0d1022 52%, #060711 100%);
+    background: radial-gradient(
+        circle at 50% 42%,
+        hsl(var(--wants-h1, 229), 42%, 17%) 0%,
+        hsl(var(--wants-h2, 231), 46%, 9.5%) 52%,
+        hsl(var(--wants-h3, 235), 48%, 4.5%) 100%
+    );
     opacity: 1;
     transition: opacity 380ms ease;
 }
