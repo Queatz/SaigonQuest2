@@ -780,6 +780,8 @@ data class WantRecord(
     val slug: String,
     val createdAt: Long,
     val memberCount: Long = 0,
+    val photoPath: String? = null,
+    val photoBlocked: Boolean = false,
 )
 
 data class WantMemberView(

@@ -5625,3 +5625,304 @@ span.event-face {
     .photo-viewer-previous { left: 14px; }
     .photo-viewer-next { right: 14px; }
 }
+
+.want-notebook {
+    position: relative;
+    overflow: hidden;
+}
+
+.want-notebook-photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
+    -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    mask-image: linear-gradient(to right, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+}
+
+.want-notebook-content {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 8px;
+}
+
+.want-notebook-name {
+    text-shadow: 0 1px 6px rgba(255, 253, 247, .85);
+}
+
+@media (prefers-color-scheme: dark) {
+    .want-notebook-name {
+        text-shadow: 0 1px 8px rgba(28, 25, 22, .88);
+    }
+}
+
+.want-sheet-cover {
+    width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--line);
+    aspect-ratio: 16 / 9;
+    max-height: 196px;
+}
+
+.want-sheet-cover[hidden] {
+    display: none;
+}
+
+.want-sheet-cover-photo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.feed-shell > .topbar,
+.feed-shell > .stage,
+.feed-shell > .check-in-bubbles,
+.feed-shell > .android-app-peek,
+.feed-shell > .swipe-hint {
+    transition: transform 460ms cubic-bezier(.16, .9, .24, 1), opacity 420ms ease, filter 420ms ease;
+}
+
+.feed-shell.is-exploding-to-wants > .topbar {
+    transform: translate3d(0, -140px, 0) scale(1.16);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.feed-shell.is-exploding-to-wants > .stage {
+    transform: scale(1.26);
+    filter: blur(8px);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.feed-shell.is-exploding-to-wants > .check-in-bubbles,
+.feed-shell.is-exploding-to-wants > .android-app-peek,
+.feed-shell.is-exploding-to-wants > .swipe-hint {
+    transform: scale(1.38);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.feed-shell.wants-feed-hidden > .topbar,
+.feed-shell.wants-feed-hidden > .stage,
+.feed-shell.wants-feed-hidden > .check-in-bubbles,
+.feed-shell.wants-feed-hidden > .android-app-peek,
+.feed-shell.wants-feed-hidden > .swipe-hint {
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+}
+
+.feed-shell.wants-feed-returning > .topbar,
+.feed-shell.wants-feed-returning > .stage,
+.feed-shell.wants-feed-returning > .check-in-bubbles,
+.feed-shell.wants-feed-returning > .android-app-peek,
+.feed-shell.wants-feed-returning > .swipe-hint {
+    transition: transform 280ms cubic-bezier(.22, .85, .36, 1), opacity 260ms ease, filter 260ms ease;
+}
+
+.wants-space {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    overflow: hidden;
+    user-select: none;
+    background: radial-gradient(circle at 50% 42%, #191f3b 0%, #0d1022 52%, #060711 100%);
+    opacity: 1;
+    transition: opacity 380ms ease;
+}
+
+.wants-space.is-entering {
+    opacity: 0;
+    animation: wantsSpaceReveal 420ms ease forwards;
+}
+
+.wants-space.is-leaving {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 260ms ease;
+}
+
+.wants-stars {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+}
+
+.wants-star {
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 6px currentColor;
+    animation: wantStarTwinkle 3.2s ease-in-out infinite;
+    will-change: opacity, transform;
+}
+
+.wants-star.is-sparkle {
+    border-radius: 0;
+    clip-path: polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%);
+    box-shadow: 0 0 10px currentColor;
+}
+
+.wants-explosion {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 4;
+    overflow: hidden;
+}
+
+.wants-explosion-flash {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%) scale(0.2);
+    background: radial-gradient(circle, rgba(255, 252, 232, .92) 0%, rgba(233, 137, 124, .45) 45%, rgba(127, 124, 233, 0) 75%);
+    animation: wantExplosionFlash 600ms cubic-bezier(.15, .88, .25, 1) forwards;
+}
+
+.wants-explosion-ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 246, 200, .75);
+    transform: translate(-50%, -50%) scale(0.4);
+    animation: wantExplosionRing 660ms cubic-bezier(.12, .85, .24, 1) forwards;
+}
+
+.wants-explosion-spark {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(255, 255, 255, .85);
+    animation: wantExplosionSpark 720ms cubic-bezier(.1, .85, .22, 1) forwards;
+}
+
+.wants-viewport {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    touch-action: none;
+    cursor: grab;
+    overflow: hidden;
+}
+
+.wants-viewport.is-panning {
+    cursor: grabbing;
+}
+
+.wants-world {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+}
+
+.want-floating-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 264px;
+    will-change: transform;
+}
+
+.want-floating-inner {
+    opacity: 0;
+    transform: scale(0.62) translate3d(0, 18px, 0);
+    transition: opacity 350ms cubic-bezier(.18, .9, .24, 1), transform 350ms cubic-bezier(.18, .9, .24, 1);
+    will-change: opacity, transform;
+}
+
+.want-floating-inner.is-entered {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+}
+
+.want-space-card {
+    box-shadow: 0 16px 38px rgba(0, 0, 0, .44), 0 0 0 1px rgba(255, 255, 255, .14);
+}
+
+.wants-status {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    pointer-events: none;
+    text-align: center;
+}
+
+.wants-status[hidden] {
+    display: none;
+}
+
+.wants-spinner {
+    border-color: rgba(255, 255, 255, .24);
+    border-top-color: #fff6c8;
+}
+
+.wants-empty {
+    color: rgba(255, 255, 255, .78);
+    font-weight: 700;
+}
+
+@keyframes wantsSpaceReveal {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+}
+
+@keyframes wantStarTwinkle {
+    0%, 100% { opacity: .22; }
+    50% { opacity: 1; }
+}
+
+@keyframes wantExplosionFlash {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(0.2); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(6.4); }
+}
+
+@keyframes wantExplosionRing {
+    0% { opacity: .85; transform: translate(-50%, -50%) scale(0.4); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(11); }
+}
+
+@keyframes wantExplosionSpark {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.15);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wants-star,
+    .wants-explosion-flash,
+    .wants-explosion-ring,
+    .wants-explosion-spark {
+        animation: none !important;
+    }
+    .want-floating-inner {
+        transition-duration: 10ms;
+    }
+}

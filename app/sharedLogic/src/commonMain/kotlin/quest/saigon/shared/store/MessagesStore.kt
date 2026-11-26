@@ -66,8 +66,8 @@ class MessagesStore(
                 if (reconnected) {
                     _streamEvents.tryEmit(ChatStreamEventDto(type = "reconnect"))
                     refreshChats()
-                    _state.value.activeChat?.id?.let { activeId -> reloadActiveMessages(activeId) }
                 }
+                _state.value.activeChat?.id?.let { activeId -> reloadActiveMessages(activeId) }
             },
             onEvent = { sse ->
                 val event = try {
@@ -86,6 +86,11 @@ class MessagesStore(
         streamJob = null
         typingClearJob?.cancel()
         typingClearJob = null
+        _state.update { it.copy(streamConnected = false, typingUserName = null) }
+    }
+
+    fun clearState() {
+        disconnectStream()
         _state.update { MessagesUiState() }
     }
 

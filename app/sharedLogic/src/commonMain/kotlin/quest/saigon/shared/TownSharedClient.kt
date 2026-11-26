@@ -22,6 +22,7 @@ import quest.saigon.shared.store.ProfileStore
 import quest.saigon.shared.store.ShopStore
 import quest.saigon.shared.store.StatsStore
 import quest.saigon.shared.store.TownSessionStore
+import quest.saigon.shared.store.WantsStore
 
 class TownSharedClient(
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -57,6 +58,7 @@ class TownSharedClient(
     val profile: ProfileStore = ProfileStore(api, scope)
     val stats: StatsStore = StatsStore(api, scope)
     val admin: AdminStore = AdminStore(api, scope)
+    val wants: WantsStore = WantsStore(api, scope)
 
     suspend fun bootstrap() {
         session.bootstrap()
@@ -80,7 +82,7 @@ class TownSharedClient(
 
     fun onSignedOut() {
         notifications.disconnect()
-        messages.disconnectStream()
+        messages.clearState()
         composer.stopPolling()
     }
 

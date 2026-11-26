@@ -11,6 +11,7 @@ import quest.saigon.ai.MusicPipeline
 import quest.saigon.ai.QuickReplyPipeline
 import quest.saigon.ai.QwenClient
 import quest.saigon.ai.TranslationPrompts
+import quest.saigon.ai.WantPipeline
 import quest.saigon.auth.RateLimiter
 import quest.saigon.auth.SessionTokens
 import quest.saigon.maps.GooglePlaces
@@ -71,6 +72,17 @@ class TownServices(
             val fcmPush = FcmPushService.fromConfig(config, repo, clock)
             val pusher = CompositeNotificationPusher(listOf(webPush, fcmPush))
             val events = EventService(repo, hub, clock, pusher).also { it.start() }
+            val chats = ChatService(repo, chatHub, clock, pusher)
+            val wants = WantService(
+                repo = repo,
+                hub = hub,
+                clock = clock,
+                pusher = pusher,
+                chats = chats,
+                uploads = uploads,
+                renderer = WantPipeline(qwen),
+                configured = config.qwenConfigured,
+            ).also { it.start() }
             return TownServices(
                 repo = repo,
                 uploads = uploads,
@@ -90,7 +102,8 @@ class TownServices(
                 places = config.googleMapsApiKey?.takeIf { it.isNotBlank() }?.let(::GooglePlaces) ?: NoPlaces,
                 events = events,
                 chatHub = chatHub,
-                chats = ChatService(repo, chatHub, clock, pusher),
+                chats = chats,
+                wants = wants,
                 translations = TranslationService(
                     translator = Translator { fields, locales ->
                         TranslationPrompts.parse(

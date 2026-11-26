@@ -131,6 +131,35 @@ internal fun clearSheetStack() {
     openOverlayHistory.clear()
 }
 
+internal fun pushOverlayHistory(
+    url: String = location.href,
+    onPop: () -> Unit,
+    onRouteChange: () -> Unit = onPop,
+): () -> Unit {
+    history.pushState(null, "", url)
+    lateinit var entry: OverlayHistoryEntry
+    entry = OverlayHistoryEntry(
+        closeFromHistory = {
+            openOverlayHistory.remove(entry)
+            onPop()
+        },
+        closeForRouteChange = {
+            openOverlayHistory.remove(entry)
+            onRouteChange()
+        },
+    )
+    openOverlayHistory.add(entry)
+    return {
+        openOverlayHistory.remove(entry)
+    }
+}
+
+internal fun popOverlayHistory(removeEntry: () -> Unit) {
+    removeEntry()
+    ignoreNextOverlayPopState = true
+    history.back()
+}
+
 internal class SheetChrome(
     className: String,
     title: String,

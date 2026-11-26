@@ -222,53 +222,21 @@ private fun wantsPanel(host: HTMLElement, router: HistoryRouter): HTMLElement {
                 return@http
             }
             for (i in 0 until count) {
-                val want = wants[i]
-                val id = (want.id as? String).orEmpty()
-                val row = el("div", "community-row want-notebook")
-                row.setAttribute("role", "button")
-                row.setAttribute("tabindex", "0")
-                row.asDynamic().addEventListener("click", { event: dynamic ->
-                    if (event.target.closest("button") != null) return@addEventListener
-                    openWantSheet(host, id, router)
-                })
-                val header = el("div", "community-row-header")
-                val info = el("div", "community-row-info")
-                info.appendChild(el("span", "want-notebook-name", text = (want.name as? String).orEmpty()))
-                val memberCount = num(want.memberCount).toInt()
-                if (memberCount >= 2) {
-                    val members = want.members
-                    val facePeople = mutableListOf<DiscoverCardPerson>()
-                    val membersCount = members.length as? Int ?: 0
-                    for (memberIndex in 0 until membersCount) {
-                        facePeople += DiscoverCardPerson(
-                            name = (members[memberIndex].name as? String).orEmpty(),
-                            photoUrl = members[memberIndex].photoUrl as? String,
-                        )
-                    }
-                    row.appendChild(discoverPeopleFaces(facePeople))
-                }
-                val leave = el("button", "tiny danger community-action", text = Town.t("leaveWant"))
-                leave.setAttribute("type", "button")
-                leave.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
-                leave.onClick {
-                    confirmDialog(
-                        host,
-                        Town.t("leaveWantAsk", mapOf("want" to (want.name as? String).orEmpty())),
-                        Town.t("leaveWantHint"),
-                        Town.t("leaveWant"),
-                    ) {
-                        leave.setAttribute("disabled", "disabled")
-                        http("POST", "/api/wants/${encodeQuery(id)}/leave") { leaveStatus, leaveBody ->
+                val want = parseWantCardData(wants[i])
+                val row = wantNotebookCardElement(
+                    host = host,
+                    want = want,
+                    router = router,
+                    leaveOnly = true,
+                    onLeave = { done ->
+                        http("POST", "/api/wants/${encodeQuery(want.id)}/leave") { leaveStatus, leaveBody ->
                             if (leaveStatus == 200) load() else {
-                                leave.removeAttribute("disabled")
+                                done()
                                 toast(host, errorText(leaveBody, leaveStatus))
                             }
                         }
-                    }
-                }
-                header.appendChild(info)
-                header.appendChild(leave)
-                row.appendChild(header)
+                    },
+                )
                 list.appendChild(row)
             }
         }

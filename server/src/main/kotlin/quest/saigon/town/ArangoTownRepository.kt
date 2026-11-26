@@ -38,6 +38,7 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         db.collection(MEMBERSHIPS).ensurePersistentIndex(listOf("communityKey", "joinedAt"), PersistentIndexOptions())
         db.collection(WANTS).ensurePersistentIndex(listOf("slug"), PersistentIndexOptions().unique(true))
         db.collection(WANTS).ensurePersistentIndex(listOf("memberCount"), PersistentIndexOptions())
+        db.collection(WANTS).ensurePersistentIndex(listOf("createdAt"), PersistentIndexOptions())
         db.collection(WANT_MEMBERSHIPS).ensurePersistentIndex(listOf("wantKey", "userKey"), PersistentIndexOptions().unique(true))
         db.collection(WANT_MEMBERSHIPS).ensurePersistentIndex(listOf("userKey", "joinedAt"), PersistentIndexOptions())
         db.collection(WANT_MEMBERSHIPS).ensurePersistentIndex(listOf("wantKey", "joinedAt"), PersistentIndexOptions())
@@ -1538,6 +1539,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         doc.addAttribute("slug", want.slug)
         doc.addAttribute("createdAt", want.createdAt)
         doc.addAttribute("memberCount", want.memberCount)
+        doc.addAttribute("photoPath", want.photoPath)
+        doc.addAttribute("photoBlocked", want.photoBlocked)
         val key = try {
             db.collection(WANTS).insertDocument(doc).key
         } catch (error: ArangoDBException) {
@@ -1554,6 +1557,34 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         "FOR w IN $WANTS FILTER w.slug == @slug LIMIT 1 RETURN w",
         mapOf("slug" to slug),
     )?.let(::wantFrom)
+
+    override fun allWants(): List<WantRecord> = queryList(
+        """
+        FOR w IN $WANTS
+          SORT w.memberCount DESC, w.createdAt DESC
+          RETURN w
+        """.trimIndent(),
+        emptyMap(),
+    ).map(::wantFrom)
+
+    override fun wantsWithoutPhoto(): List<WantRecord> = queryList(
+        """
+        FOR w IN $WANTS
+          FILTER (w.photoPath == null OR w.photoPath == "") AND w.photoBlocked != true
+          SORT w.createdAt ASC
+          RETURN w
+        """.trimIndent(),
+        emptyMap(),
+    ).map(::wantFrom)
+
+    override fun updateWantPhoto(wantId: String, photoPath: String?, photoBlocked: Boolean): WantRecord? {
+        if (findWant(wantId) == null) return null
+        val patch = BaseDocument(wantId)
+        patch.addAttribute("photoPath", photoPath)
+        patch.addAttribute("photoBlocked", photoBlocked)
+        db.collection(WANTS).updateDocument(wantId, patch)
+        return findWant(wantId)
+    }
 
     override fun wantsForUser(userId: String): List<WantRecord> = queryList(
         """
@@ -3697,6 +3728,8 @@ class ArangoTownRepository(private val db: ArangoDatabase) : TownRepository {
         slug = string(doc, "slug"),
         createdAt = long(doc, "createdAt"),
         memberCount = long(doc, "memberCount"),
+        photoPath = doc.getAttribute("photoPath")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+        photoBlocked = boolean(doc, "photoBlocked"),
     )
 
     private fun first(query: String, bind: Map<String, Any?>): BaseDocument? =

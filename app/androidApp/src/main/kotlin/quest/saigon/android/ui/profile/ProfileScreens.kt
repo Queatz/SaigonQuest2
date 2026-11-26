@@ -304,6 +304,7 @@ fun ProfileScreen(
                     } else {
                         profileState.myWants.forEach { want ->
                             WantNotebookCard(
+                                photoUrl = want.photoUrl,
                                 modifier = Modifier.fillMaxWidth().clickable { wantSheetId = want.id },
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
@@ -315,11 +316,10 @@ fun ProfileScreen(
                                     )
                                     if (want.memberCount >= 2L) WantMemberFaceStack(want.members)
                                 }
-                                SaigonTextButton(
-                                    text = Copy.text(lang, "leaveWant"),
-                                    enabled = !profileState.isMutating,
+                                SaigonTinyPill(
+                                    label = Copy.text(lang, "leaveWant"),
                                     danger = true,
-                                    onClick = { pendingWantLeave = want },
+                                    onClick = { if (!profileState.isMutating) pendingWantLeave = want },
                                 )
                             }
                         }
@@ -426,10 +426,12 @@ fun ProfileScreen(
     }
 
     wantSheetId?.let { wantId ->
+        val seedWant = profileState.myWants.firstOrNull { it.id == wantId }
         WantSheet(
             wantId = wantId,
             shared = shared,
             language = lang,
+            initialPhotoUrl = seedWant?.photoUrl,
             onNavigate = onNavigate,
             onRequireAuth = {},
             onDismiss = { wantSheetId = null },
@@ -619,6 +621,7 @@ fun PublicUserProfileScreen(
                             ) {
                                 profileState.viewedUserWants.forEach { want ->
                                     WantNotebookCard(
+                                        photoUrl = want.photoUrl,
                                         modifier = Modifier.fillMaxWidth().clickable { wantSheetId = want.id },
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
@@ -824,10 +827,12 @@ fun PublicUserProfileScreen(
 
     zoomPhoto?.let { PhotoViewerDialog(photoUrl = it, onDismiss = { zoomPhoto = null }) }
     wantSheetId?.let { wantId ->
+        val seedWant = profileState.viewedUserWants.firstOrNull { it.id == wantId }
         WantSheet(
             wantId = wantId,
             shared = shared,
             language = lang,
+            initialPhotoUrl = seedWant?.photoUrl,
             onNavigate = onNavigate,
             onRequireAuth = onRequireAuth,
             onDismiss = { wantSheetId = null },

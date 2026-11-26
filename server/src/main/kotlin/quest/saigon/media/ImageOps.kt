@@ -39,6 +39,11 @@ class ImageOps {
         return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
     }
 
+    fun prepareWantPhoto(bytes: ByteArray): ByteArray {
+        val fitted = limitEdge(read(bytes), Limits.PHOTO_MAX_EDGE)
+        return writeJpeg(fitted, Limits.JPEG_QUALITY.toFloat())
+    }
+
     fun prepareAvatar(image: BufferedImage): ByteArray =
         writePng(limitEdge(trimToContent(image), Limits.AVATAR_MAX_EDGE))
 

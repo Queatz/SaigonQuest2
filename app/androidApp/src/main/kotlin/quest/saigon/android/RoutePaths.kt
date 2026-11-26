@@ -23,6 +23,7 @@ object RoutePaths {
         AppRoute.Admin -> "/admin"
         AppRoute.Discover -> "/discover"
         AppRoute.Shop -> "/shop"
+        AppRoute.Wants -> "/wants"
         AppRoute.Messages -> "/messages"
         is AppRoute.Chat -> "/messages/${route.id}"
         is AppRoute.Post -> "/p/${route.id}"

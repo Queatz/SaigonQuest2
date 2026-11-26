@@ -323,6 +323,11 @@ class FeatureStoresTest {
         assertTrue(messages.deleteMessage("ch1", "m1"))
         assertNull(messages.state.value.messages.firstOrNull { it.id == "m1" })
         messages.disconnectStream()
+        assertEquals("ch1", messages.state.value.activeChat?.id)
+        assertEquals(listOf("m2"), messages.state.value.messages.map { it.id })
+        messages.clearState()
+        assertNull(messages.state.value.activeChat)
+        assertTrue(messages.state.value.messages.isEmpty())
     }
 
     @Test
@@ -437,5 +442,52 @@ class FeatureStoresTest {
 
         composer.clearCommunitySuggestion()
         assertNull(composer.state.value.communitySuggestion)
+    }
+
+    @Test
+    fun wantsStoreLoadsAllWantsNormalizesPhotoUrlsAndTogglesMembershipInPlace() = runTest {
+        val engine = MockEngine(MockEngineConfig().apply {
+            dispatcher = StandardTestDispatcher(testScheduler)
+            addHandler { req ->
+                val path = req.url.encodedPath
+                when {
+                    path == "/api/wants" && req.method == HttpMethod.Get -> respond(
+                        """{"wants":[{"id":"w1","name":"Go hiking","photoUrl":"/media/wants/hike.jpg","memberCount":2,"joined":false,"members":[{"id":"u1","name":"Linh"}]},{"id":"w2","name":"Learn pottery","photoUrl":null,"memberCount":1,"joined":true}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/wants/w1/join" && req.method == HttpMethod.Post -> respond(
+                        """{"id":"w1","name":"Go hiking","photoUrl":"/media/wants/hike.jpg","memberCount":3,"joined":true,"members":[{"id":"u2","name":"Minh"},{"id":"u1","name":"Linh"}]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    path == "/api/wants/w2/leave" && req.method == HttpMethod.Post -> respond(
+                        """{"id":"w2","name":"Learn pottery","photoUrl":null,"memberCount":0,"joined":false,"members":[]}""",
+                        HttpStatusCode.OK,
+                        jsonHeaders,
+                    )
+                    else -> respond("""{"error":"not_found"}""", HttpStatusCode.NotFound, jsonHeaders)
+                }
+            }
+        })
+        val api = TownApiClient(engine = engine, tokenStorage = InMemoryTokenStorage("tok"), serverOriginProvider = { "https://saigon.town" })
+        val storeScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler))
+        val wants = WantsStore(api, storeScope)
+
+        wants.loadAll()
+        advanceUntilIdle()
+        assertEquals(2, wants.state.value.wants.size)
+        assertEquals(1L, wants.state.value.loadGeneration)
+        assertEquals("https://saigon.town/media/wants/hike.jpg", wants.state.value.wants[0].photoUrl)
+        assertNull(wants.state.value.wants[1].photoUrl)
+
+        val joined = wants.toggleJoin("w1", currentlyJoined = false)
+        assertTrue(joined?.joined == true)
+        assertEquals(3L, wants.state.value.wants[0].memberCount)
+        assertEquals("w1", wants.state.value.wants[0].id)
+
+        val left = wants.toggleJoin("w2", currentlyJoined = true)
+        assertFalse(left?.joined == true)
+        assertEquals(0L, wants.state.value.wants[1].memberCount)
     }
 }

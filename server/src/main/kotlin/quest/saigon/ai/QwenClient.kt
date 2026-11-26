@@ -76,6 +76,36 @@ class QwenClient(
         return QwenResponses.chatText(QwenResponses.parse(response.body))
     }
 
+    fun generateImage(
+        prompt: String,
+        size: String = "1280*720",
+        negativePrompt: String = DEFAULT_IMAGE_NEGATIVE_PROMPT,
+    ): ByteArray {
+        val body = mapper.writeValueAsString(
+            mapOf(
+                "model" to imageModel,
+                "input" to mapOf(
+                    "messages" to listOf(
+                        mapOf(
+                            "role" to "user",
+                            "content" to listOf(
+                                mapOf("text" to prompt),
+                            ),
+                        ),
+                    ),
+                ),
+                "parameters" to mapOf(
+                    "n" to 1,
+                    "watermark" to false,
+                    "prompt_extend" to false,
+                    "size" to size,
+                    "negative_prompt" to negativePrompt,
+                ),
+            ),
+        )
+        return runImageGeneration(body)
+    }
+
     fun editImage(source: ByteArray, instruction: String, mime: String): ByteArray {
         val prepared = images.shrinkForUpload(source)
         val dataUrl = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(prepared)
@@ -102,6 +132,10 @@ class QwenClient(
                 ),
             ),
         )
+        return runImageGeneration(body)
+    }
+
+    private fun runImageGeneration(body: String): ByteArray {
         val api = root(baseUrl)
         val sync = postJson(
             "$api/api/v1/services/aigc/multimodal-generation/generation",
@@ -284,6 +318,7 @@ class QwenClient(
     companion object {
         const val GENERATION_TIMEOUT_SECONDS = 360L
         const val GENERATION_POLL_MILLIS = 360_000L
+        const val DEFAULT_IMAGE_NEGATIVE_PROMPT = "text, watermark, logo, nsfw, nude, violence, gore, border"
 
         fun fromConfig(config: AppConfig): QwenClient = QwenClient(
             apiKey = config.qwenApiKey,

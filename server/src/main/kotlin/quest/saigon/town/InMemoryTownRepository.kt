@@ -777,6 +777,23 @@ class InMemoryTownRepository : TownRepository {
 
     override fun findWantBySlug(slug: String): WantRecord? = wants.values.firstOrNull { it.slug == slug }
 
+    override fun allWants(): List<WantRecord> = synchronized(this) {
+        wants.values.sortedWith(compareByDescending<WantRecord> { it.memberCount }.thenByDescending { it.createdAt })
+    }
+
+    override fun wantsWithoutPhoto(): List<WantRecord> = synchronized(this) {
+        wants.values
+            .filter { it.photoPath.isNullOrBlank() && !it.photoBlocked }
+            .sortedBy { it.createdAt }
+    }
+
+    override fun updateWantPhoto(wantId: String, photoPath: String?, photoBlocked: Boolean): WantRecord? = synchronized(this) {
+        val existing = wants[wantId] ?: return@synchronized null
+        val updated = existing.copy(photoPath = photoPath, photoBlocked = photoBlocked)
+        wants[wantId] = updated
+        updated
+    }
+
     override fun wantsForUser(userId: String): List<WantRecord> =
         wantMemberships.values
             .filter { it.userId == userId }

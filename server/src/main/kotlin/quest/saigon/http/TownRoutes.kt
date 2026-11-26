@@ -1837,6 +1837,11 @@ fun Route.townApi(services: TownServices) {
         )
     }
 
+    get("/wants") {
+        val viewer = call.user(services)
+        call.respondJson(mapOf("wants" to services.wants.listAll(viewer?.id).map(::wantPayload)))
+    }
+
     post("/wants") {
         val user = call.user(services) ?: return@post call.fail("unauthorized")
         val body = Jsons.parse(call.receiveText())
@@ -2673,6 +2678,7 @@ private fun communityPayload(
 private fun wantPayload(view: WantView) = mapOf(
     "id" to view.want.id,
     "name" to view.want.name,
+    "photoUrl" to view.want.photoPath?.takeIf { it.isNotBlank() }?.let { "/media/$it" },
     "memberCount" to view.want.memberCount,
     "joined" to view.joined,
     "members" to view.members.map { member ->

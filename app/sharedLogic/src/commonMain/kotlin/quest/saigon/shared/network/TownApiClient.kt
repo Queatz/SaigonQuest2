@@ -567,6 +567,9 @@ class TownApiClient(
             res.copy(communities = res.communities.map(::normalizeCommunityUrls))
         }
 
+    suspend fun getAllWants(): ApiResult<WantsResponse> =
+        get("/api/wants", WantsResponse.serializer()).map(::normalizeWantsUrls)
+
     suspend fun createWant(name: String): ApiResult<WantDto> =
         postJson("/api/wants", WantDto.serializer(), CreateWantRequest(name), CreateWantRequest.serializer()).map(::normalizeWantUrls)
 
@@ -941,6 +944,7 @@ class TownApiClient(
     )
 
     private fun normalizeWantUrls(want: WantDto): WantDto = want.copy(
+        photoUrl = want.photoUrl?.let(::resolveUrl),
         members = want.members.map { member -> member.copy(photoUrl = member.photoUrl?.let(::resolveUrl)) },
     )
 

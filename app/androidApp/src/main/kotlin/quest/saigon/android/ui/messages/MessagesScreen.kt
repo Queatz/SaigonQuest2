@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,14 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -386,9 +386,41 @@ fun ChatScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 14.dp, vertical = 4.dp),
                     ) {
-                        Text("${pendingPhotos.size} ${Copy.text(lang, "photos")}", fontSize = 12.sp, color = tokens.muted)
+                        pendingPhotos.forEachIndexed { index, photo ->
+                            Box(modifier = Modifier.size(48.dp)) {
+                                AsyncImage(
+                                    model = photo,
+                                    contentDescription = Copy.text(lang, "photoMessage"),
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clip(RoundedCornerShape(10.dp)),
+                                )
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(20.dp)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(tokens.bg)
+                                        .clickable {
+                                            pendingPhotos = pendingPhotos.filterIndexed { photoIndex, _ -> photoIndex != index }
+                                        },
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = Copy.text(lang, "cancel"),
+                                        tint = tokens.text,
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                }
+                            }
+                        }
                         SaigonTextButton(text = Copy.text(lang, "cancel"), onClick = { pendingPhotos = emptyList() })
                     }
                 }
@@ -484,7 +516,6 @@ fun ChatScreen(
                         scope.launch { shared.messages.toggleReaction(chatId, msg.id, emoji, mine) }
                     },
                     onLongPress = { reactTargetMessage = msg },
-                    onDelete = { pendingDeleteMessage = msg },
                 )
             }
             if (msgState.nextMessagesCursor != null) {
@@ -640,6 +671,16 @@ fun ChatScreen(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                     )
                 }
+                if (msg.userId == meId) {
+                    HorizontalDivider(color = tokens.line)
+                    DropdownMenuItem(
+                        text = { Text(Copy.text(lang, "delete"), color = tokens.danger) },
+                        onClick = {
+                            reactTargetMessage = null
+                            pendingDeleteMessage = msg
+                        },
+                    )
+                }
             }
         }
     }
@@ -668,7 +709,6 @@ private fun ChatMessageBubble(
     onZoomPhoto: (String) -> Unit,
     onToggleReaction: (String, Boolean) -> Unit,
     onLongPress: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
     val bubbleShape = if (isMine) {
@@ -699,7 +739,7 @@ private fun ChatMessageBubble(
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .clip(bubbleShape)
-                .clickable(onClick = onLongPress),
+                .combinedClickable(onClick = {}, onLongClick = onLongPress),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(10.dp)) {
                 message.attachment?.let { att ->
@@ -758,10 +798,10 @@ private fun ChatMessageBubble(
                     AsyncImage(
                         model = url,
                         contentDescription = Copy.text(language, "photoMessage"),
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp)
+                            .heightIn(max = 300.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .clickable { onZoomPhoto(url) },
                     )
@@ -792,11 +832,6 @@ private fun ChatMessageBubble(
                         }
                     }
                 }
-            }
-        }
-        if (isMine) {
-            IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = Copy.text(language, "delete"), tint = tokens.muted, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -842,13 +877,20 @@ private fun ChatMembersSheet(
                     msgState.peopleResults.take(5).forEach { person ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(tokens.bg)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            Text(person.name, color = tokens.text, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            UserAvatar(photoUrl = person.photoUrl, name = person.name, size = 36.dp, borderWidth = 0.dp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(person.name, color = tokens.text, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (person.location.isNotBlank()) {
+                                    Text(person.location, color = tokens.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                             SaigonTinyPill(
                                 label = Copy.text(language, "addMember"),
                                 selected = true,

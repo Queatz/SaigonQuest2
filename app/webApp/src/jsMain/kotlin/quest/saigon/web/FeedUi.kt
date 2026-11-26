@@ -25,6 +25,7 @@ private var swipeHintTimer: dynamic = null
 private var swipeHintDone = false
 private var photoPeekTimer: dynamic = null
 private var feedCheckInBubbles: CheckInBubbles? = null
+private var feedWantsOverlay: WantsSpaceOverlay? = null
 
 internal fun clearFeedKeys() {
     feedKeyHandler = null
@@ -34,6 +35,8 @@ internal fun clearFeedKeys() {
     stopPhotoPeekTimer()
     feedCheckInBubbles?.close()
     feedCheckInBubbles = null
+    feedWantsOverlay?.destroyForRouteChange()
+    feedWantsOverlay = null
     stopFeedAudio()
     clearChatTimers()
 }
@@ -56,6 +59,7 @@ internal fun feedScreen(
     seedPosts: List<PostCard>? = null,
     seedCursor: String? = null,
     searchQuery: String? = null,
+    startInWants: Boolean = false,
 ): HTMLElement {
     val shell = el(
         "section",
@@ -128,6 +132,32 @@ internal fun feedScreen(
         feedCheckInBubbles?.close()
         feedCheckInBubbles = CheckInBubbles(shell, router)
     }
+    val canOpenWants = communityId == null && onBack == null
+    var wantsOverlay: WantsSpaceOverlay? = null
+    var emptyTouchStartY: Double? = null
+    var resumeAfterWants: () -> Unit = {}
+    fun openWants(explode: Boolean = true, pushHistory: Boolean = true) {
+        if (!canOpenWants || wantsOverlay != null) return
+        stopSwipeHint()
+        stopPhotoPeekTimer()
+        feedCheckInBubbles?.hideUntilIdle()
+        stopFeedAudio()
+        val overlay = WantsSpaceOverlay(
+            host = shell,
+            router = router,
+            explode = explode,
+            pushHistoryEntry = pushHistory,
+            onClosed = {
+                wantsOverlay = null
+                if (feedWantsOverlay != null) feedWantsOverlay = null
+                resumeAfterWants()
+                feedResumeHandler?.invoke()
+            },
+        )
+        wantsOverlay = overlay
+        feedWantsOverlay = overlay
+    }
+
     val feedPath = when {
         searchQuery != null -> "/api/posts/search?q=${encodeQuery(searchQuery)}"
         communityId.isNullOrBlank() -> "/api/posts"
@@ -142,6 +172,26 @@ internal fun feedScreen(
         stage.clear()
         if (posts.isEmpty()) {
             stage.appendChild(emptyState(emptyTitle, emptyHint))
+            if (canOpenWants) {
+                stage.asDynamic().addEventListener("wheel", { event: dynamic ->
+                    if (wantsOverlay != null) return@addEventListener
+                    if (num(event.deltaY) <= -24.0) {
+                        event.preventDefault()
+                        openWants(explode = true, pushHistory = true)
+                    }
+                }, js("({passive:false})"))
+                stage.asDynamic().addEventListener("pointerdown", { event: dynamic ->
+                    if (wantsOverlay != null || interactive(event.target)) return@addEventListener
+                    emptyTouchStartY = num(event.clientY)
+                })
+                stage.asDynamic().addEventListener("pointerup", { event: dynamic ->
+                    val y0 = emptyTouchStartY
+                    emptyTouchStartY = null
+                    if (y0 != null && wantsOverlay == null && num(event.clientY) - y0 > 72.0) {
+                        openWants(explode = true, pushHistory = true)
+                    }
+                })
+            }
             return
         }
         pagerLive = true
@@ -155,7 +205,14 @@ internal fun feedScreen(
             focusPostId,
             feedPath,
             autoOpenFocusComments = onBack == null,
+            canOpenWants = canOpenWants,
+            isWantsOpen = { wantsOverlay != null },
+            onOpenWants = { openWants(explode = true, pushHistory = true) },
+            bindResumeAfterWants = { resume -> resumeAfterWants = resume },
         )
+    }
+    if (startInWants && canOpenWants) {
+        openWants(explode = false, pushHistory = false)
     }
     val feedFilter = when {
         searchQuery != null -> FeedFilter.Search(searchQuery)
@@ -253,6 +310,10 @@ private fun mountPager(
     focusPostId: String? = null,
     feedPath: String = "/api/posts",
     autoOpenFocusComments: Boolean = true,
+    canOpenWants: Boolean = false,
+    isWantsOpen: () -> Boolean = { false },
+    onOpenWants: () -> Unit = {},
+    bindResumeAfterWants: (() -> Unit) -> Unit = {},
 ) {
     var index = focusPostId?.let { id -> posts.indexOfFirst { it.id == id }.takeIf { it >= 0 } } ?: 0
     var openedFocus = false
@@ -302,11 +363,13 @@ private fun mountPager(
     fun playCurrent() {
         cancelType()
         val post = posts.getOrNull(index) ?: return
-        syncFeedAudio(post)
+        if (!isWantsOpen()) {
+            syncFeedAudio(post)
+        }
         val message = slides[index]?.asDynamic()?.querySelector(".message") ?: return
         val copy = message.querySelector(".message-copy") ?: message
         paintPostTime(message.querySelector(".message-time"), post.createdAt)
-        if (viewedId != post.id) {
+        if (viewedId != post.id && !isWantsOpen()) {
             viewedId = post.id
             JsSharedHolder.client.feed.selectPost(post.id)
         }
@@ -314,6 +377,10 @@ private fun mountPager(
         cancelType = typewrite(copy, previewPostMessage(post.message)) {
             if (postMessageNeedsMore(post.message)) message.classList.add("ready")
         }
+    }
+    bindResumeAfterWants {
+        layout(0.0, true)
+        playCurrent()
     }
 
     fun revealAvatar() {
@@ -503,7 +570,7 @@ private fun mountPager(
     }
 
     fun reloadQuiet() {
-        if (loading || animating || dragging || feedDialogOpen()) return
+        if (loading || animating || dragging || feedDialogOpen() || isWantsOpen()) return
         pullLatest()
     }
 
@@ -511,7 +578,14 @@ private fun mountPager(
         if (animating) return
         val height = stageHeight()
         if (direction < 0 && index == 0) {
-            reloadNewer()
+            if (canOpenWants) {
+                drag = 0.0
+                animating = false
+                layout(0.0, false)
+                onOpenWants()
+            } else {
+                reloadNewer()
+            }
             return
         }
         if (direction > 0 && index >= posts.lastIndex) {
@@ -545,7 +619,7 @@ private fun mountPager(
     }
 
     stage.asDynamic().addEventListener("pointerdown", { event: dynamic ->
-        if (animating || interactive(event.target)) return@addEventListener
+        if (animating || isWantsOpen() || interactive(event.target)) return@addEventListener
         dragging = true
         axis = null
         startX = num(event.clientX)
@@ -635,7 +709,8 @@ private fun mountPager(
             } else {
                 val height = stageHeight()
                 val flung = abs(velocity) > 0.45
-                val far = abs(drag) > height * 0.18
+                val pullDownThreshold = if (canOpenWants && index == 0 && drag > 0.0) minOf(height * 0.18, 120.0) else height * 0.18
+                val far = abs(drag) > pullDownThreshold
                 if (flung || far) commit(if (velocity < -0.45 || (!flung && drag < 0)) 1 else -1) else animate(0.0, 0)
             }
             axis = null
@@ -649,6 +724,7 @@ private fun mountPager(
         if (peeking || photoPeekTimer != null) event.preventDefault()
     })
     stage.asDynamic().addEventListener("wheel", { event: dynamic ->
+        if (isWantsOpen()) return@addEventListener
         event.preventDefault()
         if (animating || dragging || peeking || wheelLock) return@addEventListener
         val dx = num(event.deltaX)
@@ -669,7 +745,7 @@ private fun mountPager(
 
     ensureKeys()
     feedKeyHandler = { key ->
-        if (!feedDialogOpen()) {
+        if (!feedDialogOpen() && !isWantsOpen()) {
             when (key) {
                 "ArrowDown", "PageDown" -> {
                     feedCheckInBubbles?.hideUntilIdle()
@@ -699,7 +775,7 @@ private fun mountPager(
     feedResumeHandler = { reloadQuiet() }
     rebuild()
     if (index >= posts.lastIndex - 1) loadMore()
-    startSwipeHint(host) { index < 1 }
+    if (!isWantsOpen()) startSwipeHint(host) { index < 1 && !isWantsOpen() }
 }
 
 private class BuiltSlide(val root: HTMLElement, val pager: PhotoPager?)
@@ -1135,68 +1211,15 @@ private fun miniProfileWants(userId: String, name: String, host: HTMLElement, ro
             }
             section.asDynamic().hidden = false
             for (i in 0 until count) {
-                val want = wants[i]
-                val id = (want.id as? String).orEmpty()
-                val row = el("div", "community-row want-notebook")
-                row.setAttribute("role", "button")
-                row.setAttribute("tabindex", "0")
-                row.asDynamic().addEventListener("click", { event: dynamic ->
-                    if (event.target.closest("button") != null) return@addEventListener
-                    router?.let { openWantSheet(host, id, it) }
-                })
-                val header = el("div", "community-row-header")
-                val info = el("div", "community-row-info")
-                info.appendChild(el("span", "want-notebook-name", text = (want.name as? String).orEmpty()))
-                val memberCount = num(want.memberCount).toInt()
-                if (memberCount >= 2) {
-                    val members = want.members
-                    val facePeople = mutableListOf<DiscoverCardPerson>()
-                    for (memberIndex in 0 until (members.length as? Int ?: 0)) {
-                        facePeople += DiscoverCardPerson(
-                            name = (members[memberIndex].name as? String).orEmpty(),
-                            photoUrl = members[memberIndex].photoUrl as? String,
-                        )
-                    }
-                    row.appendChild(discoverPeopleFaces(facePeople))
-                }
-                val wantName = (want.name as? String).orEmpty()
-                val joined = want.joined == true
-                val button = el(
-                    "button",
-                    if (joined) "tiny community-action" else "tiny community-action",
-                    text = Town.t(if (joined) "wantJoined" else "wantJoin"),
+                val want = parseWantCardData(wants[i])
+                val row = wantNotebookCardElement(
+                    host = host,
+                    want = want,
+                    router = router,
+                    leaveOnly = false,
+                    onUpdated = { load() },
+                    onRequireAuth = { load() },
                 )
-                button.setAttribute("type", "button")
-                button.asDynamic().addEventListener("click", { event: dynamic -> event.stopPropagation() })
-                fun toggleWant() {
-                    button.setAttribute("disabled", "disabled")
-                    val action = if (joined) "leave" else "join"
-                    http("POST", "/api/wants/${encodeQuery(id)}/$action") { actionStatus, actionBody ->
-                        if (actionStatus == 200) load() else {
-                            button.removeAttribute("disabled")
-                            toast(host, errorText(actionBody, actionStatus))
-                        }
-                    }
-                }
-                button.onClick {
-                    if (Town.me == null) {
-                        showAuthDialog(host, onSuccess = { load() })
-                        return@onClick
-                    }
-                    if (joined) {
-                        confirmDialog(
-                            host,
-                            Town.t("leaveWantAsk", mapOf("want" to wantName)),
-                            Town.t("leaveWantHint"),
-                            Town.t("leaveWant"),
-                        ) { toggleWant() }
-                    } else {
-                        toggleWant()
-                    }
-                }
-                header.appendChild(info)
-                header.appendChild(button)
-                row.appendChild(header)
                 list.appendChild(row)
             }
         }

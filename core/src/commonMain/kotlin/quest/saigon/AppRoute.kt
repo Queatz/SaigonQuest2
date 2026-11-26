@@ -17,6 +17,7 @@ sealed class AppRoute {
     data object Admin : AppRoute()
     data object Discover : AppRoute()
     data object Shop : AppRoute()
+    data object Wants : AppRoute()
     data object Messages : AppRoute()
     data class Chat(val id: String) : AppRoute()
     data class Post(val id: String) : AppRoute()
@@ -56,6 +57,7 @@ fun matchAppRoute(path: String): AppRoute {
         normalized == "/admin" -> AppRoute.Admin
         normalized == "/discover" -> AppRoute.Discover
         normalized == "/shop" -> AppRoute.Shop
+        normalized == "/wants" -> AppRoute.Wants
         normalized == "/messages" -> AppRoute.Messages
         post != null -> AppRoute.Post(post.groupValues[1])
         community != null -> AppRoute.Community(community.groupValues[1])

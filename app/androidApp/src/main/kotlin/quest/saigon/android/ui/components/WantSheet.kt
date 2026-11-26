@@ -1,6 +1,7 @@
 package quest.saigon.android.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,9 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import quest.saigon.AppRoute
 import quest.saigon.Copy
@@ -46,6 +50,7 @@ fun WantSheet(
     wantId: String,
     shared: TownSharedClient,
     language: Language,
+    initialPhotoUrl: String? = null,
     onNavigate: (AppRoute) -> Unit,
     onRequireAuth: () -> Unit,
     onDismiss: () -> Unit,
@@ -68,11 +73,24 @@ fun WantSheet(
     }
 
     val title = want?.name ?: Copy.text(language, "wantAttachment")
+    val coverUrl = want?.photoUrl ?: initialPhotoUrl
     SaigonBottomSheet(title = title, onDismiss = onDismiss) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         ) {
+            if (!coverUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(176.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(tokens.line),
+                )
+            }
             Text(Copy.text(language, "peopleWantThis"), color = tokens.text, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
             when {
                 loading -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { SaigonSpinner() }

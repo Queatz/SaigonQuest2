@@ -59,14 +59,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1387,6 +1390,7 @@ fun MiniProfileDialog(
                 ) {
                     wants.forEach { want ->
                         WantNotebookCard(
+                            photoUrl = want.photoUrl,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(enabled = onOpenWant != null) { onOpenWant?.invoke(want.id) },
@@ -1486,6 +1490,7 @@ fun ProfileCoverPhoto(
 @Composable
 fun WantNotebookCard(
     modifier: Modifier = Modifier,
+    photoUrl: String? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val tokens = LocalSaigonTokens.current
@@ -1493,9 +1498,7 @@ fun WantNotebookCard(
     val paper = if (tokens.isDark) Color(0xFF2A2521) else Color(0xFFFFFDF7)
     val rule = if (tokens.isDark) Color.White.copy(alpha = 0.08f) else Color(0xFF658DAA).copy(alpha = 0.2f)
     val margin = if (tokens.isDark) Color(0xFFE9897C).copy(alpha = 0.6f) else Color(0xFFD66E72).copy(alpha = 0.55f)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Box(
         modifier = modifier
             .clip(shape)
             .background(paper)
@@ -1509,10 +1512,37 @@ fun WantNotebookCard(
                 val marginX = 25.dp.toPx()
                 drawLine(margin, Offset(marginX, 0f), Offset(marginX, size.height), 1.5.dp.toPx())
             }
-            .border(1.dp, tokens.line, shape)
-            .padding(start = 34.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-        content = content,
-    )
+            .border(1.dp, tokens.line, shape),
+    ) {
+        if (!photoUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = photoUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                0f to Color.Transparent,
+                                1f to Color.Black,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 34.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            content = content,
+        )
+    }
 }
 
 @Composable

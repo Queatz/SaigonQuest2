@@ -91,6 +91,17 @@ fun SaigonApp(
                 onRequireAuth = { authPromptVisible = true },
             )
         }
+        composable("/wants") {
+            FeedScreen(
+                shared = shared,
+                audioPlayer = audioPlayer,
+                startInWants = true,
+                onNavigate = ::navigateTo,
+                onNavigatePath = ::navigatePath,
+                onRequireAuth = { authPromptVisible = true },
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(
             route = "/p/{id}",
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
@@ -358,6 +369,9 @@ fun SaigonApp(
                 shared.onForeground()
                 shared.feed.refresh()
                 shared.discover.loadSummary()
+                if (shared.wants.state.value.loadGeneration > 0L) {
+                    shared.wants.loadAll()
+                }
                 shared.discover.refreshCheckIns()
                 val target = pendingProtectedRoute
                 pendingProtectedRoute = null

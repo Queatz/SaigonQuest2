@@ -12,6 +12,7 @@ class UploadStore(val root: File) {
         File(root, "chats").mkdirs()
         File(root, "products").mkdirs()
         File(root, "photos").mkdirs()
+        File(root, "wants").mkdirs()
     }
 
     fun writePost(jpeg: ByteArray): String = write("posts", "jpg", jpeg)
@@ -28,6 +29,8 @@ class UploadStore(val root: File) {
 
     fun writePhoto(jpeg: ByteArray): String = write("photos", "jpg", jpeg)
 
+    fun writeWant(jpeg: ByteArray): String = write("wants", "jpg", jpeg)
+
     fun read(relative: String): ByteArray {
         val file = resolve(relative) ?: throw IllegalArgumentException("not_found")
         return file.readBytes()
@@ -38,7 +41,7 @@ class UploadStore(val root: File) {
     }
 
     fun publicFile(kind: String, name: String): File? {
-        if (kind != "posts" && kind != "avatars" && kind != "music" && kind != "products" && kind != "photos") return null
+        if (kind != "posts" && kind != "avatars" && kind != "music" && kind != "products" && kind != "photos" && kind != "wants") return null
         if (!safeName(name)) return null
         return resolve("$kind/$name")
     }

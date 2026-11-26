@@ -102,6 +102,9 @@ interface TownRepository {
     fun insertWant(want: WantRecord): WantRecord
     fun findWant(id: String): WantRecord?
     fun findWantBySlug(slug: String): WantRecord?
+    fun allWants(): List<WantRecord>
+    fun wantsWithoutPhoto(): List<WantRecord>
+    fun updateWantPhoto(wantId: String, photoPath: String?, photoBlocked: Boolean = false): WantRecord?
     fun wantsForUser(userId: String): List<WantRecord>
     fun wantMembers(wantId: String): List<String>
     fun wantPeople(wantId: String, limit: Int): List<WantMemberView>

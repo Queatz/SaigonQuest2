@@ -22,6 +22,7 @@ import quest.saigon.android.ui.components.MiniProfileDialog
 import quest.saigon.android.ui.discover.DiscoverScreen
 import quest.saigon.android.ui.messages.MessagesListScreen
 import quest.saigon.android.ui.stats.StatsScreen
+import quest.saigon.android.ui.wants.WantsOverlayScreen
 import quest.saigon.shared.TownSharedClient
 import quest.saigon.shared.model.CommunityDto
 import quest.saigon.shared.platform.InMemoryTokenStorage
@@ -43,6 +44,8 @@ class SaigonComposeTest {
                 "/api/products/search" -> respond("""{"products":[{"id":"pr1","name":"Ca phe sua da","price":35000,"photoUrls":[]}],"count":1}""", HttpStatusCode.OK, jsonHeaders)
                 "/api/chats" -> respond("""{"chats":[{"id":"c1","type":"direct","name":"Minh","lastMessageText":"Hello","unreadCount":1}],"unreadCount":1}""", HttpStatusCode.OK, jsonHeaders)
                 "/api/stats" -> respond("""{"timezone":"UTC+7","totalUsers":12,"totalPosts":34,"days":[]}""", HttpStatusCode.OK, jsonHeaders)
+                "/api/wants" -> respond("""{"wants":[{"id":"w1","name":"Go hiking","photoUrl":"/media/wants/hike.jpg","memberCount":2,"joined":false,"members":[{"id":"u1","name":"Linh"}]}]}""", HttpStatusCode.OK, jsonHeaders)
+                "/api/wants/w1/join" -> respond("""{"id":"w1","name":"Go hiking","photoUrl":"/media/wants/hike.jpg","memberCount":3,"joined":true,"members":[{"id":"u1","name":"Linh"}]}""", HttpStatusCode.OK, jsonHeaders)
                 else -> respond("""{"ok":true}""", HttpStatusCode.OK, jsonHeaders)
             }
         }
@@ -105,5 +108,23 @@ class SaigonComposeTest {
             }
         }
         composeRule.onNodeWithText("12").assertIsDisplayed()
+    }
+
+    @Test
+    fun wantsOverlayScreenLoadsWantsAndSupportsJoining() {
+        val shared = fakeClient()
+        composeRule.setContent {
+            SaigonTheme {
+                WantsOverlayScreen(
+                    shared = shared,
+                    explodeOnEnter = false,
+                    onRequireAuth = {},
+                    onOpenWant = {},
+                )
+            }
+        }
+        composeRule.mainClock.advanceTimeBy(2_200L)
+        composeRule.onNodeWithText("Go hiking").assertIsDisplayed()
+        composeRule.onNodeWithText(Copy.text(Language.EN, "wantJoin")).assertIsDisplayed()
     }
 }

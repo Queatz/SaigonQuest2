@@ -11,16 +11,26 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import quest.saigon.ai.MusicRender
+import quest.saigon.ai.UnsafeWantPromptException
+import quest.saigon.ai.WantPhotoRenderer
 import quest.saigon.auth.RateLimiter
+import quest.saigon.media.ImageOps
 import quest.saigon.media.UploadStore
 import quest.saigon.town.AvatarService
+import quest.saigon.town.ChatService
 import quest.saigon.town.InMemoryTownRepository
 import quest.saigon.town.MusicService
+import quest.saigon.town.NotificationHub
 import quest.saigon.town.TownServices
+import quest.saigon.town.WantService
+import java.awt.Color
+import java.awt.image.BufferedImage
 import java.io.File
+import java.util.concurrent.Executor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WantBehaviorTest {
@@ -29,7 +39,7 @@ class WantBehaviorTest {
     @Test
     fun wantsAreSharedJoinableAndNotifyExistingMembersOnly() = testApplication {
         var timestamp = 1_700_000_000_000L
-        val services = services { timestamp++ }
+        val services = services(clock = { timestamp++ })
         application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
         val linh = createClient { install(HttpCookies) }
         val minh = createClient { install(HttpCookies) }
@@ -171,6 +181,98 @@ class WantBehaviorTest {
         assertEquals("no_chat_members", mapper.readTree(invalidChat.bodyAsText()).path("error").asText())
     }
 
+    @Test
+    fun wantsListAllAndGeneratePhotosInBackgroundWithHourlyRetry() = testApplication {
+        val pendingJobs = mutableListOf<Runnable>()
+        val renderedNames = mutableListOf<String>()
+        var failNextRender = false
+        val sampleJpeg = ImageOps().writeJpeg(
+            BufferedImage(16, 12, BufferedImage.TYPE_INT_RGB).apply {
+                createGraphics().apply {
+                    color = Color(220, 140, 110)
+                    fillRect(0, 0, 16, 12)
+                    dispose()
+                }
+            },
+            0.85f,
+        )
+        var timestamp = 1_700_000_000_000L
+        val services = services(
+            clock = { timestamp++ },
+            wantConfigured = true,
+            wantExecutor = Executor { pendingJobs += it },
+            wantRenderer = WantPhotoRenderer { name ->
+                renderedNames += name
+                if (name == "Unsafe prompt") throw UnsafeWantPromptException("blocked")
+                if (failNextRender) throw RuntimeException("transient failure")
+                sampleJpeg
+            },
+        )
+        application { module(databaseHealth = DatabaseHealth { HealthStatus(true, "saigonquest", "3") }, services) }
+
+        val linh = createClient { install(HttpCookies) }
+        val minh = createClient { install(HttpCookies) }
+        val visitor = createClient { }
+        register(linh, "Linh", "0905550021")
+        register(minh, "Minh", "0905550022")
+
+        // Creating a want returns immediately without blocking on photo generation
+        val createdRes = linh.post("/api/wants") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Paint pottery"}""")
+        }
+        assertEquals(HttpStatusCode.Created, createdRes.status)
+        val createdBody = mapper.readTree(createdRes.bodyAsText())
+        val potteryId = createdBody.path("id").asText()
+        assertTrue(createdBody.path("photoUrl").isNull)
+        assertEquals(1, pendingJobs.size)
+
+        // Execute queued background job
+        pendingJobs.removeAt(0).run()
+
+        val allForLinh = mapper.readTree(linh.get("/api/wants").bodyAsText()).path("wants")
+        assertEquals(1, allForLinh.size())
+        val photoUrl = allForLinh.path(0).path("photoUrl").asText()
+        assertTrue(photoUrl.startsWith("/media/wants/"))
+        assertTrue(allForLinh.path(0).path("joined").asBoolean())
+        assertEquals(HttpStatusCode.OK, visitor.get(photoUrl).status)
+
+        // Fail initial generation for a second want, then verify hourly retry recovers it
+        failNextRender = true
+        val coffeeId = mapper.readTree(
+            minh.post("/api/wants") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Drink egg coffee"}""")
+            }.bodyAsText(),
+        ).path("id").asText()
+        assertEquals(1, pendingJobs.size)
+        pendingJobs.removeAt(0).run()
+        assertTrue(mapper.readTree(visitor.get("/api/wants/$coffeeId").bodyAsText()).path("photoUrl").isNull)
+
+        // Unsafe prompt is blocked and not retried endlessly
+        minh.post("/api/wants") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Unsafe prompt"}""")
+        }
+        pendingJobs.removeAt(0).run()
+
+        // Retry missing photos now succeeds for Drink egg coffee, skips Paint pottery (has photo) and Unsafe prompt (blocked)
+        failNextRender = false
+        renderedNames.clear()
+        services.wants.retryMissingPhotos()
+        assertEquals(1, pendingJobs.size)
+        pendingJobs.removeAt(0).run()
+        assertEquals(listOf("Drink egg coffee"), renderedNames)
+
+        val coffeeDetail = mapper.readTree(visitor.get("/api/wants/$coffeeId").bodyAsText())
+        assertTrue(coffeeDetail.path("photoUrl").asText().startsWith("/media/wants/"))
+
+        val visitorList = mapper.readTree(visitor.get("/api/wants").bodyAsText()).path("wants")
+        assertEquals(3, visitorList.size())
+        assertTrue((0 until visitorList.size()).none { visitorList.path(it).path("joined").asBoolean() })
+        assertNull(services.repo.findWant(potteryId)?.let { if (it.photoPath == null) "missing" else null })
+    }
+
     private suspend fun register(client: io.ktor.client.HttpClient, name: String, phone: String) {
         client.post("/api/auth/register") {
             contentType(ContentType.Application.Json)
@@ -178,12 +280,19 @@ class WantBehaviorTest {
         }
     }
 
-    private fun services(clock: () -> Long = { 1_700_000_000_000L }): TownServices {
+    private fun services(
+        clock: () -> Long = { 1_700_000_000_000L },
+        wantConfigured: Boolean = false,
+        wantExecutor: Executor = Executor { it.run() },
+        wantRenderer: WantPhotoRenderer? = null,
+    ): TownServices {
         val repo = InMemoryTownRepository()
         val uploads = UploadStore(File.createTempFile("sq-want", "").apply {
             delete()
             mkdirs()
         })
+        val hub = NotificationHub()
+        val chats = ChatService(repo, NotificationHub(), clock)
         return TownServices(
             repo = repo,
             uploads = uploads,
@@ -202,6 +311,18 @@ class WantBehaviorTest {
                 configured = false,
                 executor = { it.run() },
                 clock = clock,
+            ),
+            hub = hub,
+            chats = chats,
+            wants = WantService(
+                repo = repo,
+                hub = hub,
+                clock = clock,
+                chats = chats,
+                uploads = uploads,
+                renderer = wantRenderer,
+                configured = wantConfigured,
+                executor = wantExecutor,
             ),
             config = AppConfig(uploadDir = uploads.root),
             clock = clock,

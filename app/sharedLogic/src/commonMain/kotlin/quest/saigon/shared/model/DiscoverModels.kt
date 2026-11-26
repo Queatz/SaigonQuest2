@@ -87,6 +87,7 @@ data class WantMemberDto(
 data class WantDto(
     val id: String,
     val name: String = "",
+    val photoUrl: String? = null,
     val memberCount: Long = 0L,
     val joined: Boolean = false,
     val members: List<WantMemberDto> = emptyList(),

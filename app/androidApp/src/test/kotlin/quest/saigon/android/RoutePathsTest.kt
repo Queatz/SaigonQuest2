@@ -29,6 +29,7 @@ class RoutePathsTest {
             AppRoute.Admin,
             AppRoute.Discover,
             AppRoute.Shop,
+            AppRoute.Wants,
             AppRoute.Messages,
             AppRoute.Chat("c1"),
             AppRoute.Post("p1"),
@@ -53,6 +54,7 @@ class RoutePathsTest {
         assertFalse(RoutePaths.requiresAuth(AppRoute.Csae))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Discover))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Shop))
+        assertFalse(RoutePaths.requiresAuth(AppRoute.Wants))
         assertFalse(RoutePaths.requiresAuth(AppRoute.Post("p1")))
     }
 

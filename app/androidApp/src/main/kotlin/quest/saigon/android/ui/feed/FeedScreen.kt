@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,10 +64,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,11 +85,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.shadow.Shadow as DrawShadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -129,6 +137,7 @@ import quest.saigon.android.ui.components.SaigonSpinner
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.UserAvatar
 import quest.saigon.android.ui.components.WantSheet
+import quest.saigon.android.ui.wants.WantsOverlayScreen
 import quest.saigon.android.ui.components.ViewerButton
 import quest.saigon.android.ui.components.formatVnd
 import quest.saigon.android.ui.components.openLocationDestination
@@ -178,6 +187,7 @@ fun FeedScreen(
     audioPlayer: AudioPreviewPlayer,
     focusPostId: String? = null,
     communityId: String? = null,
+    startInWants: Boolean = false,
     onNavigate: (AppRoute) -> Unit,
     onNavigatePath: (String) -> Unit,
     onRequireAuth: () -> Unit,
@@ -210,6 +220,14 @@ fun FeedScreen(
     var miniProfileCommunities by remember { mutableStateOf<List<CommunityDto>>(emptyList()) }
     var miniProfileWants by remember { mutableStateOf<List<WantDto>>(emptyList()) }
     var wantSheetId by remember { mutableStateOf<String?>(null) }
+    var wantSheetSeed by remember { mutableStateOf<WantDto?>(null) }
+    val canOpenWants = communityId == null && onBack == null
+    var showWantsScreen by rememberSaveable(startInWants) { mutableStateOf(startInWants) }
+    var explodeIntoWants by remember { mutableStateOf(false) }
+    var pullDownOffsetPx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val pullTriggerPx = with(density) { 56.dp.toPx() }
+    val maxPullPx = with(density) { 120.dp.toPx() }
     var activeCommunity by remember { mutableStateOf<quest.saigon.shared.model.CommunityDto?>(null) }
     var peeking by remember { mutableStateOf(false) }
     var feedMusicEnabled by remember { mutableStateOf(false) }
@@ -233,6 +251,34 @@ fun FeedScreen(
     DisposableEffect(Unit) {
         onDispose {
             audioPlayer.stop()
+        }
+    }
+
+    LaunchedEffect(showWantsScreen) {
+        if (showWantsScreen) {
+            audioPlayer.stop()
+        }
+    }
+
+    val noModalOpen = wantSheetId == null &&
+        selectedPerson == null &&
+        !showNotifications &&
+        commentsRequest == null &&
+        attendeesPostId == null &&
+        pollVotersPostId == null &&
+        questionPost == null &&
+        checkInPostId == null &&
+        activeCheckIn == null &&
+        !showCommunityMembers &&
+        fullMessagePost == null &&
+        zoomPhotoUrl == null
+
+    BackHandler(enabled = showWantsScreen && noModalOpen) {
+        if (startInWants && onBack != null) {
+            onBack()
+        } else {
+            showWantsScreen = false
+            explodeIntoWants = false
         }
     }
 
@@ -280,38 +326,95 @@ fun FeedScreen(
         }
     }
 
+    val feedHiddenAlpha by animateFloatAsState(
+        targetValue = if (showWantsScreen) 0f else 1f,
+        animationSpec = tween(durationMillis = if (showWantsScreen && explodeIntoWants) 460 else 260),
+        label = "feedHiddenAlpha",
+    )
+    val feedExplosionScale by animateFloatAsState(
+        targetValue = if (showWantsScreen && explodeIntoWants) 1.28f else 1f,
+        animationSpec = tween(durationMillis = 480, easing = FastOutSlowInEasing),
+        label = "feedExplosionScale",
+    )
+    val wantsAlpha by animateFloatAsState(
+        targetValue = if (showWantsScreen) 1f else 0f,
+        animationSpec = tween(durationMillis = if (showWantsScreen) (if (explodeIntoWants) 380 else 180) else 260),
+        label = "wantsOverlayFade",
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(SaigonColors.StageBg),
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = feedHiddenAlpha
+                    scaleX = feedExplosionScale
+                    scaleY = feedExplosionScale
+                    translationY = if (!showWantsScreen) pullDownOffsetPx else 0f
+                },
+        ) {
         when {
             feedState.isLoading && feedState.posts.isEmpty() -> {
                 SaigonSpinner(modifier = Modifier.align(Alignment.Center))
             }
             feedState.posts.isEmpty() -> {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp),
+                        .fillMaxSize()
+                        .then(
+                            if (canOpenWants && !showWantsScreen) {
+                                Modifier.pointerInput(Unit) {
+                                    var totalDrag = 0f
+                                    detectVerticalDragGestures(
+                                        onDragStart = { totalDrag = 0f },
+                                        onDragCancel = { pullDownOffsetPx = 0f },
+                                        onDragEnd = {
+                                            if (totalDrag >= pullTriggerPx) {
+                                                explodeIntoWants = true
+                                                showWantsScreen = true
+                                            }
+                                            pullDownOffsetPx = 0f
+                                        },
+                                    ) { change, dragAmount ->
+                                        if (dragAmount > 0f || totalDrag > 0f) {
+                                            change.consume()
+                                            totalDrag = (totalDrag + dragAmount * 0.55f).coerceAtLeast(0f)
+                                            pullDownOffsetPx = totalDrag.coerceAtMost(maxPullPx)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            },
+                        ),
                 ) {
-                    Text(
-                        Copy.text(lang, if (communityId == null) "emptyFeed" else "emptyCommunity"),
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    Text(
-                        Copy.text(lang, if (communityId == null) "emptyFeedHint" else "emptyCommunityHint"),
-                        color = Color.White.copy(alpha = 0.72f),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    SaigonPrimaryButton(
-                        text = Copy.text(lang, "retry"),
-                        onClick = { shared.feed.refresh() },
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                    ) {
+                        Text(
+                            Copy.text(lang, if (communityId == null) "emptyFeed" else "emptyCommunity"),
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            Copy.text(lang, if (communityId == null) "emptyFeedHint" else "emptyCommunityHint"),
+                            color = Color.White.copy(alpha = 0.72f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        SaigonPrimaryButton(
+                            text = Copy.text(lang, "retry"),
+                            onClick = { shared.feed.refresh() },
+                        )
+                    }
                 }
             }
             else -> {
@@ -326,7 +429,7 @@ fun FeedScreen(
                 val isNotAtTopOfFeed = pagerState.currentPage > 0 ||
                     pagerState.settledPage > 0 ||
                     abs(pagerState.currentPageOffsetFraction) > 0.01f
-                BackHandler(enabled = isNotAtTopOfFeed) {
+                BackHandler(enabled = !showWantsScreen && isNotAtTopOfFeed && noModalOpen) {
                     scope.launch {
                         pagerState.animateScrollToPage(0)
                     }
@@ -336,14 +439,59 @@ fun FeedScreen(
                     }
                 }
 
+                val wantsPullNestedScroll = remember(pagerState, canOpenWants, pullTriggerPx, maxPullPx) {
+                    object : NestedScrollConnection {
+                        private fun atTop(): Boolean =
+                            pagerState.currentPage == 0 && abs(pagerState.currentPageOffsetFraction) < 0.01f
+
+                        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                            if (canOpenWants && !showWantsScreen && pullDownOffsetPx > 0f && available.y < 0f && source == NestedScrollSource.UserInput) {
+                                val next = (pullDownOffsetPx + available.y * 0.55f).coerceAtLeast(0f)
+                                val consumedY = (next - pullDownOffsetPx) / 0.55f
+                                pullDownOffsetPx = next
+                                return Offset(0f, consumedY)
+                            }
+                            return Offset.Zero
+                        }
+
+                        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                            if (canOpenWants && !showWantsScreen && source == NestedScrollSource.UserInput && available.y > 0f && atTop()) {
+                                pullDownOffsetPx = (pullDownOffsetPx + available.y * 0.55f).coerceAtMost(maxPullPx)
+                                return Offset(0f, available.y)
+                            }
+                            return Offset.Zero
+                        }
+
+                        override suspend fun onPreFling(available: Velocity): Velocity {
+                            if (canOpenWants && !showWantsScreen && pullDownOffsetPx > 0f) {
+                                if (pullDownOffsetPx >= pullTriggerPx || (pullDownOffsetPx > maxPullPx * 0.12f && available.y > 500f)) {
+                                    explodeIntoWants = true
+                                    showWantsScreen = true
+                                }
+                                pullDownOffsetPx = 0f
+                                return available
+                            }
+                            return Velocity.Zero
+                        }
+                    }
+                }
+
                 LaunchedEffect(pagerState.isScrollInProgress) {
                     feedScrolling = pagerState.isScrollInProgress
+                    if (!pagerState.isScrollInProgress && pullDownOffsetPx > 0f) {
+                        if (canOpenWants && !showWantsScreen && pullDownOffsetPx >= pullTriggerPx) {
+                            explodeIntoWants = true
+                            showWantsScreen = true
+                        }
+                        pullDownOffsetPx = 0f
+                    }
                 }
                 DisposableEffect(Unit) {
                     onDispose { feedScrolling = false }
                 }
 
-                LaunchedEffect(pagerState.settledPage, feedState.posts) {
+                LaunchedEffect(pagerState.settledPage, feedState.posts, showWantsScreen) {
+                    if (showWantsScreen) return@LaunchedEffect
                     val post = feedState.posts.getOrNull(pagerState.settledPage)
                     if (post != null) {
                         shared.feed.selectPost(post.id)
@@ -366,10 +514,15 @@ fun FeedScreen(
                     }
                 }
 
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(if (canOpenWants) Modifier.nestedScroll(wantsPullNestedScroll) else Modifier),
+                ) {
                     val stageHeightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                     VerticalPager(
                         state = pagerState,
+                        userScrollEnabled = !showWantsScreen,
                         modifier = Modifier.fillMaxSize(),
                     ) { page ->
                         val post = feedState.posts[page]
@@ -817,6 +970,23 @@ fun FeedScreen(
                 }
             }
         }
+        }
+
+        if (showWantsScreen || wantsAlpha > 0.01f) {
+            WantsOverlayScreen(
+                shared = shared,
+                explodeOnEnter = explodeIntoWants,
+                interactive = showWantsScreen,
+                onRequireAuth = onRequireAuth,
+                onOpenWant = { want ->
+                    wantSheetSeed = want
+                    wantSheetId = want.id
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = wantsAlpha },
+            )
+        }
     }
 
     if (showNotifications) {
@@ -1110,13 +1280,20 @@ fun FeedScreen(
         )
     }
     wantSheetId?.let { wantId ->
+        val seedWant = wantSheetSeed
+            ?: miniProfileWants.firstOrNull { it.id == wantId }
+            ?: shared.wants.state.value.wants.firstOrNull { it.id == wantId }
         WantSheet(
             wantId = wantId,
             shared = shared,
             language = lang,
+            initialPhotoUrl = seedWant?.photoUrl,
             onNavigate = onNavigate,
             onRequireAuth = onRequireAuth,
-            onDismiss = { wantSheetId = null },
+            onDismiss = {
+                wantSheetId = null
+                wantSheetSeed = null
+            },
         )
     }
 }
