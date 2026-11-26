@@ -13,7 +13,8 @@ internal class WantsSpaceMusicPlayer {
     private var masterGain: dynamic = null
     private var intervalId: dynamic = null
     private var resumeHandler: ((dynamic) -> Unit)? = null
-    private var nextNoteAtMs: Long? = null
+    private var nextPadNoteAtMs: Long? = null
+    private var nextCrystalNoteAtMs: Long? = null
     private var nextDrumHitAtMs: Long? = null
     private var closed = false
 
@@ -73,7 +74,8 @@ internal class WantsSpaceMusicPlayer {
                         document.asDynamic().removeEventListener("pointerdown", it)
                         resumeHandler = null
                     }
-                    nextNoteAtMs = null
+                    nextPadNoteAtMs = null
+                    nextCrystalNoteAtMs = null
                     update()
                 }
             }, { _: dynamic -> Unit })
@@ -86,47 +88,40 @@ internal class WantsSpaceMusicPlayer {
 
         val nowEpochMs = (js("Date.now()") as Double).toLong()
         val nowAudioTime = context.currentTime as Double
-        var scheduledThroughMs = nextNoteAtMs
+        var nextPadNoteAt = nextPadNoteAtMs
+        var nextCrystalNoteAt = nextCrystalNoteAtMs
 
-        if (scheduledThroughMs == null) {
+        if (nextPadNoteAt == null || nextCrystalNoteAt == null) {
             masterGain.gain.setValueAtTime(0.0001, nowAudioTime)
             masterGain.gain.linearRampToValueAtTime(0.07, nowAudioTime + 2.0)
-            val noteEndMs = WantsSpaceSequencer.nextNoteStartMillis(nowEpochMs)
-            scheduleNotes(
-                startEpochMs = nowEpochMs,
-                endEpochMs = noteEndMs,
-                pitch = WantsSpaceSequencer.pitchAt(nowEpochMs),
-                nowEpochMs = nowEpochMs,
-                nowAudioTime = nowAudioTime,
-            )
-            scheduledThroughMs = noteEndMs
+            scheduleCurrentLayer(isCrystal = false, nowEpochMs, nowAudioTime)
+            scheduleCurrentLayer(isCrystal = true, nowEpochMs, nowAudioTime)
+            nextPadNoteAt = WantsSpaceSequencer.nextPadNoteStartMillis(nowEpochMs)
+            nextCrystalNoteAt = WantsSpaceSequencer.nextCrystalNoteStartMillis(nowEpochMs)
         }
 
-        var nextNoteAt: Long = scheduledThroughMs
-        if (nextNoteAt < nowEpochMs - 100L) {
-            val noteEndMs = WantsSpaceSequencer.nextNoteStartMillis(nowEpochMs)
-            scheduleNotes(
-                startEpochMs = nowEpochMs,
-                endEpochMs = noteEndMs,
-                pitch = WantsSpaceSequencer.pitchAt(nowEpochMs),
-                nowEpochMs = nowEpochMs,
-                nowAudioTime = nowAudioTime,
-            )
-            nextNoteAt = noteEndMs
+        var padCursor = checkNotNull(nextPadNoteAt)
+        var crystalCursor = checkNotNull(nextCrystalNoteAt)
+
+        if (padCursor < nowEpochMs - 100L) {
+            scheduleCurrentLayer(isCrystal = false, nowEpochMs, nowAudioTime)
+            padCursor = WantsSpaceSequencer.nextPadNoteStartMillis(nowEpochMs)
+        }
+        if (crystalCursor < nowEpochMs - 100L) {
+            scheduleCurrentLayer(isCrystal = true, nowEpochMs, nowAudioTime)
+            crystalCursor = WantsSpaceSequencer.nextCrystalNoteStartMillis(nowEpochMs)
         }
 
-        while (nextNoteAt <= nowEpochMs + 250L) {
-            val noteEndMs = WantsSpaceSequencer.nextNoteStartMillis(nextNoteAt)
-            scheduleNotes(
-                startEpochMs = nextNoteAt,
-                endEpochMs = noteEndMs,
-                pitch = WantsSpaceSequencer.pitchAt(nextNoteAt),
-                nowEpochMs = nowEpochMs,
-                nowAudioTime = nowAudioTime,
-            )
-            nextNoteAt = noteEndMs
+        while (padCursor <= nowEpochMs + 250L) {
+            scheduleLayerNote(padCursor, isCrystal = false, nowEpochMs, nowAudioTime)
+            padCursor = WantsSpaceSequencer.nextPadNoteStartMillis(padCursor)
         }
-        nextNoteAtMs = nextNoteAt
+        while (crystalCursor <= nowEpochMs + 250L) {
+            scheduleLayerNote(crystalCursor, isCrystal = true, nowEpochMs, nowAudioTime)
+            crystalCursor = WantsSpaceSequencer.nextCrystalNoteStartMillis(crystalCursor)
+        }
+        nextPadNoteAtMs = padCursor
+        nextCrystalNoteAtMs = crystalCursor
 
         var nextDrumHit: Long = nextDrumHitAtMs
             ?: WantsSpaceSequencer.nextDrumHitStartMillis(nowEpochMs - 1L)
@@ -137,39 +132,59 @@ internal class WantsSpaceMusicPlayer {
             val phraseIndex = WantsSpaceSequencer.phraseIndexAt(nextDrumHit)
             val pulseInPhrase = WantsSpaceSequencer.pulseInPhraseAt(nextDrumHit)
             for (hit in WantsSpaceSequencer.drumHitsAt(phraseIndex, pulseInPhrase)) {
-                scheduleDrumHit(hit.kind, nextDrumHit, nowEpochMs, nowAudioTime)
+                scheduleDrumHit(hit.kind, hit.velocity, nextDrumHit, nowEpochMs, nowAudioTime)
             }
             nextDrumHit = WantsSpaceSequencer.nextDrumHitStartMillis(nextDrumHit)
         }
         nextDrumHitAtMs = nextDrumHit
     }
 
-    private fun scheduleNotes(
+    private fun scheduleCurrentLayer(
+        isCrystal: Boolean,
+        nowEpochMs: Long,
+        nowAudioTime: Double,
+    ) {
+        val note = if (isCrystal) WantsSpaceSequencer.crystalNoteAt(nowEpochMs)
+        else WantsSpaceSequencer.padNoteAt(nowEpochMs)
+        if (note != null) {
+            val phraseIndex = WantsSpaceSequencer.phraseIndexAt(nowEpochMs)
+            val noteEndMs = WantsSpaceSequencer.noteEndMillis(phraseIndex, note)
+            scheduleNote(
+                maxOf(WantsSpaceSequencer.noteStartMillis(phraseIndex, note), nowEpochMs),
+                noteEndMs,
+                note.midiNote,
+                nowEpochMs,
+                nowAudioTime,
+                isCrystal,
+                note.velocity,
+            )
+        }
+    }
+
+    private fun scheduleLayerNote(
         startEpochMs: Long,
-        endEpochMs: Long,
-        pitch: Int,
+        isCrystal: Boolean,
         nowEpochMs: Long,
         nowAudioTime: Double,
     ) {
         val phraseIndex = WantsSpaceSequencer.phraseIndexAt(startEpochMs)
-        val noteIndex = WantsSpaceSequencer.noteIndexAt(startEpochMs)
+        val note = if (isCrystal) {
+            WantsSpaceSequencer.crystalPhrase(phraseIndex).firstOrNull {
+                it.startPulses == WantsSpaceSequencer.pulseInPhraseAt(startEpochMs)
+            }
+        } else {
+            WantsSpaceSequencer.phrase(phraseIndex).firstOrNull {
+                it.startPulses == WantsSpaceSequencer.pulseInPhraseAt(startEpochMs)
+            }
+        } ?: return
         scheduleNote(
             startEpochMs,
-            endEpochMs,
-            pitch,
+            WantsSpaceSequencer.noteEndMillis(phraseIndex, note),
+            note.midiNote,
             nowEpochMs,
             nowAudioTime,
-            isCrystal = false,
-            velocity = WantsSpaceSequencer.padVelocity(phraseIndex, noteIndex),
-        )
-        scheduleNote(
-            startEpochMs,
-            endEpochMs,
-            pitch + 12,
-            nowEpochMs,
-            nowAudioTime,
-            isCrystal = true,
-            velocity = WantsSpaceSequencer.crystalVelocity(phraseIndex, noteIndex),
+            isCrystal,
+            note.velocity,
         )
     }
 
@@ -191,14 +206,24 @@ internal class WantsSpaceMusicPlayer {
         val durationSeconds = endAudioTime - startAudioTime
         val attackSeconds = min(0.07, durationSeconds / 3.0)
         val releaseSeconds = min(0.10, durationSeconds / 3.0)
-        oscillator.type = if (isCrystal) "triangle" else "sine"
-        oscillator.frequency.setValueAtTime(440.0 * 2.0.pow((pitch - 69) / 12.0), startAudioTime)
+        val frequency = 440.0 * 2.0.pow((pitch - 69) / 12.0)
+        oscillator.type = "sine"
+        oscillator.frequency.setValueAtTime(frequency, startAudioTime)
         voiceGain.gain.setValueAtTime(0.0001, startAudioTime)
-        val peakGain = (if (isCrystal) 0.28 else 0.8) * velocity
-        val sustainGain = if (isCrystal) peakGain * 0.28 else peakGain
+        val peakGain = (if (isCrystal) 0.58 else 0.8) * velocity
+        val sustainGain = if (isCrystal) peakGain * 0.08 else peakGain
         voiceGain.gain.linearRampToValueAtTime(peakGain, startAudioTime + attackSeconds)
         if (isCrystal) {
-            val decayEnd = min(endAudioTime - releaseSeconds, startAudioTime + 0.55)
+            val partialOscillator = context.createOscillator()
+            val partialGain = context.createGain()
+            partialOscillator.type = "sine"
+            partialOscillator.frequency.setValueAtTime(frequency * 2.76, startAudioTime)
+            partialGain.gain.setValueAtTime(0.22, startAudioTime)
+            partialOscillator.connect(partialGain)
+            partialGain.connect(voiceGain)
+            partialOscillator.start(startAudioTime)
+            partialOscillator.stop(endAudioTime + 0.02)
+            val decayEnd = min(endAudioTime - releaseSeconds, startAudioTime + 0.32)
             if (decayEnd > startAudioTime + attackSeconds) {
                 voiceGain.gain.exponentialRampToValueAtTime(sustainGain, decayEnd)
             }
@@ -213,6 +238,7 @@ internal class WantsSpaceMusicPlayer {
 
     private fun scheduleDrumHit(
         kind: WantsSpaceDrumKind,
+        velocity: Double,
         startEpochMs: Long,
         nowEpochMs: Long,
         nowAudioTime: Double,
@@ -228,7 +254,7 @@ internal class WantsSpaceMusicPlayer {
             oscillator.frequency.setValueAtTime(155.0, startAudioTime)
             oscillator.frequency.exponentialRampToValueAtTime(48.0, startAudioTime + 0.13)
             gain.gain.setValueAtTime(0.0001, startAudioTime)
-            gain.gain.linearRampToValueAtTime(0.8, startAudioTime + 0.004)
+            gain.gain.linearRampToValueAtTime(0.8 * velocity, startAudioTime + 0.004)
             gain.gain.exponentialRampToValueAtTime(0.0001, startAudioTime + 0.24)
             oscillator.connect(gain)
             gain.connect(masterGain)
@@ -254,7 +280,7 @@ internal class WantsSpaceMusicPlayer {
         source.buffer = noiseBuffer
         filter.type = "highpass"
         filter.frequency.setValueAtTime(if (kind == WantsSpaceDrumKind.SNARE) 1_500.0 else 7_000.0, startAudioTime)
-        val peakGain = if (kind == WantsSpaceDrumKind.SNARE) 0.24 else 0.11
+        val peakGain = (if (kind == WantsSpaceDrumKind.SNARE) 0.24 else 0.11) * velocity
         gain.gain.setValueAtTime(0.0001, startAudioTime)
         gain.gain.linearRampToValueAtTime(peakGain, startAudioTime + 0.003)
         gain.gain.exponentialRampToValueAtTime(0.0001, startAudioTime + durationSeconds)

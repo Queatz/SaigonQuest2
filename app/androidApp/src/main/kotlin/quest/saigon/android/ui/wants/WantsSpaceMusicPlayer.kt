@@ -68,16 +68,22 @@ internal class WantsSpaceMusicPlayer {
         val startElapsedRealtimeMillis = SystemClock.elapsedRealtime()
         var sampleCursor = 0L
         var stopStartedAtSample: Long? = null
-        var currentSixteenth = Long.MIN_VALUE
-        var currentPhraseIndex = Long.MIN_VALUE
-        var currentNoteIndex = -1
-        var noteStartMs = 0L
-        var pitch = -1
-        var frequency = 0.0
+        var currentPulse = Long.MIN_VALUE
+        var currentPadPhraseIndex = Long.MIN_VALUE
+        var currentPadNoteIndex = Int.MIN_VALUE
+        var currentCrystalPhraseIndex = Long.MIN_VALUE
+        var currentCrystalNoteIndex = Int.MIN_VALUE
+        var padNoteStartMs = 0L
+        var padNoteEndMs = 0L
+        var crystalNoteStartMs = 0L
+        var crystalNoteEndMs = 0L
+        var padFrequency = 0.0
+        var crystalFrequency = 0.0
         var padVelocity = 1.0
         var crystalVelocity = 1.0
         var padPhase = 0.0
         var crystalPhase = 0.0
+        var crystalPartialPhase = 0.0
         val activeDrums = mutableListOf<ActiveDrum>()
 
         try {
@@ -89,43 +95,72 @@ internal class WantsSpaceMusicPlayer {
                     }
                     val sampleTimeMs = startEpochMillis + absoluteSample * 1_000.0 / sampleRate
                     val sampleEpochMs = sampleTimeMs.toLong()
-                    val absoluteSixteenth = WantsSpaceMusic.absoluteSixteenthAt(sampleEpochMs)
-                    if (absoluteSixteenth != currentSixteenth) {
-                        currentSixteenth = absoluteSixteenth
+                    val absolutePulse = WantsSpaceMusic.absolutePulseAt(sampleEpochMs)
+                    if (absolutePulse != currentPulse) {
+                        currentPulse = absolutePulse
                         val phraseIndex = WantsSpaceMusic.phraseIndexAt(sampleEpochMs)
                         val pulseInPhrase = WantsSpaceMusic.pulseInPhraseAt(sampleEpochMs)
-                        val noteIndex = WantsSpaceMusic.noteIndexAt(sampleEpochMs)
-                        if (phraseIndex != currentPhraseIndex || noteIndex != currentNoteIndex) {
-                            currentPhraseIndex = phraseIndex
-                            currentNoteIndex = noteIndex
-                            pitch = WantsSpaceMusic.pitchAt(sampleEpochMs)
-                            frequency = 440.0 * 2.0.pow((pitch - 69) / 12.0)
-                            noteStartMs = WantsSpaceMusic.currentNoteStartMillis(sampleEpochMs)
-                            padVelocity = WantsSpaceMusic.padVelocity(phraseIndex, noteIndex)
-                            crystalVelocity = WantsSpaceMusic.crystalVelocity(phraseIndex, noteIndex)
-                            val noteAgeSeconds = (sampleTimeMs - noteStartMs) / 1_000.0
-                            padPhase = (2.0 * PI * frequency * noteAgeSeconds) % (2.0 * PI)
-                            crystalPhase = (4.0 * PI * frequency * noteAgeSeconds) % (2.0 * PI)
+                        val padNoteIndex = WantsSpaceMusic.padNoteIndexAt(sampleEpochMs)
+                        if (phraseIndex != currentPadPhraseIndex || padNoteIndex != currentPadNoteIndex) {
+                            currentPadPhraseIndex = phraseIndex
+                            currentPadNoteIndex = padNoteIndex
+                            val note = WantsSpaceMusic.padNoteAt(sampleEpochMs)
+                            if (note == null) {
+                                padFrequency = 0.0
+                                padVelocity = 0.0
+                            } else {
+                                padFrequency = 440.0 * 2.0.pow((note.midiNote - 69) / 12.0)
+                                padNoteStartMs = WantsSpaceMusic.noteStartMillis(phraseIndex, note)
+                                padNoteEndMs = WantsSpaceMusic.noteEndMillis(phraseIndex, note)
+                                padVelocity = note.velocity
+                                val noteAgeSeconds = (sampleTimeMs - padNoteStartMs) / 1_000.0
+                                padPhase = (2.0 * PI * padFrequency * noteAgeSeconds) % (2.0 * PI)
+                            }
                         }
-                        val drumStartMs = WantsSpaceMusic.sixteenthStartMillis(absoluteSixteenth)
+                        val crystalNoteIndex = WantsSpaceMusic.crystalNoteIndexAt(sampleEpochMs)
+                        if (phraseIndex != currentCrystalPhraseIndex || crystalNoteIndex != currentCrystalNoteIndex) {
+                            currentCrystalPhraseIndex = phraseIndex
+                            currentCrystalNoteIndex = crystalNoteIndex
+                            val note = WantsSpaceMusic.crystalNoteAt(sampleEpochMs)
+                            if (note == null) {
+                                crystalFrequency = 0.0
+                                crystalVelocity = 0.0
+                            } else {
+                                crystalFrequency = 440.0 * 2.0.pow((note.midiNote - 69) / 12.0)
+                                crystalNoteStartMs = WantsSpaceMusic.noteStartMillis(phraseIndex, note)
+                                crystalNoteEndMs = WantsSpaceMusic.noteEndMillis(phraseIndex, note)
+                                crystalVelocity = note.velocity
+                                val noteAgeSeconds = (sampleTimeMs - crystalNoteStartMs) / 1_000.0
+                                crystalPhase = (2.0 * PI * crystalFrequency * noteAgeSeconds) % (2.0 * PI)
+                                crystalPartialPhase = (2.0 * PI * crystalFrequency * 2.76 * noteAgeSeconds) % (2.0 * PI)
+                            }
+                        }
+                        val drumStartMs = WantsSpaceMusic.pulseStartMillis(absolutePulse)
                         if (sampleEpochMs - drumStartMs <= 2L) {
                             WantsSpaceMusic.drumHitsAt(phraseIndex, pulseInPhrase).forEach {
-                                activeDrums.add(ActiveDrum(it.kind, drumStartMs, sampleRate))
+                                activeDrums.add(ActiveDrum(it.kind, it.velocity, drumStartMs, sampleRate))
                             }
                         }
                     }
 
-                    val noteAgeSeconds = (sampleTimeMs - noteStartMs) / 1_000.0
-                    val padAttack = (noteAgeSeconds / 0.06).coerceIn(0.0, 1.0)
-                    val pad = sin(padPhase) * 0.12 * padVelocity * padAttack
-                    val crystalAttack = (noteAgeSeconds / 0.008).coerceIn(0.0, 1.0)
-                    val crystalEnvelope = exp(-noteAgeSeconds / 0.65) * crystalAttack
-                    val crystal = (sin(crystalPhase) + 0.2 * sin(crystalPhase * 2.0)) *
-                        0.07 * crystalEnvelope * crystalVelocity
-                    padPhase += 2.0 * PI * frequency / sampleRate
-                    crystalPhase += 4.0 * PI * frequency / sampleRate
+                    val padAgeSeconds = (sampleTimeMs - padNoteStartMs) / 1_000.0
+                    val padDurationSeconds = (padNoteEndMs - padNoteStartMs) / 1_000.0
+                    val padAttack = (padAgeSeconds / 0.06).coerceIn(0.0, 1.0)
+                    val padRelease = ((padDurationSeconds - padAgeSeconds) / 0.025).coerceIn(0.0, 1.0)
+                    val pad = sin(padPhase) * 0.12 * padVelocity * padAttack * padRelease
+                    val crystalAgeSeconds = (sampleTimeMs - crystalNoteStartMs) / 1_000.0
+                    val crystalDurationSeconds = (crystalNoteEndMs - crystalNoteStartMs) / 1_000.0
+                    val crystalAttack = (crystalAgeSeconds / 0.01).coerceIn(0.0, 1.0)
+                    val crystalRelease = ((crystalDurationSeconds - crystalAgeSeconds) / 0.012).coerceIn(0.0, 1.0)
+                    val crystalEnvelope = exp(-crystalAgeSeconds / 0.30) * crystalAttack * crystalRelease
+                    val crystal = (sin(crystalPhase) + 0.22 * sin(crystalPartialPhase)) *
+                        0.14 * crystalEnvelope * crystalVelocity
+                    padPhase += 2.0 * PI * padFrequency / sampleRate
+                    crystalPhase += 2.0 * PI * crystalFrequency / sampleRate
+                    crystalPartialPhase += 2.0 * PI * crystalFrequency * 2.76 / sampleRate
                     if (padPhase >= 2.0 * PI) padPhase -= 2.0 * PI
                     if (crystalPhase >= 2.0 * PI) crystalPhase -= 2.0 * PI
+                    if (crystalPartialPhase >= 2.0 * PI) crystalPartialPhase %= 2.0 * PI
 
                     var drums = 0.0
                     for (drumIndex in activeDrums.indices.reversed()) {
@@ -138,13 +173,13 @@ internal class WantsSpaceMusicPlayer {
                                     val kickPhase = 2.0 * PI * (
                                         45.0 * ageSeconds + 105.0 * (1.0 - exp(-ageSeconds * 25.0)) / 25.0
                                     )
-                                    sin(kickPhase) * exp(-ageSeconds * 16.0) * 0.12
+                                    sin(kickPhase) * exp(-ageSeconds * 16.0) * 0.12 * drum.velocity
                                 }
                             }
                             WantsSpaceDrumKind.SNARE ->
-                                if (ageSeconds >= 0.14) 0.0 else noise * exp(-ageSeconds * 24.0) * 0.035
+                                if (ageSeconds >= 0.14) 0.0 else noise * exp(-ageSeconds * 24.0) * 0.035 * drum.velocity
                             WantsSpaceDrumKind.HAT ->
-                                if (ageSeconds >= 0.07) 0.0 else noise * exp(-ageSeconds * 58.0) * 0.015
+                                if (ageSeconds >= 0.07) 0.0 else noise * exp(-ageSeconds * 58.0) * 0.015 * drum.velocity
                         }
                         if (ageSeconds >= drum.durationSeconds) {
                             activeDrums.removeAt(drumIndex)
@@ -191,6 +226,7 @@ internal class WantsSpaceMusicPlayer {
 
     private class ActiveDrum(
         val kind: WantsSpaceDrumKind,
+        val velocity: Double,
         val startedAtMs: Long,
         sampleRate: Int,
     ) {
