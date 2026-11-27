@@ -1396,6 +1396,7 @@ fun MiniProfileDialog(
                                 .clickable(enabled = onOpenWant != null) { onOpenWant?.invoke(want.id) },
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                WantCardPrefix(language)
                                 Text(
                                     text = want.name,
                                     color = tokens.text,
@@ -1543,6 +1544,19 @@ fun WantNotebookCard(
             content = content,
         )
     }
+}
+
+@Composable
+fun WantCardPrefix(language: Language) {
+    val tokens = LocalSaigonTokens.current
+    Text(
+        text = Copy.text(language, "iWantTo"),
+        color = tokens.text.copy(alpha = 0.5f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        fontStyle = FontStyle.Italic,
+        fontFamily = LivvicFontFamily,
+    )
 }
 
 @Composable

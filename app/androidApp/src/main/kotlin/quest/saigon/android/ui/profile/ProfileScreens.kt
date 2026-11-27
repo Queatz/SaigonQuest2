@@ -82,6 +82,7 @@ import quest.saigon.android.ui.components.SaigonTextButton
 import quest.saigon.android.ui.components.SaigonTextField
 import quest.saigon.android.ui.components.SaigonTinyPill
 import quest.saigon.android.ui.components.UserAvatar
+import quest.saigon.android.ui.components.WantCardPrefix
 import quest.saigon.android.ui.components.WantNotebookCard
 import quest.saigon.android.ui.components.WantMemberFaceStack
 import quest.saigon.android.ui.components.WantSheet
@@ -308,6 +309,7 @@ fun ProfileScreen(
                                 modifier = Modifier.fillMaxWidth().clickable { wantSheetId = want.id },
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
+                                    WantCardPrefix(lang)
                                     Text(
                                         text = want.name,
                                         color = tokens.text,
@@ -625,6 +627,7 @@ fun PublicUserProfileScreen(
                                         modifier = Modifier.fillMaxWidth().clickable { wantSheetId = want.id },
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
+                                            WantCardPrefix(lang)
                                             Text(
                                                 text = want.name,
                                                 color = tokens.text,

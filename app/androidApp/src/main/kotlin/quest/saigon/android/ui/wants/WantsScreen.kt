@@ -65,6 +65,7 @@ import quest.saigon.android.theme.LocalSaigonTokens
 import quest.saigon.android.ui.components.SaigonConfirmDialog
 import quest.saigon.android.ui.components.SaigonPillChip
 import quest.saigon.android.ui.components.SaigonSpinner
+import quest.saigon.android.ui.components.WantCardPrefix
 import quest.saigon.android.ui.components.WantMemberFaceStack
 import quest.saigon.android.ui.components.WantNotebookCard
 import quest.saigon.shared.TownSharedClient
@@ -645,6 +646,7 @@ private fun WantFloatingCard(
                 .clickable(enabled = interactive && enterProgress > 0.2f, onClick = onOpen),
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                WantCardPrefix(language)
                 Text(
                     text = want.name,
                     color = tokens.text,

@@ -67,6 +67,7 @@ internal fun wantNotebookCardElement(
     val content = el("div", "want-notebook-content")
     val header = el("div", "community-row-header")
     val info = el("div", "community-row-info")
+    info.appendChild(el("span", "want-notebook-prefix", text = Town.t("iWantTo")))
     info.appendChild(el("span", "want-notebook-name", text = want.name))
 
     val button = if (leaveOnly) {

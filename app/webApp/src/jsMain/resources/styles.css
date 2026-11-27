@@ -3060,6 +3060,15 @@ button.busy .avatar-spinner {
     font-weight: 700;
 }
 
+.want-notebook-prefix {
+    color: var(--text);
+    font-family: "Shantell Sans", "Livvic", sans-serif;
+    font-style: italic;
+    font-weight: 700;
+    opacity: .5;
+    font-size: 12px;
+}
+
 .community-row-header {
     display: flex;
     align-items: center;
@@ -3080,6 +3089,13 @@ button.busy .avatar-spinner {
     color: inherit;
     font: inherit;
     text-align: left;
+}
+
+.want-notebook .community-row-info {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 0;
 }
 
 .community-row-info small {
